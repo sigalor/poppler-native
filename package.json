@@ -1,14 +1,19 @@
 {
   "name": "poppler-native",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "rebuild": "node-gyp rebuild",
-    "test": "node index.js"
+  "description": "A native interface to the Poppler PDF parser for NodeJS.",
+  "author": "sigalor (https://github.com/sigalor)",
+  "license": "GPLv2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sigalor/poppler-native.git"
   },
-  "author": "",
-  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sigalor/poppler-native/issues"
+  },
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
   "dependencies": {
     "bindings": "^1.5.0",
     "node-addon-api": "^2.0.0"
