@@ -1,0 +1,21 @@
+{
+  "configurations": [
+    {
+      "name": "Linux",
+      "defines": [],
+      "includePath": [
+        "native/binding",
+        "native/poppler",
+        "node_modules/node-addon-api",
+        "/usr/include/node",
+        "/usr/include/c++/9",
+        "/usr/include/x86_64-linux-gnu/c++/9"
+      ],
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "c11",
+      "cppStandard": "c++17"
+    }
+  ],
+  "version": 4
+}
