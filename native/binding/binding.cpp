@@ -44,7 +44,8 @@ Napi::Object GetPDFInfo(const Napi::CallbackInfo &info) {
   HtmlOutputDev *outputDev =
       new HtmlOutputDev(env, doc->getCatalog(), "this", doc->getNumPages(), false, false, false, 0.1);
   doc->displayPages(outputDev, 1, doc->getNumPages(), 108.0, 108.0, 0, true, false, false);
-  ret.Set("outline", outputDev->outlineAsNapiArray(doc));
+  Napi::Value outline = outputDev->outlineAsNapiArray(doc);
+  if (!outline.IsUndefined()) ret.Set("outline", outputDev->outlineAsNapiArray(doc));
   ret.Set("pages", outputDev->allPages);
   delete outputDev;
 
