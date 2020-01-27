@@ -29,7 +29,7 @@
     {
       "target_name": "libpoppler",
       "type": "static_library",
-      "cflags_cc": ["-g"],
+      "cflags_cc": [],
       "include_dirs": [
         "native/poppler",
         "native/poppler/goo",
