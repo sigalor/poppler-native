@@ -41,12 +41,15 @@ Napi::Object GetPDFInfo(const Napi::CallbackInfo &info) {
     ret.Set("meta", docMetaObj);
   }
 
+  std::vector<ReadPDFOutputs::Page> pages;
+  std::vector<ReadPDFOutputs::OutlineItem> outline;
   HtmlOutputDev *outputDev =
-      new HtmlOutputDev(env, doc->getCatalog(), "this", doc->getNumPages(), false, false, false, 0.1);
+      new HtmlOutputDev(doc->getCatalog(), "this", doc->getNumPages(), false, false, false, 0.1, pages);
   doc->displayPages(outputDev, 1, doc->getNumPages(), 108.0, 108.0, 0, true, false, false);
-  Napi::Value outline = outputDev->outlineAsNapiArray(doc);
-  if (!outline.IsUndefined()) ret.Set("outline", outputDev->outlineAsNapiArray(doc));
-  ret.Set("pages", outputDev->allPages);
+  outputDev->generateOutline(doc, outline);
+
+  if (!outline.empty()) ret.Set("outline", ReadPDFOutputs::serializeArray(env, outline));
+  ret.Set("pages", ReadPDFOutputs::serializeArray(env, pages));
   delete outputDev;
 
   return ret;

@@ -37,13 +37,13 @@
 #include <cstdio>
 
 #include <goo/gbasename.h>
-#include <napi.h>
 #include <poppler/Catalog.h>
 #include <poppler/GfxFont.h>
 #include <poppler/Link.h>
 #include <poppler/OutputDev.h>
 #include <poppler/UnicodeMap.h>
 
+#include "../ReadPDFOutputs.hpp"
 #include "HtmlFonts.h"
 #include "HtmlLinks.h"
 
@@ -141,7 +141,7 @@ class HtmlPage {
   // number of images on the current page
   int getNumImages() { return imgList->size(); }
 
-  Napi::Object dump(Napi::Env &env, int pageNumber);
+  void serialize(int pageNumber, ReadPDFOutputs::Page &dest);
 
   // Clear the page.
   void clear();
@@ -189,8 +189,9 @@ class HtmlOutputDev : public OutputDev {
   // 8-bit ISO Latin-1.  <useASCII7> should also be set for Japanese
   // (EUC-JP) text.  Because <rawOrder> is always true, the text is kept in
   // content stream order.
-  HtmlOutputDev(Napi::Env &newEnv, Catalog *catalogA, const char *fileName, int numPages, bool newIgnoreImages,
-                bool newShowHiddenCharacters, bool mergeLines, double wordBreakThreshold);
+  HtmlOutputDev(Catalog *catalogA, const char *fileName, int numPages, bool newIgnoreImages,
+                bool newShowHiddenCharacters, bool mergeLines, double wordBreakThreshold,
+                std::vector<ReadPDFOutputs::Page> &allPagesDest);
 
   // Destructor.
   virtual ~HtmlOutputDev();
@@ -240,12 +241,12 @@ class HtmlOutputDev : public OutputDev {
   int getPageWidth() { return maxPageWidth; }
   int getPageHeight() { return maxPageHeight; }
 
-  Napi::Value outlineAsNapiArray(PDFDoc *doc);
+  void generateOutline(PDFDoc *doc, std::vector<ReadPDFOutputs::OutlineItem> &dest);
 
  private:
   void doProcessLink(AnnotLink *link);
   GooString *getLinkDest(AnnotLink *link);
-  Napi::Array newOutlineLevel(const std::vector<OutlineItem *> *outlines);
+  void generateOutlineLevel(const std::vector<OutlineItem *> *outlines, std::vector<ReadPDFOutputs::OutlineItem> &dest);
   int getOutlinePageNum(OutlineItem *item);
   void drawJpegImage(GfxState *state, Stream *str);
   void drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap,
@@ -263,10 +264,8 @@ class HtmlOutputDev : public OutputDev {
   bool ignoreImages;
   bool showHiddenCharacters;
 
-  Napi::Env &env;
-
   friend class HtmlPage;
 
  public:
-  Napi::Array allPages;
+  std::vector<ReadPDFOutputs::Page> &allPages;
 };

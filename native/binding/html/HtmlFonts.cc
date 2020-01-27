@@ -42,6 +42,7 @@
 #include <poppler/GlobalParams.h>
 #include <poppler/UnicodeMap.h>
 
+#include "../ReadPDFOutputs.hpp"
 #include "HtmlFonts.h"
 #include "HtmlUtils.h"
 
@@ -236,17 +237,17 @@ int HtmlFontAccu::AddFont(const HtmlFont& font) {
   return (accu->size() - 1);
 }
 
-Napi::Object HtmlFontAccu::asNapiObject(Napi::Env& env, int i) {
+ReadPDFOutputs::Font HtmlFontAccu::serialize(int i) {
   HtmlFont font = (*accu)[i];
   GooString* colorStr = font.color.toString();
 
-  Napi::Object ret = Napi::Object::New(env);
-  ret.Set("id", i);
-  ret.Set("size", font.size);
-  ret.Set("family", font.familyName);
-  ret.Set("color", colorStr->c_str());
-  ret.Set("bold", font.bold);
-  ret.Set("italic", font.italic);
+  ReadPDFOutputs::Font ret;
+  ret.id = i;
+  ret.size = font.size;
+  ret.family = font.familyName;
+  ret.color = colorStr->c_str();
+  ret.bold = font.bold;
+  ret.italic = font.italic;
 
   delete colorStr;
   return ret;

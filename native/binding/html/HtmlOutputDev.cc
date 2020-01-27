@@ -524,62 +524,45 @@ void HtmlPage::coalesce() {
   str1->yMin = curY;
 }
 
-Napi::Object HtmlPage::dump(Napi::Env &env, int pageNumber) {
-  Napi::Object ret = Napi::Object::New(env);
-  ret.Set("number", pageNumber);
-  ret.Set("width", pageWidth);
-  ret.Set("height", pageHeight);
+void HtmlPage::serialize(int pageNumber, ReadPDFOutputs::Page &dest) {
+  dest.number = pageNumber;
+  dest.width = pageWidth;
+  dest.height = pageHeight;
 
-  Napi::Array fontsNapi = Napi::Array::New(env, fonts->size() - fontsPageMarker);
   for (int i = fontsPageMarker; i < fonts->size(); i++) {
-    fontsNapi.Set(i - fontsPageMarker, fonts->asNapiObject(env, i));
+    dest.fonts.push_back(fonts->serialize(i));
   }
-  ret.Set("fonts", fontsNapi);
 
-  Napi::Array imagesNapi = Napi::Array::New(env, imgList->size());
   for (size_t i = 0; i < imgList->size(); ++i) {
     HtmlImage *img = (*imgList)[i];
-    Napi::Object imgNapi = Napi::Object::New(env);
-    imgNapi.Set("top", img->yMin);
-    imgNapi.Set("left", img->xMin);
-    imgNapi.Set("width", img->xMax - img->xMin);
-    imgNapi.Set("height", img->yMax - img->yMin);
-    imgNapi.Set("src", img->fName->c_str());
-    imagesNapi.Set(i, imgNapi);
+    dest.images.push_back(ReadPDFOutputs::Image());
+    ReadPDFOutputs::Image &imgSer = dest.images.back();
+    imgSer.top = img->yMin;
+    imgSer.left = img->xMin;
+    imgSer.width = img->xMax - img->xMin;
+    imgSer.height = img->yMax - img->yMin;
+    imgSer.src = img->fName->c_str();
     delete img;
   }
   imgList->clear();
-  ret.Set("images", imagesNapi);
 
-  size_t numStrings = 0;
-  for (HtmlString *tmp = yxStrings; tmp; tmp = tmp->yxNext) {
-    if (tmp->htext) ++numStrings;
-  }
-
-  size_t i = 0;
-  Napi::Array stringsNapi = Napi::Array::New(env, numStrings);
   for (HtmlString *tmp = yxStrings; tmp; tmp = tmp->yxNext) {
     if (!tmp->htext) continue;
-    Napi::Object strNapi = Napi::Object::New(env);
+    dest.strings.push_back(ReadPDFOutputs::String());
+    ReadPDFOutputs::String &strSer = dest.strings.back();
     GooString *linkDest = tmp->link ? tmp->link->getDest() : nullptr;
 
-    strNapi.Set("top", tmp->yMin);
-    strNapi.Set("left", tmp->xMin);
-    strNapi.Set("width", tmp->xMax - tmp->xMin);
-    strNapi.Set("height", tmp->yMax - tmp->yMin);
-    strNapi.Set("font", tmp->fontpos);
-    strNapi.Set("text", tmp->htext->c_str());
+    strSer.top = tmp->yMin;
+    strSer.left = tmp->xMin;
+    strSer.width = tmp->xMax - tmp->xMin;
+    strSer.height = tmp->yMax - tmp->yMin;
+    strSer.font = tmp->fontpos;
+    strSer.text = tmp->htext->c_str();
     if (linkDest) {
-      strNapi.Set("link", linkDest->c_str());
+      strSer.link = linkDest->c_str();
       delete linkDest;
     }
-
-    stringsNapi.Set(i, strNapi);
-    ++i;
   }
-  ret.Set("strings", stringsNapi);
-
-  return ret;
 }
 
 void HtmlPage::clear() {
@@ -613,10 +596,10 @@ void HtmlPage::addImage(GooString *fname, GfxState *state) {
 // HtmlOutputDev
 //------------------------------------------------------------------------
 
-HtmlOutputDev::HtmlOutputDev(Napi::Env &newEnv, Catalog *catalogA, const char *fileName, int numPages,
-                             bool newIgnoreImages, bool newShowHiddenCharacters, bool mergeLines,
-                             double wordBreakThreshold)
-    : ignoreImages(newIgnoreImages), showHiddenCharacters(newShowHiddenCharacters), env(newEnv) {
+HtmlOutputDev::HtmlOutputDev(Catalog *catalogA, const char *fileName, int numPages, bool newIgnoreImages,
+                             bool newShowHiddenCharacters, bool mergeLines, double wordBreakThreshold,
+                             std::vector<ReadPDFOutputs::Page> &allPagesDest)
+    : ignoreImages(newIgnoreImages), showHiddenCharacters(newShowHiddenCharacters), allPages(allPagesDest) {
   catalog = catalogA;
   pages = nullptr;
   dumpJPEG = true;
@@ -627,7 +610,6 @@ HtmlOutputDev::HtmlOutputDev(Napi::Env &newEnv, Catalog *catalogA, const char *f
 
   pages->setDocName(fileName);
   Docname = new GooString(fileName);
-  allPages = Napi::Array::New(env, numPages);
 }
 
 HtmlOutputDev::~HtmlOutputDev() {
@@ -651,7 +633,8 @@ void HtmlOutputDev::endPage() {
 
   pages->conv();
   pages->coalesce();
-  allPages.Set(currPageIndex, pages->dump(env, pageNum));
+  allPages.push_back(ReadPDFOutputs::Page());
+  pages->serialize(pageNum, allPages.back());
   currPageIndex++;
 
   // I don't yet know what to do in the case when there are pages of different
@@ -928,35 +911,29 @@ GooString *HtmlOutputDev::getLinkDest(AnnotLink *link) {
   }
 }
 
-Napi::Value HtmlOutputDev::outlineAsNapiArray(PDFDoc *doc) {
+void HtmlOutputDev::generateOutline(PDFDoc *doc, std::vector<ReadPDFOutputs::OutlineItem> &dest) {
   Outline *outline = doc->getOutline();
-  if (!outline) return env.Undefined();
+  if (!outline) return;
   const std::vector<OutlineItem *> *outlines = outline->getItems();
-  if (!outlines) return env.Undefined();
-
-  return newOutlineLevel(outlines);
+  if (!outlines) return;
+  generateOutlineLevel(outlines, dest);
 }
 
-Napi::Array HtmlOutputDev::newOutlineLevel(const std::vector<OutlineItem *> *outlines) {
-  Napi::Array ret = Napi::Array::New(env, outlines->size());
-
-  for (std::size_t i = 0; i < outlines->size(); i++) {
-    OutlineItem *item = (*outlines)[i];
+void HtmlOutputDev::generateOutlineLevel(const std::vector<OutlineItem *> *outlines,
+                                         std::vector<ReadPDFOutputs::OutlineItem> &dest) {
+  for (OutlineItem *item : *outlines) {
     std::string titleStr = HtmlFont::codepointsEncode(item->getTitle(), item->getTitleLength());
     const int itemPage = getOutlinePageNum(item);
 
-    Napi::Object itemNapi = Napi::Object::New(env);
-    if (itemPage > 0) itemNapi.Set("page", itemPage);
-    itemNapi.Set("title", titleStr);
+    dest.push_back(ReadPDFOutputs::OutlineItem());
+    ReadPDFOutputs::OutlineItem &serItem = dest.back();
+    if (itemPage > 0) serItem.page = itemPage;
+    serItem.title = titleStr;
 
     item->open();
-    if (item->hasKids() && item->getKids()) itemNapi.Set("children", newOutlineLevel(item->getKids()));
+    if (item->hasKids() && item->getKids()) generateOutlineLevel(item->getKids(), serItem.children);
     item->close();
-
-    ret.Set(i, itemNapi);
   }
-
-  return ret;
 }
 
 int HtmlOutputDev::getOutlinePageNum(OutlineItem *item) {

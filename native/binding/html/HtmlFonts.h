@@ -35,9 +35,10 @@
 #include <vector>
 
 #include <goo/GooString.h>
-#include <napi.h>
 #include <poppler/CharTypes.h>
 #include <poppler/GfxState.h>
+
+#include "../ReadPDFOutputs.hpp"
 
 class HtmlFontColor;
 class HtmlFont;
@@ -118,6 +119,6 @@ class HtmlFontAccu {
   HtmlFontAccu& operator=(const HtmlFontAccu&) = delete;
   int AddFont(const HtmlFont& font);
   HtmlFont* Get(int i) { return &(*accu)[i]; }
-  Napi::Object asNapiObject(Napi::Env& env, int i);
+  ReadPDFOutputs::Font serialize(int i);
   int size() const { return accu->size(); }
 };
