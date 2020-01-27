@@ -12,13 +12,18 @@
     "url": "https://github.com/sigalor/poppler-native/issues"
   },
   "scripts": {
-    "install": "node-gyp rebuild"
+    "install": "node-gyp rebuild",
+    "test": "jest",
+    "build": "node-gyp build"
   },
   "dependencies": {
     "bindings": "^1.5.0",
     "node-addon-api": "^2.0.0"
   },
   "devDependencies": {
-    "node-gyp": "^6.1.0"
+    "jest": "^25.1.0",
+    "jest-tobetype": "^1.2.3",
+    "node-gyp": "^6.1.0",
+    "path": "^0.12.7"
   }
 }
