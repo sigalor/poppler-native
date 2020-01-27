@@ -10,7 +10,7 @@
 #include "node-utils.hpp"
 #include "pdf-utils.hpp"
 
-Napi::Object ReadPDF(const Napi::CallbackInfo &info) {
+Napi::Object GetPDFInfo(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
   Napi::Object ret = Napi::Object::New(env);
   if (info.Length() < 1 || !info[0].IsString()) {
@@ -52,7 +52,7 @@ Napi::Object ReadPDF(const Napi::CallbackInfo &info) {
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
-  exports.Set("readPDF", Napi::Function::New(env, ReadPDF));
+  exports.Set("info", Napi::Function::New(env, GetPDFInfo));
   return exports;
 }
 
