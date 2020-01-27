@@ -2,6 +2,10 @@ require('./jest-setup');
 const pdf = require('../');
 const path = require('path');
 
+test('missing input file throws an error', async () => {
+  expect(pdf.info('missing')).rejects.toMatchObject({ message: 'failed to load PDF document' });
+});
+
 describe('for minimal-text.pdf', () => {
   let info;
   beforeAll(async () => (info = await pdf.info(path.join(__dirname, 'pdfs/minimal-text.pdf'))));
