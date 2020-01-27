@@ -33,12 +33,9 @@ Napi::Object GetPDFInfo(const Napi::CallbackInfo &info) {
   // get document metadata
   Object docInfo = doc->getDocInfo();
   if (docInfo.isDict()) {
-    Napi::Object docMetaObj = Napi::Object::New(env);
-    for (auto &i : getDictStrings(docInfo.getDict(), {"Title", "Author", "Keywords", "Subject", "Creator", "Producer",
-                                                      "ModDate", "CreationDate"})) {
-      if (!i.second.empty()) docMetaObj.Set(i.first, Napi::String::New(env, i.second));
-    }
-    ret.Set("meta", docMetaObj);
+    ret.Set("meta",
+            serializeMap(env, getDictStrings(docInfo.getDict(), {"Title", "Author", "Keywords", "Subject", "Creator",
+                                                                 "Producer", "ModDate", "CreationDate"})));
   }
 
   std::vector<ReadPDFOutputs::Page> pages;

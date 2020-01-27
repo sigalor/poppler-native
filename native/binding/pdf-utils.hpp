@@ -61,8 +61,12 @@ std::vector<Unicode> getDictString(Dict* d, const char* key) {
   return ret;
 }
 
-std::map<std::string, std::string> getDictStrings(Dict* d, const std::vector<std::string>& keys) {
+std::map<std::string, std::string> getDictStrings(Dict* d, const std::vector<std::string>& keys,
+                                                  bool ignoreEmpty = true) {
   std::map<std::string, std::string> ret;
-  for (auto& k : keys) ret[k] = codepointsToUtf8(getDictString(d, k.c_str()));
+  for (auto& k : keys) {
+    std::string curr = codepointsToUtf8(getDictString(d, k.c_str()));
+    if (!ignoreEmpty || !curr.empty()) ret[k] = curr;
+  }
   return ret;
 }
