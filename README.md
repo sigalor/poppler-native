@@ -1,6 +1,6 @@
 # Poppler for Node
 
-Allows you to use the native Poppler C++ backend to efficiently parse PDF files from NodeJS. Outputs similar information to `pdftohtml -xml -stdout test.pdf` (with `pdftohtml` from the `poppler-utils` package), because it uses parts of the same codebase which have been rewritten to output N-API objects instead of XML code.
+Allows you to use the native Poppler C++ backend to efficiently parse PDF files from NodeJS. Outputs similar information to `pdftohtml -xml -stdout test.pdf` (with `pdftohtml` from the `poppler-utils` package), because it uses parts of the same codebase which have been rewritten to output N-API objects instead of XML code. All contained functions return JavaScript promises.
 
 ## Getting started
 
@@ -9,7 +9,7 @@ Allows you to use the native Poppler C++ backend to efficiently parse PDF files 
 
 ```javascript
 const pdf = require('poppler-native');
-console.log(pdf.info('test.pdf'));
+pdf.info('test.pdf').then(res => console.log(res));
 ```
 
 ## Contributing

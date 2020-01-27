@@ -4,7 +4,7 @@ const path = require('path');
 
 describe('for minimal-text.pdf', () => {
   let info;
-  beforeAll(() => (info = pdf.info(path.join(__dirname, 'pdfs/minimal-text.pdf'))));
+  beforeAll(async () => (info = await pdf.info(path.join(__dirname, 'pdfs/minimal-text.pdf'))));
 
   test('correctly reads metadata', () => {
     expect(info.meta).toMatchObject({
