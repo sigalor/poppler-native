@@ -19,7 +19,7 @@
         "libpoppler"
       ],
       "cflags_cc!": ["-fno-exceptions", "-fno-rtti"],
-      "cflags_cc": [],
+      "cflags_cc": ["-std=c++14"],
       "defines": ["NAPI_CPP_EXCEPTIONS"],
       "libraries": [
         "-ljpeg",
