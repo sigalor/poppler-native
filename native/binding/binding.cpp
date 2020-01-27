@@ -26,9 +26,6 @@ class ReadPDFWorker : public Napi::AsyncWorker {
 
   void Execute() {
     // load PDF document (TODO: do not print error messages to stdout/stderr here)
-    globalParams = std::make_unique<GlobalParams>();
-    char textEncoding[] = "UTF-8";
-    globalParams->setTextEncoding(textEncoding);
     GooString filenameGoo(filename);
     PDFDoc *doc = PDFDocFactory().createPDFDoc(GooString(filename), nullptr, nullptr);
     if (!doc->isOk()) {
@@ -49,6 +46,7 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     doc->displayPages(outputDev, 1, doc->getNumPages(), 108.0, 108.0, 0, true, false, false);
     outputDev->generateOutline(doc, outline);
     delete outputDev;
+    delete doc;
   }
 
   void OnOK() {
@@ -72,6 +70,13 @@ Napi::Object GetPDFInfo(const Napi::CallbackInfo &info) {
 
   std::string filename = info[0].As<Napi::String>();
   Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
+
+  // globalParams is so not thread-safe, so hopefully this works
+  if (!globalParams) {
+    globalParams = std::make_unique<GlobalParams>();
+    char textEncoding[] = "UTF-8";
+    globalParams->setTextEncoding(textEncoding);
+  }
 
   ReadPDFWorker *readPDFWorker = new ReadPDFWorker(env, filename, deferred);
   readPDFWorker->Queue();
