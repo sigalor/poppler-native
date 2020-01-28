@@ -8,9 +8,9 @@
 #include <poppler/GlobalParams.h>
 #include <poppler/PDFDocFactory.h>
 
+#include "NodeUtilities.hpp"
 #include "PDFUtilities.hpp"
 #include "html/HtmlOutputDev.h"
-#include "node-utils.hpp"
 
 class ReadPDFWorker : public Napi::AsyncWorker {
  private:
@@ -29,7 +29,8 @@ class ReadPDFWorker : public Napi::AsyncWorker {
       argError = "wrong number of arguments: expected 1, got " + std::to_string(info.Length());
       return;
     } else if (!info[0].IsString()) {
-      argError = "argument at position 1 has wrong type: expected string, got " + typeToString(info[0].Type());
+      argError =
+          "argument at position 1 has wrong type: expected string, got " + NodeUtilities::typeToString(info[0].Type());
       return;
     }
     filename = info[0].As<Napi::String>();
@@ -65,7 +66,7 @@ class ReadPDFWorker : public Napi::AsyncWorker {
 
   void OnOK() {
     Napi::Object ret = Napi::Object::New(Env());
-    ret.Set("meta", serializeMap(Env(), meta));
+    ret.Set("meta", NodeUtilities::serializeMap(Env(), meta));
     if (!outline.empty()) ret.Set("outline", ReadPDFOutputs::serializeArray(Env(), outline));
     ret.Set("pages", ReadPDFOutputs::serializeArray(Env(), pages));
     deferred.Resolve(ret);
