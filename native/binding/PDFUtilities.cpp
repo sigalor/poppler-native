@@ -2,6 +2,7 @@
 
 #include <goo/GooString.h>
 #include <poppler/Dict.h>
+#include <poppler/ErrorCodes.h>
 #include <poppler/PDFDocEncoding.h>
 #include <poppler/UnicodeMap.h>
 #include <poppler/UnicodeMapFuncs.h>
@@ -60,6 +61,37 @@ std::map<std::string, std::string> getDictStrings(Dict* d, const std::vector<std
     if (!ignoreEmpty || !curr.empty()) ret[k] = curr;
   }
   return ret;
+}
+
+std::string popplerErrorCodeToString(int errCode) {
+  switch (errCode) {
+    case errNone:
+      return "no error";
+    case errOpenFile:
+      return "couldn't open the PDF file";
+    case errBadCatalog:
+      return "couldn't read the page catalog";
+    case errDamaged:
+      return "PDF file was damaged and couldn't be repaired";
+    case errEncrypted:
+      return "file was encrypted and password was incorrect or not supplied";
+    case errHighlightFile:
+      return "nonexistent or invalid highlight file";
+    case errBadPrinter:
+      return "invalid printer";
+    case errPrinting:
+      return "error during printing";
+    case errPermission:
+      return "PDF file doesn't allow that operation";
+    case errBadPageNum:
+      return "invalid page number";
+    case errFileIO:
+      return "file I/O error";
+    case errFileChangedSinceOpen:
+      return "file has changed since opening and save can't be done";
+    default:
+      return "unknown";
+  }
 }
 
 }  // namespace PDFUtilities

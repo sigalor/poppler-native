@@ -1,3 +1,4 @@
+#include <cstring>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -5,6 +6,7 @@
 
 #include <goo/GooString.h>
 #include <napi.h>
+#include <poppler/ErrorCodes.h>
 #include <poppler/GlobalParams.h>
 #include <poppler/PDFDocFactory.h>
 
@@ -37,15 +39,19 @@ class ReadPDFWorker : public Napi::AsyncWorker {
   }
 
   void Execute() {
-    // handle function argument errors here to throw exceptions correctly
+    // handle function argument errors here to catch exceptions correctly
     if (!argError.empty()) throw std::runtime_error(argError);
 
     // load PDF document (TODO: do not print error messages to stdout/stderr here)
     GooString filenameGoo(filename);
     PDFDoc *doc = PDFDocFactory().createPDFDoc(GooString(filename), nullptr, nullptr);
     if (!doc->isOk()) {
+      int errCode = doc->getErrorCode(), fopenErrno = doc->getFopenErrno();
       delete doc;
-      throw std::runtime_error("failed to load PDF document");
+
+      std::string msg = filename + ": " + PDFUtilities::popplerErrorCodeToString(errCode);
+      if (errCode == errOpenFile) msg += ": " + std::string(std::strerror(fopenErrno));
+      throw std::runtime_error(msg);
     }
 
     // read meta data
@@ -64,6 +70,7 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     delete doc;
   }
 
+  // output has to be constructed here, because during Execute, all JS calls are invalid
   void OnOK() {
     Napi::Object ret = Napi::Object::New(Env());
     ret.Set("meta", NodeUtilities::serializeMap(Env(), meta));
