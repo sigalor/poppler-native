@@ -21,6 +21,7 @@
     "node-addon-api": "^2.0.0"
   },
   "devDependencies": {
+    "fs-extra": "^8.1.0",
     "jest": "^25.1.0",
     "jest-tobetype": "^1.2.3",
     "node-gyp": "^6.1.0",
