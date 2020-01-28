@@ -4,6 +4,7 @@
       "target_name": "poppler",
       "sources": [
         "native/binding/binding.cpp",
+        "native/binding/PDFUtilities.cpp",
         "native/binding/ReadPDFOutputs.cpp",
         "native/binding/html/HtmlFonts.cc",
         "native/binding/html/HtmlLinks.cc",

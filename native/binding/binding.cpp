@@ -8,9 +8,9 @@
 #include <poppler/GlobalParams.h>
 #include <poppler/PDFDocFactory.h>
 
+#include "PDFUtilities.hpp"
 #include "html/HtmlOutputDev.h"
 #include "node-utils.hpp"
-#include "pdf-utils.hpp"
 
 class ReadPDFWorker : public Napi::AsyncWorker {
  private:
@@ -50,8 +50,8 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     // read meta data
     Object docInfo = doc->getDocInfo();
     if (docInfo.isDict()) {
-      meta = getDictStrings(docInfo.getDict(), {"Title", "Author", "Keywords", "Subject", "Creator", "Producer",
-                                                "ModDate", "CreationDate"});
+      meta = PDFUtilities::getDictStrings(docInfo.getDict(), {"Title", "Author", "Keywords", "Subject", "Creator",
+                                                              "Producer", "ModDate", "CreationDate"});
     }
 
     // parse entire document and generate outline

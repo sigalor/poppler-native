@@ -1,20 +1,12 @@
-#pragma once
-
-#include <iostream>
-#include <map>
-#include <string>
-#include <vector>
+#include "PDFUtilities.hpp"
 
 #include <goo/GooString.h>
-#include <napi.h>
-#include <poppler/GfxState.h>
-#include <poppler/GlobalParams.h>
-#include <poppler/Link.h>
-#include <poppler/OutputDev.h>
+#include <poppler/Dict.h>
 #include <poppler/PDFDocEncoding.h>
-#include <poppler/PDFDocFactory.h>
 #include <poppler/UnicodeMap.h>
 #include <poppler/UnicodeMapFuncs.h>
+
+namespace PDFUtilities {
 
 std::string codepointsToUtf8(const std::vector<Unicode>& codepoints) {
   UnicodeMap uMap("UTF-8", true, &mapUTF8);
@@ -61,8 +53,7 @@ std::vector<Unicode> getDictString(Dict* d, const char* key) {
   return ret;
 }
 
-std::map<std::string, std::string> getDictStrings(Dict* d, const std::vector<std::string>& keys,
-                                                  bool ignoreEmpty = true) {
+std::map<std::string, std::string> getDictStrings(Dict* d, const std::vector<std::string>& keys, bool ignoreEmpty) {
   std::map<std::string, std::string> ret;
   for (auto& k : keys) {
     std::string curr = codepointsToUtf8(getDictString(d, k.c_str()));
@@ -70,3 +61,5 @@ std::map<std::string, std::string> getDictStrings(Dict* d, const std::vector<std
   }
   return ret;
 }
+
+}  // namespace PDFUtilities
