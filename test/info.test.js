@@ -1,6 +1,7 @@
 require('./jest-setup');
 const pdf = require('../');
 const path = require('path');
+const fs = require('fs-extra');
 
 test('wrong number of parameters throws an error', () => {
   expect(pdf.info()).rejects.toThrow('wrong number of arguments: expected 1, got 0');
@@ -8,8 +9,10 @@ test('wrong number of parameters throws an error', () => {
 });
 
 test('parameters of wrong type throws an error', () => {
-  expect(pdf.info(3)).rejects.toThrow('argument at position 1 has wrong type: expected string, got number');
-  expect(pdf.info({ a: 1 })).rejects.toThrow('argument at position 1 has wrong type: expected string, got object');
+  expect(pdf.info(3)).rejects.toThrow('argument at position 1 has wrong type: expected string or Buffer, got number');
+  expect(pdf.info({ a: 1 })).rejects.toThrow(
+    'argument at position 1 has wrong type: expected string or Buffer, got object',
+  );
 });
 
 test('missing input filename throws an error', () => {
@@ -22,6 +25,17 @@ test('invalid PDF file throws an error', () => {
   expect(pdf.info(path.join(__dirname, 'pdfs/not-a-pdf.pdf'))).rejects.toThrow(
     "pdfs/not-a-pdf.pdf: PDF file was damaged and couldn't be repaired",
   );
+});
+
+test('reading PDF from buffer works', async () => {
+  const data = await fs.readFile(path.join(__dirname, 'pdfs/minimal-text.pdf'));
+  const info = await pdf.info(data);
+  expect(info.meta).toBeType('object');
+  expect(info.pages).toBeType('array');
+});
+
+test('empty input buffer throws an error', () => {
+  expect(pdf.info(Buffer.alloc(0))).rejects.toThrow('input buffer is empty');
 });
 
 describe('for minimal-text.pdf', () => {

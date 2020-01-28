@@ -8,7 +8,8 @@
 #include <napi.h>
 #include <poppler/ErrorCodes.h>
 #include <poppler/GlobalParams.h>
-#include <poppler/PDFDocFactory.h>
+#include <poppler/PDFDoc.h>
+#include <poppler/Stream.h>
 
 #include "NodeUtilities.hpp"
 #include "PDFUtilities.hpp"
@@ -18,6 +19,8 @@ class ReadPDFWorker : public Napi::AsyncWorker {
  private:
   std::string argError;
   std::string filename;
+  std::vector<uint8_t> inputBytes;
+  bool useFilename = false;
 
   std::map<std::string, std::string> meta;
   std::vector<ReadPDFOutputs::OutlineItem> outline;
@@ -30,26 +33,44 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     if (info.Length() != 1) {
       argError = "wrong number of arguments: expected 1, got " + std::to_string(info.Length());
       return;
-    } else if (!info[0].IsString()) {
-      argError =
-          "argument at position 1 has wrong type: expected string, got " + NodeUtilities::typeToString(info[0].Type());
+    } else if (!info[0].IsString() && !info[0].IsTypedArray()) {
+      argError = "argument at position 1 has wrong type: expected string or Buffer, got " +
+                 NodeUtilities::typeToString(info[0].Type());
       return;
     }
-    filename = info[0].As<Napi::String>();
+
+    if (info[0].IsString()) {
+      filename = info[0].As<Napi::String>();
+      useFilename = true;
+    } else {
+      Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
+      inputBytes = std::vector<uint8_t>(buf.Data(), buf.Data() + buf.Length());
+      if (inputBytes.empty()) argError = "input buffer is empty";
+    }
   }
 
   void Execute() {
     // handle function argument errors here to catch exceptions correctly
     if (!argError.empty()) throw std::runtime_error(argError);
 
-    // load PDF document (TODO: do not print error messages to stdout/stderr here)
-    GooString filenameGoo(filename);
-    PDFDoc *doc = PDFDocFactory().createPDFDoc(GooString(filename), nullptr, nullptr);
+    // load PDF document
+    PDFDoc *doc;
+    MemStream *memStream = nullptr;
+    if (useFilename) {
+      GooString *filenameGoo = new GooString(filename);  // will be deleted internally by PDFDoc
+      doc = new PDFDoc(filenameGoo);
+    } else {
+      memStream = new MemStream((const char *)inputBytes.data(), 0, inputBytes.size(), Object(objNull));
+      doc = new PDFDoc(memStream);
+    }
+
     if (!doc->isOk()) {
       int errCode = doc->getErrorCode(), fopenErrno = doc->getFopenErrno();
       delete doc;
 
-      std::string msg = filename + ": " + PDFUtilities::popplerErrorCodeToString(errCode);
+      std::string msg;
+      if (!filename.empty()) msg += filename + ": ";
+      msg += PDFUtilities::popplerErrorCodeToString(errCode);
       if (errCode == errOpenFile) msg += ": " + std::string(std::strerror(fopenErrno));
       throw std::runtime_error(msg);
     }
