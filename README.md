@@ -8,8 +8,15 @@ Allows you to use the native Poppler C++ backend to efficiently parse PDF files 
 2. `npm install poppler-native` (only tested on Ubuntu 16.04 so far)
 
 ```javascript
+// allows filename...
 const pdf = require('poppler-native');
 pdf.info('test.pdf').then(res => console.log(res));
+
+// ...or buffer with raw PDF bytes directly
+const fs = require('fs-extra');
+fs.readFile('test.pdf')
+  .then(f => pdf.info(f))
+  .then(res => console.log(res));
 ```
 
 ## Contributing
