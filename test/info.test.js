@@ -12,8 +12,16 @@ test('parameters of wrong type throws an error', () => {
   expect(pdf.info({ a: 1 })).rejects.toThrow('argument at position 1 has wrong type: expected string, got object');
 });
 
-test('missing input filename throws an error', async () => {
-  expect(pdf.info('does-not-exist')).rejects.toThrow('failed to load PDF document');
+test('missing input filename throws an error', () => {
+  expect(pdf.info('does-not-exist')).rejects.toThrow(
+    "does-not-exist: couldn't open the PDF file: No such file or directory",
+  );
+});
+
+test('invalid PDF file throws an error', () => {
+  expect(pdf.info(path.join(__dirname, 'pdfs/not-a-pdf.pdf'))).rejects.toThrow(
+    "pdfs/not-a-pdf.pdf: PDF file was damaged and couldn't be repaired",
+  );
 });
 
 describe('for minimal-text.pdf', () => {
