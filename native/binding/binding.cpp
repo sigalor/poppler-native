@@ -14,17 +14,31 @@
 
 class ReadPDFWorker : public Napi::AsyncWorker {
  private:
+  std::string argError;
   std::string filename;
+
   std::map<std::string, std::string> meta;
   std::vector<ReadPDFOutputs::OutlineItem> outline;
   std::vector<ReadPDFOutputs::Page> pages;
   Napi::Promise::Deferred deferred;
 
  public:
-  ReadPDFWorker(Napi::Env &env, const std::string &newFilename, Napi::Promise::Deferred &newDeferred)
-      : Napi::AsyncWorker(env), filename(newFilename), deferred(newDeferred) {}
+  ReadPDFWorker(Napi::Env &env, const Napi::CallbackInfo &info, Napi::Promise::Deferred &newDeferred)
+      : Napi::AsyncWorker(env), deferred(newDeferred) {
+    if (info.Length() != 1) {
+      argError = "wrong number of arguments: expected 1, got " + std::to_string(info.Length());
+      return;
+    } else if (!info[0].IsString()) {
+      argError = "argument at position 1 has wrong type: expected string, got " + typeToString(info[0].Type());
+      return;
+    }
+    filename = info[0].As<Napi::String>();
+  }
 
   void Execute() {
+    // handle function argument errors here to throw exceptions correctly
+    if (!argError.empty()) throw std::runtime_error(argError);
+
     // load PDF document (TODO: do not print error messages to stdout/stderr here)
     GooString filenameGoo(filename);
     PDFDoc *doc = PDFDocFactory().createPDFDoc(GooString(filename), nullptr, nullptr);
@@ -62,23 +76,16 @@ class ReadPDFWorker : public Napi::AsyncWorker {
 
 Napi::Object GetPDFInfo(const Napi::CallbackInfo &info) {
   Napi::Env env = info.Env();
-  Napi::Object ret = Napi::Object::New(env);
-  if (info.Length() < 1 || !info[0].IsString()) {
-    throwJS(env, "expected filename as first parameter");
-    return ret;
-  }
-
-  std::string filename = info[0].As<Napi::String>();
   Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
 
-  // globalParams is so not thread-safe, so hopefully this works
+  // globalParams (from Poppler) is so not thread-safe, so hopefully this works
   if (!globalParams) {
     globalParams = std::make_unique<GlobalParams>();
     char textEncoding[] = "UTF-8";
     globalParams->setTextEncoding(textEncoding);
   }
 
-  ReadPDFWorker *readPDFWorker = new ReadPDFWorker(env, filename, deferred);
+  ReadPDFWorker *readPDFWorker = new ReadPDFWorker(env, info, deferred);
   readPDFWorker->Queue();
   return deferred.Promise();
 }

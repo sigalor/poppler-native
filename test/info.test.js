@@ -2,8 +2,18 @@ require('./jest-setup');
 const pdf = require('../');
 const path = require('path');
 
-test('missing input file throws an error', async () => {
-  expect(pdf.info('missing')).rejects.toMatchObject({ message: 'failed to load PDF document' });
+test('wrong number of parameters throws an error', () => {
+  expect(pdf.info()).rejects.toThrow('wrong number of arguments: expected 1, got 0');
+  expect(pdf.info('a', 'b')).rejects.toThrow('wrong number of arguments: expected 1, got 2');
+});
+
+test('parameters of wrong type throws an error', () => {
+  expect(pdf.info(3)).rejects.toThrow('argument at position 1 has wrong type: expected string, got number');
+  expect(pdf.info({ a: 1 })).rejects.toThrow('argument at position 1 has wrong type: expected string, got object');
+});
+
+test('missing input filename throws an error', async () => {
+  expect(pdf.info('does-not-exist')).rejects.toThrow('failed to load PDF document');
 });
 
 describe('for minimal-text.pdf', () => {
