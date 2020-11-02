@@ -18,6 +18,7 @@
 // Copyright (C) 2007 Krzysztof Kowalczyk <kkowalczyk@gmail.com>
 // Copyright (C) 2012 Marek Kasik <mkasik@redhat.com>
 // Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2020 Adam Reichold <adam.reichold@t-online.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -27,69 +28,55 @@
 #include <config.h>
 #include <poppler-config.h>
 
-#include <stdio.h>
-#include <stddef.h>
-#include <stdarg.h>
+#include <cstdio>
+#include <cstddef>
+#include <cstdarg>
 #include "GooString.h"
 #include "GlobalParams.h"
 #include "Error.h"
 
-static const char *errorCategoryNames[] = {
-  "Syntax Warning",
-  "Syntax Error",
-  "Config Error",
-  "Command Line Error",
-  "I/O Error",
-  "Permission Error",
-  "Unimplemented Feature",
-  "Internal Error"
-};
+static const char *errorCategoryNames[] = { "Syntax Warning", "Syntax Error", "Config Error", "Command Line Error", "I/O Error", "Permission Error", "Unimplemented Feature", "Internal Error" };
 
-static void (*errorCbk)(void *data, ErrorCategory category,
-			Goffset pos, const char *msg) = nullptr;
-static void *errorCbkData = nullptr;
+static ErrorCallback errorCbk = nullptr;
 
-void setErrorCallback(void (*cbk)(void *data, ErrorCategory category,
-				  Goffset pos, const char *msg),
-		      void *data) {
-  errorCbk = cbk;
-  errorCbkData = data;
+void setErrorCallback(ErrorCallback cbk)
+{
+    errorCbk = cbk;
 }
 
-void CDECL error(ErrorCategory category, Goffset pos, const char *msg, ...) {
-  va_list args;
-  GooString *s, *sanitized;
+void CDECL error(ErrorCategory category, Goffset pos, const char *msg, ...)
+{
+    va_list args;
+    GooString *s, *sanitized;
 
-  // NB: this can be called before the globalParams object is created
-  if (!errorCbk && globalParams && globalParams->getErrQuiet()) {
-    return;
-  }
-  va_start(args, msg);
-  s = GooString::formatv(msg, args);
-  va_end(args);
-
-  sanitized = new GooString ();
-  for (int i = 0; i < s->getLength(); ++i) {
-    const char c = s->getChar(i);
-    if (c < (char)0x20 || c >= (char)0x7f) {
-      sanitized->appendf("<{0:02x}>", c & 0xff);
-    } else {
-      sanitized->append(c);
+    // NB: this can be called before the globalParams object is created
+    if (!errorCbk && globalParams && globalParams->getErrQuiet()) {
+        return;
     }
-  }
+    va_start(args, msg);
+    s = GooString::formatv(msg, args);
+    va_end(args);
 
-  if (errorCbk) {
-    (*errorCbk)(errorCbkData, category, pos, sanitized->c_str());
-  } else {
-    if (pos >= 0) {
-      fprintf(stderr, "%s (%lld): %s\n",
-	      errorCategoryNames[category], (long long)pos, sanitized->c_str());
-    } else {
-      fprintf(stderr, "%s: %s\n",
-	      errorCategoryNames[category], sanitized->c_str());
+    sanitized = new GooString();
+    for (int i = 0; i < s->getLength(); ++i) {
+        const char c = s->getChar(i);
+        if (c < (char)0x20 || c >= (char)0x7f) {
+            sanitized->appendf("<{0:02x}>", c & 0xff);
+        } else {
+            sanitized->append(c);
+        }
     }
-    fflush(stderr);
-  }
-  delete s;
-  delete sanitized;
+
+    if (errorCbk) {
+        (*errorCbk)(category, pos, sanitized->c_str());
+    } else {
+        if (pos >= 0) {
+            fprintf(stderr, "%s (%lld): %s\n", errorCategoryNames[category], (long long)pos, sanitized->c_str());
+        } else {
+            fprintf(stderr, "%s: %s\n", errorCategoryNames[category], sanitized->c_str());
+        }
+        fflush(stderr);
+    }
+    delete s;
+    delete sanitized;
 }

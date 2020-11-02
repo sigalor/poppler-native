@@ -14,107 +14,111 @@
 #define CERTIFICATEINFO_H
 
 #include <memory>
-#include <time.h>
+#include <ctime>
 #include "goo/GooString.h"
 
 enum CertificateKeyUsageExtension
 {
-  KU_DIGITAL_SIGNATURE = 0x80,
-  KU_NON_REPUDIATION   = 0x40,
-  KU_KEY_ENCIPHERMENT  = 0x20,
-  KU_DATA_ENCIPHERMENT = 0x10,
-  KU_KEY_AGREEMENT     = 0x08,
-  KU_KEY_CERT_SIGN     = 0x04,
-  KU_CRL_SIGN          = 0x02,
-  KU_ENCIPHER_ONLY     = 0x01,
-  KU_NONE              = 0x00
+    KU_DIGITAL_SIGNATURE = 0x80,
+    KU_NON_REPUDIATION = 0x40,
+    KU_KEY_ENCIPHERMENT = 0x20,
+    KU_DATA_ENCIPHERMENT = 0x10,
+    KU_KEY_AGREEMENT = 0x08,
+    KU_KEY_CERT_SIGN = 0x04,
+    KU_CRL_SIGN = 0x02,
+    KU_ENCIPHER_ONLY = 0x01,
+    KU_NONE = 0x00
 };
 
 enum PublicKeyType
 {
-  RSAKEY,
-  DSAKEY,
-  ECKEY,
-  OTHERKEY
+    RSAKEY,
+    DSAKEY,
+    ECKEY,
+    OTHERKEY
 };
 
-class X509CertificateInfo {
+class X509CertificateInfo
+{
 public:
-  X509CertificateInfo();
-  ~X509CertificateInfo();
+    X509CertificateInfo();
+    ~X509CertificateInfo();
 
-  struct PublicKeyInfo {
-    PublicKeyInfo();
+    X509CertificateInfo(const X509CertificateInfo &) = delete;
+    X509CertificateInfo &operator=(const X509CertificateInfo &) = delete;
 
-    PublicKeyInfo(PublicKeyInfo &&) noexcept;
-    PublicKeyInfo &operator=(PublicKeyInfo &&) noexcept;
+    struct PublicKeyInfo
+    {
+        PublicKeyInfo();
 
-    PublicKeyInfo(const PublicKeyInfo &) = delete;
-    PublicKeyInfo &operator=(const PublicKeyInfo &) = delete;
+        PublicKeyInfo(PublicKeyInfo &&) noexcept;
+        PublicKeyInfo &operator=(PublicKeyInfo &&) noexcept;
 
-    GooString publicKey;
-    PublicKeyType publicKeyType;
-    unsigned int publicKeyStrength; // in bits
-  };
+        PublicKeyInfo(const PublicKeyInfo &) = delete;
+        PublicKeyInfo &operator=(const PublicKeyInfo &) = delete;
 
-  struct EntityInfo {
-    EntityInfo();
-    ~EntityInfo();
+        GooString publicKey;
+        PublicKeyType publicKeyType;
+        unsigned int publicKeyStrength; // in bits
+    };
 
-    EntityInfo(EntityInfo &&) noexcept;
-    EntityInfo &operator=(EntityInfo &&) noexcept;
+    struct EntityInfo
+    {
+        EntityInfo();
+        ~EntityInfo();
 
-    EntityInfo(const EntityInfo &) = delete;
-    EntityInfo &operator=(const EntityInfo &) = delete;
+        EntityInfo(EntityInfo &&) noexcept;
+        EntityInfo &operator=(EntityInfo &&) noexcept;
 
-    std::string commonName;
-    std::string distinguishedName;
-    std::string email;
-    std::string organization;
-  };
+        EntityInfo(const EntityInfo &) = delete;
+        EntityInfo &operator=(const EntityInfo &) = delete;
 
-   struct Validity {
-    Validity() : notBefore(0), notAfter(0) {}
+        std::string commonName;
+        std::string distinguishedName;
+        std::string email;
+        std::string organization;
+    };
 
-    time_t notBefore;
-    time_t notAfter;
-  };
+    struct Validity
+    {
+        Validity() : notBefore(0), notAfter(0) { }
 
-  /* GETTERS */
-  int getVersion() const;
-  const GooString &getSerialNumber() const;
-  const EntityInfo &getIssuerInfo() const;
-  const Validity &getValidity() const;
-  const EntityInfo &getSubjectInfo() const;
-  const PublicKeyInfo &getPublicKeyInfo() const;
-  unsigned int getKeyUsageExtensions() const;
-  const GooString &getCertificateDER() const;
-  bool getIsSelfSigned() const;
+        time_t notBefore;
+        time_t notAfter;
+    };
 
-  /* SETTERS */
-  void setVersion(int);
-  void setSerialNumber(const GooString &);
-  void setIssuerInfo(EntityInfo &&);
-  void setValidity(Validity);
-  void setSubjectInfo(EntityInfo &&);
-  void setPublicKeyInfo(PublicKeyInfo &&);
-  void setKeyUsageExtensions(unsigned int);
-  void setCertificateDER(const GooString &);
-  void setIsSelfSigned(bool);
+    /* GETTERS */
+    int getVersion() const;
+    const GooString &getSerialNumber() const;
+    const EntityInfo &getIssuerInfo() const;
+    const Validity &getValidity() const;
+    const EntityInfo &getSubjectInfo() const;
+    const PublicKeyInfo &getPublicKeyInfo() const;
+    unsigned int getKeyUsageExtensions() const;
+    const GooString &getCertificateDER() const;
+    bool getIsSelfSigned() const;
+
+    /* SETTERS */
+    void setVersion(int);
+    void setSerialNumber(const GooString &);
+    void setIssuerInfo(EntityInfo &&);
+    void setValidity(Validity);
+    void setSubjectInfo(EntityInfo &&);
+    void setPublicKeyInfo(PublicKeyInfo &&);
+    void setKeyUsageExtensions(unsigned int);
+    void setCertificateDER(const GooString &);
+    void setIsSelfSigned(bool);
 
 private:
-  X509CertificateInfo(const X509CertificateInfo &) = delete;
-  X509CertificateInfo& operator=(const X509CertificateInfo &) = delete;
-
-  EntityInfo issuer_info;
-  EntityInfo subject_info;
-  PublicKeyInfo public_key_info;
-  Validity cert_validity;
-  GooString cert_serial;
-  GooString cert_der;
-  unsigned int ku_extensions;
-  int cert_version;
-  bool is_self_signed;
+    EntityInfo issuer_info;
+    EntityInfo subject_info;
+    PublicKeyInfo public_key_info;
+    Validity cert_validity;
+    GooString cert_serial;
+    GooString cert_der;
+    unsigned int ku_extensions;
+    int cert_version;
+    bool is_self_signed;
 };
 
 #endif
