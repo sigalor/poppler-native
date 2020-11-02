@@ -20,9 +20,16 @@
         "<!(node -p \"require('node-addon-api').gyp\")",
         "libpoppler"
       ],
-      "cflags_cc!": ["-fno-exceptions", "-fno-rtti"],
-      "cflags_cc": ["-std=c++14"],
-      "defines": ["NAPI_CPP_EXCEPTIONS"],
+      "cflags_cc!": [
+        "-fno-exceptions",
+        "-fno-rtti"
+      ],
+      "cflags_cc": [
+        "-std=c++14"
+      ],
+      "defines": [
+        "NAPI_CPP_EXCEPTIONS"
+      ],
       "libraries": [
         "-ljpeg",
         "-lpng"
@@ -35,10 +42,13 @@
       "include_dirs": [
         "native/poppler",
         "native/poppler/goo",
+        "native/poppler/poppler",
         "native/freetype/include/freetype2",
         "native/openjpeg/include/openjpeg-2.3"
       ],
-      "cflags_cc!": ["-fno-rtti"],
+      "cflags_cc!": [
+        "-fno-rtti"
+      ],
       "sources": [
         "native/poppler/fofi/FoFiBase.cc",
         "native/poppler/fofi/FoFiEncodings.cc",
@@ -49,8 +59,8 @@
         "native/poppler/goo/gbase64.cc",
         "native/poppler/goo/gbasename.cc",
         "native/poppler/goo/gfile.cc",
-        "native/poppler/goo/glibc.cc",
         "native/poppler/goo/glibc_strtok_r.cc",
+        "native/poppler/goo/glibc.cc",
         "native/poppler/goo/GooString.cc",
         "native/poppler/goo/GooTimer.cc",
         "native/poppler/goo/grandom.cc",
@@ -62,8 +72,7 @@
         "native/poppler/goo/TiffWriter.cc",
         "native/poppler/poppler/Annot.cc",
         "native/poppler/poppler/Array.cc",
-        "native/poppler/poppler/BuiltinFont.cc",
-        "native/poppler/poppler/BuiltinFontTables.cc",
+        "native/poppler/poppler/BBoxOutputDev.cc",
         "native/poppler/poppler/CachedFile.cc",
         "native/poppler/poppler/Catalog.cc",
         "native/poppler/poppler/CertificateInfo.cc",
@@ -91,6 +100,7 @@
         "native/poppler/poppler/JArithmeticDecoder.cc",
         "native/poppler/poppler/JBIG2Stream.cc",
         "native/poppler/poppler/JPXStream.cc",
+        "native/poppler/poppler/JSInfo.cc",
         "native/poppler/poppler/Lexer.cc",
         "native/poppler/poppler/Linearization.cc",
         "native/poppler/poppler/Link.cc",
@@ -107,6 +117,7 @@
         "native/poppler/poppler/PageTransition.cc",
         "native/poppler/poppler/Parser.cc",
         "native/poppler/poppler/PDFDoc.cc",
+        "native/poppler/poppler/PDFDocBuilder.cc",
         "native/poppler/poppler/PDFDocEncoding.cc",
         "native/poppler/poppler/PDFDocFactory.cc",
         "native/poppler/poppler/PreScanOutputDev.cc",
