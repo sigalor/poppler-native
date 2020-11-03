@@ -139,7 +139,21 @@
         "native/poppler/poppler/UnicodeTypeTable.cc",
         "native/poppler/poppler/UTF.cc",
         "native/poppler/poppler/ViewerPreferences.cc",
-        "native/poppler/poppler/XRef.cc"
+        "native/poppler/poppler/XRef.cc",
+        "native/poppler/poppler/CourierBoldObliqueWidths.pregenerated.c",
+        "native/poppler/poppler/CourierBoldWidths.pregenerated.c",
+        "native/poppler/poppler/CourierObliqueWidths.pregenerated.c",
+        "native/poppler/poppler/CourierWidths.pregenerated.c",
+        "native/poppler/poppler/HelveticaBoldObliqueWidths.pregenerated.c",
+        "native/poppler/poppler/HelveticaBoldWidths.pregenerated.c",
+        "native/poppler/poppler/HelveticaObliqueWidths.pregenerated.c",
+        "native/poppler/poppler/HelveticaWidths.pregenerated.c",
+        "native/poppler/poppler/SymbolWidths.pregenerated.c",
+        "native/poppler/poppler/TimesBoldItalicWidths.pregenerated.c",
+        "native/poppler/poppler/TimesBoldWidths.pregenerated.c",
+        "native/poppler/poppler/TimesItalicWidths.pregenerated.c",
+        "native/poppler/poppler/TimesRomanWidths.pregenerated.c",
+        "native/poppler/poppler/ZapfDingbatsWidths.pregenerated.c"
       ]
     }
   ]
