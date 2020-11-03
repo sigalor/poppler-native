@@ -1,13 +1,13 @@
 /* config.h.  Generated from config.h.cmake by cmake.  */
 
 /* Build against libcurl. */
-/* #undef ENABLE_LIBCURL */
+/* #define ENABLE_LIBCURL 1 */
 
 /* Use libjpeg instead of builtin jpeg decoder. */
 #define ENABLE_LIBJPEG 1
 
 /* Use libopenjpeg instead of builtin jpeg2000 decoder. */
-/* #undef ENABLE_LIBOPENJPEG */
+/* #define ENABLE_LIBOPENJPEG 1*/
 
 /* Build against libtiff. */
 /* #undef ENABLE_LIBTIFF */
@@ -37,7 +37,7 @@
 #define HAVE_JPX_DECODER 1
 
 /* Define to 1 if you have the <dirent.h> header file, and it defines `DIR'.
- */
+   */
 #define HAVE_DIRENT_H 1
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
@@ -98,18 +98,18 @@
 #define HAVE_POPEN 1
 
 /* Use splash for rendering. */
-/* #undef HAVE_SPLASH */
+/* #define HAVE_SPLASH 1 */
 #define SPOT_NCOMPS 4  // this is from splash/SplashTypes.h and is the only thing needed by GfxState.cc from Splash
 
 /* Define to 1 if you have the <sys/dir.h> header file, and it defines `DIR'.
- */
+   */
 #define HAVE_SYS_DIR_H 1
 
 /* Define to 1 if you have the <sys/mman.h> header file. */
 #define HAVE_SYS_MMAN_H 1
 
 /* Define to 1 if you have the <sys/ndir.h> header file, and it defines `DIR'.
- */
+   */
 /* #undef HAVE_SYS_NDIR_H */
 
 /* Define to 1 if you have the <sys/stat.h> header file. */
@@ -125,7 +125,7 @@
 /* #undef WORDS_BIGENDIAN */
 
 /* Define as const if the declaration of iconv() needs const. */
-#define ICONV_CONST
+#define ICONV_CONST 
 
 /* Generate OPI comments in PS output. */
 #define OPI_SUPPORT 1
@@ -140,7 +140,7 @@
 #define PACKAGE_NAME "poppler"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "poppler 0.83.0"
+#define PACKAGE_STRING "poppler 20.11.0"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "poppler"
@@ -149,13 +149,13 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "0.83.0"
+#define PACKAGE_VERSION "20.11.0"
 
 /* Poppler data dir */
 #define POPPLER_DATADIR "/usr/share/poppler"
 
 /* Support for curl based doc builder is compiled in. */
-/* #undef POPPLER_HAS_CURL_SUPPORT */
+/* #define POPPLER_HAS_CURL_SUPPORT 1 */
 
 /* Enable word list support. */
 #define TEXTOUT_WORD_LIST 1
@@ -167,10 +167,10 @@
 /* #undef USE_FLOAT */
 
 /* Version number of package */
-#define VERSION "0.83.0"
+#define VERSION "20.11.0"
 
 /* Use fontconfig font configuration backend */
-/* #undef WITH_FONTCONFIGURATION_FONTCONFIG */
+/* #define WITH_FONTCONFIGURATION_FONTCONFIG 1 */
 
 /* Use win32 font configuration backend */
 /* #undef WITH_FONTCONFIGURATION_WIN32 */
