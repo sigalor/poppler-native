@@ -1,3 +1,7 @@
+# 2.0.1 (2020-11-03)
+
+- fix .npmignore to not contain build directory
+
 # 2.0.0 (2020-11-03)
 
 - update to Poppler 20.11.0 (the JS API of this package stayed the same, but the information returned by Poppler might be very slightly different now)
