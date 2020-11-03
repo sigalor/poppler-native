@@ -69,7 +69,7 @@ describe('for minimal-text.pdf', () => {
     expect(info.pages[0].fonts.length).toBe(1);
     expect(info.pages[0].fonts[0]).toMatchObject({
       id: 0,
-      size: 20,
+      size: 22,
       family: 'TimesNewRomanPSMT',
       color: '#000000',
       bold: false,
