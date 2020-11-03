@@ -28,57 +28,76 @@
 
 #include "HtmlLinks.h"
 
-HtmlLink::HtmlLink(const HtmlLink& x) {
-  Xmin = x.Xmin;
-  Ymin = x.Ymin;
-  Xmax = x.Xmax;
-  Ymax = x.Ymax;
-  dest = new GooString(x.dest);
+HtmlLink::HtmlLink(const HtmlLink &x)
+{
+    Xmin = x.Xmin;
+    Ymin = x.Ymin;
+    Xmax = x.Xmax;
+    Ymax = x.Ymax;
+    dest = new GooString(x.dest);
 }
 
-HtmlLink::HtmlLink(double xmin, double ymin, double xmax, double ymax, GooString* _dest) {
-  if (xmin < xmax) {
-    Xmin = xmin;
-    Xmax = xmax;
-  } else {
-    Xmin = xmax;
-    Xmax = xmin;
-  }
-  if (ymin < ymax) {
-    Ymin = ymin;
-    Ymax = ymax;
-  } else {
-    Ymin = ymax;
-    Ymax = ymin;
-  }
-  dest = new GooString(_dest);
-}
-
-HtmlLink::~HtmlLink() { delete dest; }
-
-bool HtmlLink::isEqualDest(const HtmlLink& x) const { return (!strcmp(dest->c_str(), x.dest->c_str())); }
-
-bool HtmlLink::inLink(double xmin, double ymin, double xmax, double ymax) const {
-  double y = (ymin + ymax) / 2;
-  if (y > Ymax) return false;
-  return (y > Ymin) && (xmin < Xmax) && (xmax > Xmin);
-}
-
-HtmlLinks::HtmlLinks() { accu = new std::vector<HtmlLink>(); }
-
-HtmlLinks::~HtmlLinks() {
-  delete accu;
-  accu = nullptr;
-}
-
-bool HtmlLinks::inLink(double xmin, double ymin, double xmax, double ymax, int& p) const {
-  for (std::vector<HtmlLink>::iterator i = accu->begin(); i != accu->end(); ++i) {
-    if (i->inLink(xmin, ymin, xmax, ymax)) {
-      p = (i - accu->begin());
-      return 1;
+HtmlLink::HtmlLink(double xmin, double ymin, double xmax, double ymax, GooString *_dest)
+{
+    if (xmin < xmax) {
+        Xmin = xmin;
+        Xmax = xmax;
+    } else {
+        Xmin = xmax;
+        Xmax = xmin;
     }
-  }
-  return 0;
+    if (ymin < ymax) {
+        Ymin = ymin;
+        Ymax = ymax;
+    } else {
+        Ymin = ymax;
+        Ymax = ymin;
+    }
+    dest = new GooString(_dest);
 }
 
-HtmlLink* HtmlLinks::getLink(int i) const { return &(*accu)[i]; }
+HtmlLink::~HtmlLink()
+{
+    delete dest;
+}
+
+bool HtmlLink::isEqualDest(const HtmlLink &x) const
+{
+    return (!strcmp(dest->c_str(), x.dest->c_str()));
+}
+
+bool HtmlLink::inLink(double xmin, double ymin, double xmax, double ymax) const
+{
+    double y = (ymin + ymax) / 2;
+    if (y > Ymax)
+        return false;
+    return (y > Ymin) && (xmin < Xmax) && (xmax > Xmin);
+}
+
+HtmlLinks::HtmlLinks()
+{
+    accu = new std::vector<HtmlLink>();
+}
+
+HtmlLinks::~HtmlLinks()
+{
+    delete accu;
+    accu = nullptr;
+}
+
+bool HtmlLinks::inLink(double xmin, double ymin, double xmax, double ymax, int &p) const
+{
+
+    for (std::vector<HtmlLink>::iterator i = accu->begin(); i != accu->end(); ++i) {
+        if (i->inLink(xmin, ymin, xmax, ymax)) {
+            p = (i - accu->begin());
+            return true;
+        }
+    }
+    return false;
+}
+
+HtmlLink *HtmlLinks::getLink(int i) const
+{
+    return &(*accu)[i];
+}

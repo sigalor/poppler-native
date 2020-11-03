@@ -32,38 +32,41 @@
 
 #include <goo/GooString.h>
 
-class HtmlLink {
- private:
-  double Xmin;
-  double Ymin;
-  double Xmax;
-  double Ymax;
-  GooString* dest;
+class HtmlLink
+{
 
- public:
-  HtmlLink(const HtmlLink& x);
-  HtmlLink(double xmin, double ymin, double xmax, double ymax, GooString* _dest);
-  ~HtmlLink();
-  HtmlLink& operator=(const HtmlLink&) = delete;
-  bool isEqualDest(const HtmlLink& x) const;
-  GooString* getDest() { return new GooString(dest); }
-  double getX1() const { return Xmin; }
-  double getX2() const { return Xmax; }
-  double getY1() const { return Ymin; }
-  double getY2() const { return Ymax; }
-  bool inLink(double xmin, double ymin, double xmax, double ymax) const;
+private:
+    double Xmin;
+    double Ymin;
+    double Xmax;
+    double Ymax;
+    GooString *dest;
+
+public:
+    HtmlLink(const HtmlLink &x);
+    HtmlLink(double xmin, double ymin, double xmax, double ymax, GooString *_dest);
+    ~HtmlLink();
+    HtmlLink &operator=(const HtmlLink &) = delete;
+    bool isEqualDest(const HtmlLink &x) const;
+    GooString *getDest() { return new GooString(dest); }
+    double getX1() const { return Xmin; }
+    double getX2() const { return Xmax; }
+    double getY1() const { return Ymin; }
+    double getY2() const { return Ymax; }
+    bool inLink(double xmin, double ymin, double xmax, double ymax) const;
 };
 
-class HtmlLinks {
- private:
-  std::vector<HtmlLink>* accu;
+class HtmlLinks
+{
+private:
+    std::vector<HtmlLink> *accu;
 
- public:
-  HtmlLinks();
-  ~HtmlLinks();
-  HtmlLinks(const HtmlLinks&) = delete;
-  HtmlLinks& operator=(const HtmlLinks&) = delete;
-  void AddLink(const HtmlLink& x) { accu->push_back(x); }
-  bool inLink(double xmin, double ymin, double xmax, double ymax, int& p) const;
-  HtmlLink* getLink(int i) const;
+public:
+    HtmlLinks();
+    ~HtmlLinks();
+    HtmlLinks(const HtmlLinks &) = delete;
+    HtmlLinks &operator=(const HtmlLinks &) = delete;
+    void AddLink(const HtmlLink &x) { accu->push_back(x); }
+    bool inLink(double xmin, double ymin, double xmax, double ymax, int &p) const;
+    HtmlLink *getLink(int i) const;
 };
