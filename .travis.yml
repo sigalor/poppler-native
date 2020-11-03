@@ -3,4 +3,4 @@ node_js:
   - 'node'
 install:
   - npm ci
-  - npx node-gyp build
+  - npx node-gyp rebuild
