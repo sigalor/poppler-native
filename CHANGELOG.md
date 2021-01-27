@@ -1,3 +1,7 @@
+# 2.1.0 (2021-01-27)
+
+- implement charmap reconstruction, such that text in the fonts Arial and Arial Bold can now be obtained even if no `ToUnicode` character map is present in the PDF
+
 # 2.0.1 (2020-11-03)
 
 - fix .npmignore to not contain build directory
