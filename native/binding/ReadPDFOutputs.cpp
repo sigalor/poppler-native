@@ -7,11 +7,9 @@ Napi::Object Font::serialize(Napi::Env env) const {
   ret.Set("id", id);
   ret.Set("size", size);
   ret.Set("family", Napi::String::New(env, family));
-  ret.Set("fullName", Napi::String::New(env, fullName));
   ret.Set("color", Napi::String::New(env, color));
   ret.Set("bold", bold);
   ret.Set("italic", italic);
-  ret.Set("hasToUnicodeCMap", hasToUnicodeCMap);
   return ret;
 }
 
@@ -42,7 +40,6 @@ Napi::Object Page::serialize(Napi::Env env) const {
   ret.Set("number", number);
   ret.Set("width", width);
   ret.Set("height", height);
-  ret.Set("fonts", serializeArray(env, fonts));
   ret.Set("images", serializeArray(env, images));
   ret.Set("strings", serializeArray(env, strings));
   return ret;

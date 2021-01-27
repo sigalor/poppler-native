@@ -65,17 +65,15 @@ describe('for minimal-text.pdf', () => {
   });
 
   test('correctly reads contained font', () => {
-    expect(info.pages[0].fonts).toBeType('array');
-    expect(info.pages[0].fonts.length).toBe(1);
-    expect(info.pages[0].fonts[0]).toMatchObject({
+    expect(info.fonts).toBeType('array');
+    expect(info.fonts.length).toBe(1);
+    expect(info.fonts[0]).toMatchObject({
       id: 0,
       size: 22,
       family: 'TimesNewRomanPSMT',
-      fullName: 'TimesNewRomanPSMT', // would have e.g. "-Bold" suffix if the font was bold
       color: '#000000',
       bold: false,
       italic: false,
-      hasToUnicodeCMap: true,
     });
   });
 

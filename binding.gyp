@@ -3,18 +3,26 @@
     {
       "target_name": "poppler",
       "sources": [
-        "native/binding/binding.cpp",
-        "native/binding/NodeUtilities.cpp",
-        "native/binding/PDFUtilities.cpp",
-        "native/binding/ReadPDFOutputs.cpp",
+        "native/binding/build-charmap/common.cpp",
+        "native/binding/build-charmap/Glyph.cpp",
+        "native/binding/build-charmap/StringMapper.cpp",
+        "native/binding/build-charmap/TTFFile.cpp",
         "native/binding/html/HtmlFonts.cc",
         "native/binding/html/HtmlLinks.cc",
         "native/binding/html/HtmlOutputDev.cc",
-        "native/binding/html/InMemoryFile.cc"
+        "native/binding/html/InMemoryFile.cc",
+        "native/binding/standard-pdf-fonts/Arial_Bold.cpp",
+        "native/binding/standard-pdf-fonts/Arial.cpp",
+        "native/binding/standard-pdf-fonts/common.cpp",
+        "native/binding/binding.cpp",
+        "native/binding/NodeUtilities.cpp",
+        "native/binding/PDFUtilities.cpp",
+        "native/binding/ReadPDFOutputs.cpp"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
-        "native/poppler"
+        "native/poppler",
+        "/usr/include/freetype2"
       ],
       "dependencies": [
         "<!(node -p \"require('node-addon-api').gyp\")",
@@ -32,7 +40,8 @@
       ],
       "libraries": [
         "-ljpeg",
-        "-lpng"
+        "-lpng",
+        "-lfreetype"
       ]
     },
     {
@@ -42,9 +51,7 @@
       "include_dirs": [
         "native/poppler",
         "native/poppler/goo",
-        "native/poppler/poppler",
-        "native/freetype/include/freetype2",
-        "native/openjpeg/include/openjpeg-2.3"
+        "native/poppler/poppler"
       ],
       "cflags_cc!": [
         "-fno-rtti"
