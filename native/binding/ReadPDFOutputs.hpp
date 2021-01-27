@@ -11,8 +11,8 @@ class Font {
  public:
   int id;
   unsigned int size;
-  std::string family, color;
-  bool bold, italic;
+  std::string family, fullName, color;
+  bool bold, italic, hasToUnicodeCMap;
   Napi::Object serialize(Napi::Env env) const;
 };
 

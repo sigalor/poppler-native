@@ -150,14 +150,18 @@ HtmlFont::HtmlFont(GfxFont *font, int _size, GfxRGB rgb, double opacity)
             italic = true;
         }
 
+        fullName = fontname->c_str();
         familyName = fontname->c_str();
         removeStyleSuffix(familyName);
     } else {
         FontName = new GooString(defaultFamilyName);
         familyName = defaultFamilyName;
+        fullName = defaultFamilyName;
     }
 
     rotSkewMat[0] = rotSkewMat[1] = rotSkewMat[2] = rotSkewMat[3] = 0;
+
+    hasToUnicodeCMap = font->hasToUnicodeCMap();
 }
 
 HtmlFont::HtmlFont(const HtmlFont &x)
@@ -167,10 +171,12 @@ HtmlFont::HtmlFont(const HtmlFont &x)
     italic = x.italic;
     bold = x.bold;
     familyName = x.familyName;
+    fullName = x.fullName;
     color = x.color;
     FontName = new GooString(x.FontName);
     rotOrSkewed = x.rotOrSkewed;
     memcpy(rotSkewMat, x.rotSkewMat, sizeof(rotSkewMat));
+    hasToUnicodeCMap = x.hasToUnicodeCMap;
 }
 
 HtmlFont::~HtmlFont()
@@ -187,9 +193,11 @@ HtmlFont &HtmlFont::operator=(const HtmlFont &x)
     italic = x.italic;
     bold = x.bold;
     familyName = x.familyName;
+    fullName = x.fullName;
     color = x.color;
     delete FontName;
     FontName = new GooString(x.FontName);
+    hasToUnicodeCMap = x.hasToUnicodeCMap;
     return *this;
 }
 
@@ -271,9 +279,11 @@ ReadPDFOutputs::Font HtmlFontAccu::serialize(int i) {
   ret.id = i;
   ret.size = font.size;
   ret.family = font.familyName;
+  ret.fullName = font.fullName;
   ret.color = colorStr->c_str();
   ret.bold = font.bold;
   ret.italic = font.italic;
+  ret.hasToUnicodeCMap = font.hasToUnicodeCMap;
 
   delete colorStr;
   return ret;

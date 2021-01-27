@@ -7,9 +7,11 @@ Napi::Object Font::serialize(Napi::Env env) const {
   ret.Set("id", id);
   ret.Set("size", size);
   ret.Set("family", Napi::String::New(env, family));
+  ret.Set("fullName", Napi::String::New(env, fullName));
   ret.Set("color", Napi::String::New(env, color));
   ret.Set("bold", bold);
   ret.Set("italic", italic);
+  ret.Set("hasToUnicodeCMap", hasToUnicodeCMap);
   return ret;
 }
 

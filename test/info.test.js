@@ -71,9 +71,11 @@ describe('for minimal-text.pdf', () => {
       id: 0,
       size: 22,
       family: 'TimesNewRomanPSMT',
+      fullName: 'TimesNewRomanPSMT', // would have e.g. "-Bold" suffix if the font was bold
       color: '#000000',
       bold: false,
       italic: false,
+      hasToUnicodeCMap: true,
     });
   });
 

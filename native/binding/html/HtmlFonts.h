@@ -87,10 +87,11 @@ private:
     bool italic;
     bool bold;
     bool rotOrSkewed;
-    std::string familyName;
+    std::string familyName, fullName;
     GooString *FontName;
     HtmlFontColor color;
     double rotSkewMat[4]; // only four values needed for rotation and skew
+    bool hasToUnicodeCMap;
 public:
     HtmlFont(GfxFont *font, int _size, GfxRGB rgb, double opacity);
     HtmlFont(const HtmlFont &x);
