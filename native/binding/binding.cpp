@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <glob.h>
+#include <unistd.h>
 
 #include <goo/GooString.h>
 #include <napi.h>
@@ -134,8 +135,23 @@ class ReadPDFWorker : public Napi::AsyncWorker {
             fclose(tmpFile);
 
             // execute mutool extract
-            int code = system((std::string("bash -c 'cd ") + tempDirPath + "; mutool extract " + tempFilePath + "'").c_str());
-            if(code != 0) throw std::runtime_error("failed to execute 'mutool extract': code " + std::to_string(code));
+            FILE* mutoolCommand = popen((std::string("bash -c 'cd ") + tempDirPath + "; mutool extract " + tempFilePath + " 2>&1'").c_str(), "r");
+            if(mutoolCommand == nullptr) {
+              throw std::runtime_error("failed to execute 'mutool extract'");
+            }
+
+            // get mutool output
+            std::string mutoolOutput;
+            char line[1000];
+            while(fgets(line, sizeof(line), mutoolCommand) != nullptr) {
+              mutoolOutput += std::string(line);
+            }
+            
+            // in case of an error, throw it
+            int code = WEXITSTATUS(pclose(mutoolCommand));
+            if(code != 0) {
+              throw std::runtime_error("failed to execute 'mutool extract': code " + std::to_string(code) + ": " + mutoolOutput);
+            }
 
             unlink(tempFilePath);
           }
