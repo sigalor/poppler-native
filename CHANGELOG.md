@@ -1,3 +1,7 @@
+# 2.1.1 (2021-04-23)
+
+- fix issues with filename input and font extraction
+
 # 2.1.0 (2021-01-27)
 
 - implement charmap reconstruction, such that text in the fonts Arial and Arial Bold can now be obtained even if no `ToUnicode` character map is present in the PDF
