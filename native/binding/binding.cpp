@@ -2,6 +2,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -30,9 +31,7 @@ FT_Library freeTypeLibrary;
 class ReadPDFWorker : public Napi::AsyncWorker {
  private:
   std::string argError;
-  std::string filename;
   std::vector<uint8_t> inputBytes;
-  bool useFilename = false;
 
   std::map<std::string, std::string> meta;
   std::vector<ReadPDFOutputs::OutlineItem> outline;
@@ -52,37 +51,28 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     }
 
     if (info[0].IsString()) {
-      filename = info[0].As<Napi::String>();
-      useFilename = true;
+      std::ifstream inStream(info[0].As<Napi::String>(), std::ios::in | std::ios::binary);
+      inputBytes = std::vector<uint8_t>((std::istreambuf_iterator<char>(inStream)), std::istreambuf_iterator<char>());
     } else {
       Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
       inputBytes = std::vector<uint8_t>(buf.Data(), buf.Data() + buf.Length());
-      if (inputBytes.empty()) argError = "input buffer is empty";
     }
+    if (inputBytes.empty()) argError = "input buffer is empty";
   }
 
   void Execute() {
     // handle function argument errors here to catch exceptions correctly
     if (!argError.empty()) throw std::runtime_error(argError);
 
-    // load PDF document
-    PDFDoc *doc;
-    MemStream *memStream = nullptr;
-    if (useFilename) {
-      GooString *filenameGoo = new GooString(filename);  // will be deleted internally by PDFDoc
-      doc = new PDFDoc(filenameGoo);
-    } else {
-      memStream = new MemStream((const char *)inputBytes.data(), 0, inputBytes.size(), Object(objNull));
-      doc = new PDFDoc(memStream);
-    }
+    // load PDF document from memory
+    MemStream *memStream = new MemStream((const char *)inputBytes.data(), 0, inputBytes.size(), Object(objNull));
+    PDFDoc *doc = new PDFDoc(memStream);
 
     if (!doc->isOk()) {
       int errCode = doc->getErrorCode(), fopenErrno = doc->getFopenErrno();
       delete doc;
 
-      std::string msg;
-      if (!filename.empty()) msg += filename + ": ";
-      msg += PDFUtilities::popplerErrorCodeToString(errCode);
+      std::string msg(PDFUtilities::popplerErrorCodeToString(errCode));
       if (errCode == errOpenFile) msg += ": " + std::string(std::strerror(fopenErrno));
       throw std::runtime_error(msg);
     }
@@ -162,14 +152,16 @@ class ReadPDFWorker : public Napi::AsyncWorker {
               // mutool appends object ID to filename, thus the real filename needs to be found using glob
               std::string inputFilenameGlob = std::string(tempDirPath) + "/" + font.fullName + "-*.ttf";
               glob_t globResults;
-              if(glob(inputFilenameGlob.c_str(), 0, nullptr, &globResults) != 0)
-                throw std::runtime_error(std::string("failed to run glob: ") + std::strerror(errno));
-              
-              if(globResults.gl_pathc >= 1) {
-                std::string inputFilename = globResults.gl_pathv[0];
-                stringMappers.emplace(font.fullName, std::make_shared<BuildCharmap::StringMapper>(freeTypeLibrary, inputFilename, referenceFont));
+              int globCode = glob(inputFilenameGlob.c_str(), 0, nullptr, &globResults);
+              if(globCode != GLOB_NOMATCH) {
+                if(globCode != 0)
+                  throw std::runtime_error(std::string("failed to run glob: ") + std::strerror(errno));
+                
+                if(globResults.gl_pathc >= 1) {
+                  std::string inputFilename = globResults.gl_pathv[0];
+                  stringMappers.emplace(font.fullName, std::make_shared<BuildCharmap::StringMapper>(freeTypeLibrary, inputFilename, referenceFont));
+                }
               }
-
               globfree(&globResults);
             }
           }
