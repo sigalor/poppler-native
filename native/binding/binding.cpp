@@ -138,7 +138,8 @@ class ReadPDFWorker : public Napi::AsyncWorker {
             }
             
             // in case of an error, throw it
-            int code = WEXITSTATUS(pclose(mutoolCommand));
+            int pcloseCode = pclose(mutoolCommand);
+            int code = WEXITSTATUS(pcloseCode);
             if(code != 0) {
               throw std::runtime_error("failed to execute 'mutool extract': code " + std::to_string(code) + ": " + mutoolOutput);
             }
