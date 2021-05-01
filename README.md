@@ -21,6 +21,8 @@ fs.readFile('test.pdf')
   .then(res => console.log(res));
 ```
 
+In order to visualize the parsed text boxes and images, you can also write the entire output from the `pdf.info` function into a JSON file, then open the file `misc/pdf-json-viewer.html` in any web browser and drag-and-drop the JSON file there.
+
 ## Contributing
 
 ### Updating Poppler
