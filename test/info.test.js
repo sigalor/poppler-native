@@ -23,7 +23,7 @@ test('missing input filename throws an error', () => {
 
 test('invalid PDF file throws an error', () => {
   expect(pdf.info(path.join(__dirname, 'pdfs/not-a-pdf.pdf'))).rejects.toThrow(
-    "pdfs/not-a-pdf.pdf: PDF file was damaged and couldn't be repaired",
+    "PDF file was damaged and couldn't be repaired",
   );
 });
 

@@ -51,7 +51,12 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     }
 
     if (info[0].IsString()) {
-      std::ifstream inStream(info[0].As<Napi::String>(), std::ios::in | std::ios::binary);
+      std::string filename(info[0].ToString());
+      std::ifstream inStream(filename, std::ios::in | std::ios::binary);
+      if(!inStream) {
+        argError = filename + ": couldn't open the PDF file: " + std::strerror(errno);
+        return;
+      }
       inputBytes = std::vector<uint8_t>((std::istreambuf_iterator<char>(inStream)), std::istreambuf_iterator<char>());
     } else {
       Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
