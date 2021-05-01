@@ -1,6 +1,6 @@
 {
   "name": "poppler-native",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "A native interface to the Poppler PDF parser for NodeJS.",
   "author": "sigalor (https://github.com/sigalor)",
   "license": "GPL-2.0-or-later",

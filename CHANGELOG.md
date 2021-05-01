@@ -1,3 +1,8 @@
+# 2.1.2 (2021-05-01)
+
+- small fix in binding C++ code
+- added `misc/pdf-json-viewer.html` to visualize the parsing results
+
 # 2.1.1 (2021-04-23)
 
 - fix issues with filename input and font extraction
