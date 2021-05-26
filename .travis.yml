@@ -2,8 +2,8 @@ language: node_js
 node_js:
   - 'node'
 before_install:
-  sudo apt-get update
-  sudo apt-get -y install python3
+  - sudo apt-get update
+  - sudo apt-get -y install python3
 install:
   - npm ci
   - npx node-gyp rebuild
