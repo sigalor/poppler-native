@@ -1,3 +1,8 @@
+# 2.1.3 (2021-05-26)
+
+- update Poppler to 21.05.0
+- update NPM dependencies
+
 # 2.1.2 (2021-05-01)
 
 - small fix in binding C++ code
