@@ -17,7 +17,7 @@
 // Copyright (C) 2007 Iñigo Martínez <inigomartinez@gmail.com>
 // Copyright (C) 2008 Brad Hards <bradh@kde.org>
 // Copyright (C) 2008, 2010 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright (C) 2009-2013, 2017, 2018 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009-2013, 2017, 2018, 2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009, 2010, 2012, 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2010 David Benjamin <davidben@mit.edu>
 // Copyright (C) 2010 Christian Feuersänger <cfeuersaenger@googlemail.com>
@@ -36,6 +36,7 @@
 #define GFX_H
 
 #include "poppler-config.h"
+#include "poppler_private_export.h"
 #include "GfxState.h"
 #include "Object.h"
 #include "PopplerCache.h"
@@ -107,7 +108,7 @@ struct Operator
 
 //------------------------------------------------------------------------
 
-class GfxResources
+class POPPLER_PRIVATE_EXPORT GfxResources
 {
 public:
     GfxResources(XRef *xref, Dict *resDict, GfxResources *nextA);
@@ -148,7 +149,7 @@ private:
 // Gfx
 //------------------------------------------------------------------------
 
-class Gfx
+class POPPLER_PRIVATE_EXPORT Gfx
 {
 public:
     // Constructor for regular output.
@@ -203,8 +204,8 @@ private:
     Catalog *catalog; // the Catalog for this PDF file
     OutputDev *out; // output device
     bool subPage; // is this a sub-page object?
-    bool printCommands; // print the drawing commands (for debugging)
-    bool profileCommands; // profile the drawing commands (for debugging)
+    const bool printCommands; // print the drawing commands (for debugging)
+    const bool profileCommands; // profile the drawing commands (for debugging)
     bool commandAborted; // did the previous command abort the drawing?
     GfxResources *res; // resource stack
     int updateLevel;
@@ -217,7 +218,7 @@ private:
     int ignoreUndef; // current BX/EX nesting level
     double baseMatrix[6]; // default matrix for most recent
                           //   page/form/pattern
-    int formDepth;
+    int displayDepth;
     bool ocState; // true if drawing is enabled, false if
                   //   disabled
 

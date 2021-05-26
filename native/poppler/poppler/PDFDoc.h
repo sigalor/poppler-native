@@ -32,7 +32,7 @@
 // Copyright (C) 2016 Jakub Alba <jakubalba@gmail.com>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Evangelos Rigas <erigas@rnd2.org>
-// Copyright (C) 2020 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2020, 2021 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2020 Nelson Benítez León <nbenitezl@gmail.com>
 //
 // To see a description of the changes please see the Changelog file that
@@ -46,6 +46,7 @@
 #include <mutex>
 
 #include "poppler-config.h"
+#include "poppler_private_export.h"
 #include <cstdio>
 #include "XRef.h"
 #include "Catalog.h"
@@ -117,7 +118,7 @@ enum PDFSubtypeConformance
 // PDFDoc
 //------------------------------------------------------------------------
 
-class PDFDoc
+class POPPLER_PRIVATE_EXPORT PDFDoc
 {
 public:
     PDFDoc(const GooString *fileNameA, const GooString *ownerPassword = nullptr, const GooString *userPassword = nullptr, void *guiDataA = nullptr);
@@ -132,7 +133,7 @@ public:
     PDFDoc(const PDFDoc &) = delete;
     PDFDoc &operator=(const PDFDoc &) = delete;
 
-    static PDFDoc *ErrorPDFDoc(int errorCode, const GooString *fileNameA = nullptr);
+    static std::unique_ptr<PDFDoc> ErrorPDFDoc(int errorCode, const GooString *fileNameA = nullptr);
 
     // Was PDF document successfully opened?
     bool isOk() const { return ok; }
@@ -237,10 +238,6 @@ public:
     // Return the document's Info dictionary (if any).
     Object getDocInfo() { return xref->getDocInfo(); }
     Object getDocInfoNF() { return xref->getDocInfoNF(); }
-
-    // Create and return the document's Info dictionary if none exists.
-    // Otherwise return the existing one.
-    Object createDocInfoIfNoneExists() { return xref->createDocInfoIfNoneExists(); }
 
     // Remove the document's Info dictionary and update the trailer dictionary.
     void removeDocInfo() { xref->removeDocInfo(); }
@@ -359,9 +356,6 @@ private:
     // linearized document (0 for non linearized documents).
     Goffset getMainXRefEntriesOffset(bool tryingToReconstruct = false);
     long long strToLongLong(const char *s);
-
-    // Mark the document's Info dictionary as modified.
-    void setDocInfoModified(Object *infoObj);
 
     const GooString *fileName;
 #ifdef _WIN32

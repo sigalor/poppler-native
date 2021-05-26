@@ -13,7 +13,7 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2005, 2008, 2015, 2017-2019 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005, 2008, 2015, 2017-2020 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2006 Takashi Iwai <tiwai@suse.de>
 // Copyright (C) 2006 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2007 Julien Rebetez <julienr@svn.gnome.org>
@@ -36,6 +36,7 @@
 #include "goo/GooString.h"
 #include "Object.h"
 #include "CharTypes.h"
+#include "poppler_private_export.h"
 
 class Dict;
 class CMap;
@@ -110,7 +111,7 @@ enum GfxFontLocType
     gfxFontLocResident // font resident in PS printer
 };
 
-class GfxFontLoc
+class POPPLER_PRIVATE_EXPORT GfxFontLoc
 {
 public:
     GfxFontLoc();
@@ -148,7 +149,7 @@ public:
 #define fontItalic (1 << 6)
 #define fontBold (1 << 18)
 
-class GfxFont
+class POPPLER_PRIVATE_EXPORT GfxFont
 {
 public:
     enum Stretch
@@ -211,6 +212,11 @@ public:
     // Get the original font name (ignornig any munging that might have
     // been done to map to a canonical Base-14 font name).
     const GooString *getName() const { return name; }
+
+    bool isSubset() const;
+
+    // Returns the original font name without the subset tag (if it has one)
+    std::string getNameWithoutSubsetTag() const;
 
     // Get font type.
     GfxFontType getType() const { return type; }
@@ -327,7 +333,7 @@ protected:
 // Gfx8BitFont
 //------------------------------------------------------------------------
 
-class Gfx8BitFont : public GfxFont
+class POPPLER_PRIVATE_EXPORT Gfx8BitFont : public GfxFont
 {
 public:
     Gfx8BitFont(XRef *xref, const char *tagA, Ref idA, GooString *nameA, GfxFontType typeA, Ref embFontIDA, Dict *fontDict);
@@ -387,7 +393,7 @@ private:
 // GfxCIDFont
 //------------------------------------------------------------------------
 
-class GfxCIDFont : public GfxFont
+class POPPLER_PRIVATE_EXPORT GfxCIDFont : public GfxFont
 {
 public:
     GfxCIDFont(XRef *xref, const char *tagA, Ref idA, GooString *nameA, GfxFontType typeA, Ref embFontIDA, Dict *fontDict);

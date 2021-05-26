@@ -29,6 +29,8 @@
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2020 Katarina Behrens <Katarina.Behrens@cib.de>
+// Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -39,6 +41,7 @@
 #define CATALOG_H
 
 #include "poppler-config.h"
+#include "poppler_private_export.h"
 #include "Object.h"
 #include "Link.h"
 
@@ -62,7 +65,7 @@ class StructTreeRoot;
 // NameTree
 //------------------------------------------------------------------------
 
-class NameTree
+class POPPLER_PRIVATE_EXPORT NameTree
 {
 public:
     NameTree();
@@ -103,7 +106,7 @@ private:
 // Catalog
 //------------------------------------------------------------------------
 
-class Catalog
+class POPPLER_PRIVATE_EXPORT Catalog
 {
 public:
     // Constructor.
@@ -203,6 +206,8 @@ public:
     Object *getOutline();
 
     Object *getAcroForm() { return &acroForm; }
+    void addFormToAcroForm(const Ref formRef);
+    void removeFormFromAcroForm(const Ref formRef);
 
     OCGs *getOptContentConfig() { return optContent; }
 

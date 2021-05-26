@@ -15,7 +15,7 @@
 //
 // Copyright (C) 2005 Martin Kretzschmar <martink@gnome.org>
 // Copyright (C) 2005, 2006 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2006-2009, 2011-2013, 2015-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006-2009, 2011-2013, 2015-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2006 Jeff Muizelaar <jeff@infidigm.net>
 // Copyright (C) 2007, 2008 Brad Hards <bradh@kde.org>
 // Copyright (C) 2008, 2009 Koji Otani <sho@bbr.jp>
@@ -86,6 +86,10 @@
 #endif
 #include "PSOutputDev.h"
 #include "PDFDoc.h"
+
+#ifdef USE_CMS
+#    include <lcms2.h>
+#endif
 
 // the MSVC math.h doesn't define this
 #ifndef M_PI
@@ -1082,7 +1086,7 @@ static void outputToFile(void *stream, const char *data, int len)
 }
 
 PSOutputDev::PSOutputDev(const char *fileName, PDFDoc *docA, char *psTitleA, const std::vector<int> &pagesA, PSOutMode modeA, int paperWidthA, int paperHeightA, bool noCropA, bool duplexA, int imgLLXA, int imgLLYA, int imgURXA, int imgURYA,
-                         PSForceRasterize forceRasterizeA, bool manualCtrlA, PSOutCustomCodeCbk customCodeCbkA, void *customCodeCbkDataA)
+                         PSForceRasterize forceRasterizeA, bool manualCtrlA, PSOutCustomCodeCbk customCodeCbkA, void *customCodeCbkDataA, PSLevel levelA)
 {
     FILE *f;
     PSFileType fileTypeA;
@@ -1137,11 +1141,11 @@ PSOutputDev::PSOutputDev(const char *fileName, PDFDoc *docA, char *psTitleA, con
         }
     }
 
-    init(outputToFile, f, fileTypeA, psTitleA, docA, pagesA, modeA, imgLLXA, imgLLYA, imgURXA, imgURYA, manualCtrlA, paperWidthA, paperHeightA, noCropA, duplexA);
+    init(outputToFile, f, fileTypeA, psTitleA, docA, pagesA, modeA, imgLLXA, imgLLYA, imgURXA, imgURYA, manualCtrlA, paperWidthA, paperHeightA, noCropA, duplexA, levelA);
 }
 
 PSOutputDev::PSOutputDev(PSOutputFunc outputFuncA, void *outputStreamA, char *psTitleA, PDFDoc *docA, const std::vector<int> &pagesA, PSOutMode modeA, int paperWidthA, int paperHeightA, bool noCropA, bool duplexA, int imgLLXA, int imgLLYA,
-                         int imgURXA, int imgURYA, PSForceRasterize forceRasterizeA, bool manualCtrlA, PSOutCustomCodeCbk customCodeCbkA, void *customCodeCbkDataA)
+                         int imgURXA, int imgURYA, PSForceRasterize forceRasterizeA, bool manualCtrlA, PSOutCustomCodeCbk customCodeCbkA, void *customCodeCbkDataA, PSLevel levelA)
 {
     underlayCbk = nullptr;
     underlayCbkData = nullptr;
@@ -1164,7 +1168,7 @@ PSOutputDev::PSOutputDev(PSOutputFunc outputFuncA, void *outputStreamA, char *ps
     forceRasterize = forceRasterizeA;
     psTitle = nullptr;
 
-    init(outputFuncA, outputStreamA, psGeneric, psTitleA, docA, pagesA, modeA, imgLLXA, imgLLYA, imgURXA, imgURYA, manualCtrlA, paperWidthA, paperHeightA, noCropA, duplexA);
+    init(outputFuncA, outputStreamA, psGeneric, psTitleA, docA, pagesA, modeA, imgLLXA, imgLLYA, imgURXA, imgURYA, manualCtrlA, paperWidthA, paperHeightA, noCropA, duplexA, levelA);
 }
 
 struct StandardMedia
@@ -1181,7 +1185,11 @@ static const StandardMedia standardMedia[] = { { "A0", 2384, 3371 },      { "A1"
 /* PLRM specifies a tolerance of 5 points when matching page sizes */
 static bool pageDimensionEqual(int a, int b)
 {
-    return (abs(a - b) < 5);
+    int aux;
+    if (unlikely(checkedSubtraction(a, b, &aux))) {
+        return false;
+    }
+    return (abs(aux) < 5);
 }
 
 // Shared initialization of PSOutputDev members.
@@ -1189,7 +1197,7 @@ static bool pageDimensionEqual(int a, int b)
 //   created the PSOutputDev can use the various setters to change defaults.
 
 void PSOutputDev::init(PSOutputFunc outputFuncA, void *outputStreamA, PSFileType fileTypeA, char *psTitleA, PDFDoc *docA, const std::vector<int> &pagesA, PSOutMode modeA, int imgLLXA, int imgLLYA, int imgURXA, int imgURYA, bool manualCtrlA,
-                       int paperWidthA, int paperHeightA, bool noCropA, bool duplexA)
+                       int paperWidthA, int paperHeightA, bool noCropA, bool duplexA, PSLevel levelA)
 {
 
     if (pagesA.empty()) {
@@ -1212,7 +1220,6 @@ void PSOutputDev::init(PSOutputFunc outputFuncA, void *outputStreamA, PSFileType
     useBinary = false;
     enableLZW = true;
     enableFlate = true;
-    rasterMono = false;
     rasterResolution = 300;
     uncompressPreloadedImages = false;
     psCenter = true;
@@ -1224,7 +1231,7 @@ void PSOutputDev::init(PSOutputFunc outputFuncA, void *outputStreamA, PSFileType
     fileType = fileTypeA;
     psTitle = (psTitleA ? strdup(psTitleA) : nullptr);
     doc = docA;
-    level = globalParams->getPSLevel();
+    level = levelA;
     pages = pagesA;
     mode = modeA;
     paperWidth = paperWidthA;
@@ -1255,6 +1262,10 @@ void PSOutputDev::init(PSOutputFunc outputFuncA, void *outputStreamA, PSFileType
     rotate0 = -1;
     clipLLX0 = clipLLY0 = 0;
     clipURX0 = clipURY0 = -1;
+
+#ifdef HAVE_SPLASH
+    processColorFormatSpecified = false;
+#endif
 
     // initialize sequential page number
     seqPage = 1;
@@ -1376,6 +1387,63 @@ void PSOutputDev::postInit()
     numTilingPatterns = 0;
     nextFunc = 0;
 
+#ifdef HAVE_SPLASH
+    // set some default process color format if none is set
+    if (!processColorFormatSpecified) {
+        if (level == psLevel1) {
+            processColorFormat = splashModeMono8;
+        } else if (level == psLevel1Sep || level == psLevel2Sep || level == psLevel3Sep || globalParams->getOverprintPreview()) {
+            processColorFormat = splashModeCMYK8;
+        }
+#    ifdef USE_CMS
+        else if (getDisplayProfile()) {
+            auto processcolorspace = cmsGetColorSpace(getDisplayProfile().get());
+            if (processcolorspace == cmsSigCmykData) {
+                processColorFormat = splashModeCMYK8;
+            } else if (processcolorspace == cmsSigGrayData) {
+                processColorFormat = splashModeMono8;
+            } else {
+                processColorFormat = splashModeRGB8;
+            }
+        }
+#    endif
+        else {
+            processColorFormat = splashModeRGB8;
+        }
+    }
+
+    // check for consistency between the processColorFormat the LanguageLevel and other settings
+    if (level == psLevel1 && processColorFormat != splashModeMono8) {
+        error(errConfig, -1,
+              "Conflicting settings between LanguageLevel=psLevel1 and processColorFormat."
+              " Resetting processColorFormat to MONO8.");
+        processColorFormat = splashModeMono8;
+    } else if ((level == psLevel1Sep || level == psLevel2Sep || level == psLevel3Sep || globalParams->getOverprintPreview()) && processColorFormat != splashModeCMYK8) {
+        error(errConfig, -1,
+              "Conflicting settings between LanguageLevel and/or overprint simulation, and processColorFormat."
+              " Resetting processColorFormat to CMYK8.");
+        processColorFormat = splashModeCMYK8;
+    }
+#    ifdef USE_CMS
+    if (getDisplayProfile()) {
+        auto processcolorspace = cmsGetColorSpace(getDisplayProfile().get());
+        if (processColorFormat == splashModeCMYK8) {
+            if (processcolorspace != cmsSigCmykData) {
+                error(errConfig, -1, "Mismatch between processColorFormat=CMYK8 and ICC profile color format.");
+            }
+        } else if (processColorFormat == splashModeMono8) {
+            if (processcolorspace != cmsSigGrayData) {
+                error(errConfig, -1, "Mismatch between processColorFormat=MONO8 and ICC profile color format.");
+            }
+        } else if (processColorFormat == splashModeRGB8) {
+            if (processcolorspace != cmsSigRgbData) {
+                error(errConfig, -1, "Mismatch between processColorFormat=RGB8 and ICC profile color format.");
+            }
+        }
+    }
+#    endif
+#endif
+
     // initialize embedded font resource comment list
     embFontList = new GooString();
 
@@ -1473,6 +1541,7 @@ PSOutputDev::~PSOutputDev()
         delete cc;
     }
     gfree(psTitle);
+    delete t3String;
 }
 
 void PSOutputDev::writeHeader(int nPages, const PDFRectangle *mediaBox, const PDFRectangle *cropBox, int pageRotate, const char *title)
@@ -1759,8 +1828,17 @@ void PSOutputDev::setupResources(Dict *resDict)
                 // process the XObject's resource dictionary
                 Object xObj = xObjDict.dictGetVal(i);
                 if (xObj.isStream()) {
-                    Object resObj = xObj.streamGetDict()->lookup("Resources");
+                    Ref resObjRef;
+                    Object resObj = xObj.streamGetDict()->lookup("Resources", &resObjRef);
                     if (resObj.isDict()) {
+                        if (resObjRef != Ref::INVALID()) {
+                            const int numObj = resObjRef.num;
+                            if (resourceIDs.find(numObj) != resourceIDs.end()) {
+                                error(errSyntaxError, -1, "loop in Resources (numObj: {0:d})", numObj);
+                                continue;
+                            }
+                            resourceIDs.insert(numObj);
+                        }
                         setupResources(resObj.getDict());
                     }
                 }
@@ -2459,7 +2537,7 @@ void PSOutputDev::setupExternalCIDTrueTypeFont(GfxFont *font, GooString *fileNam
             }
             if (ffTT->isOpenTypeCFF()) {
                 ffTT->convertToCIDType0(psName->c_str(), codeToGID, codeToGIDLen, outputFunc, outputStream);
-            } else if (globalParams->getPSLevel() >= psLevel3) {
+            } else if (level >= psLevel3) {
                 // Level 3: use a CID font
                 ffTT->convertToCIDType2(psName->c_str(), codeToGID, codeToGIDLen, needVerticalMetrics, outputFunc, outputStream);
             } else {
@@ -2511,7 +2589,7 @@ void PSOutputDev::setupEmbeddedCIDType0Font(GfxFont *font, Ref *id, GooString *p
     // convert it to a Type 0 font
     if ((fontBuf = font->readEmbFontFile(xref, &fontLen))) {
         if ((ffT1C = FoFiType1C::make(fontBuf, fontLen))) {
-            if (globalParams->getPSLevel() >= psLevel3) {
+            if (level >= psLevel3) {
                 // Level 3: use a CID font
                 ffT1C->convertToCIDType0(psName->c_str(), nullptr, 0, outputFunc, outputStream);
             } else {
@@ -2542,7 +2620,7 @@ void PSOutputDev::setupEmbeddedCIDTrueTypeFont(GfxFont *font, Ref *id, GooString
     // convert it to a Type 0 font
     if ((fontBuf = font->readEmbFontFile(xref, &fontLen))) {
         if ((ffTT = FoFiTrueType::make(fontBuf, fontLen))) {
-            if (globalParams->getPSLevel() >= psLevel3) {
+            if (level >= psLevel3) {
                 // Level 3: use a CID font
                 ffTT->convertToCIDType2(psName->c_str(), ((GfxCIDFont *)font)->getCIDToGID(), ((GfxCIDFont *)font)->getCIDToGIDLen(), needVerticalMetrics, outputFunc, outputStream);
             } else {
@@ -2593,7 +2671,7 @@ void PSOutputDev::setupEmbeddedOpenTypeCFFFont(GfxFont *font, Ref *id, GooString
     if ((fontBuf = font->readEmbFontFile(xref, &fontLen))) {
         if ((ffTT = FoFiTrueType::make(fontBuf, fontLen))) {
             if (ffTT->isOpenTypeCFF()) {
-                if (globalParams->getPSLevel() >= psLevel3) {
+                if (level >= psLevel3) {
                     // Level 3: use a CID font
                     ffTT->convertToCIDType0(psName->c_str(), ((GfxCIDFont *)font)->getCIDToGID(), ((GfxCIDFont *)font)->getCIDToGIDLen(), outputFunc, outputStream);
                 } else {
@@ -3075,7 +3153,9 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
     int numComps, initialNumComps;
     char hexBuf[32 * 2 + 2]; // 32 values X 2 chars/value + line ending + null
     unsigned char digit;
-    bool isGray;
+    bool isOptimizedGray;
+    bool overprint;
+    SplashColorMode internalColorFormat;
 #endif
 
     if (!postInitDone) {
@@ -3086,7 +3166,7 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
     } else if (forceRasterize == psNeverRasterize) {
         rasterize = false;
     } else {
-        scan = new PreScanOutputDev(doc);
+        scan = new PreScanOutputDev(level);
         page->displaySlice(scan, 72, 72, rotateA, useMediaBox, crop, sliceX, sliceY, sliceW, sliceH, printing, abortCheckCbk, abortCheckCbkData, annotDisplayDecideCbk, annotDisplayDecideCbkData);
         rasterize = scan->usesTransparency() || scan->usesPatternImageMask();
         delete scan;
@@ -3111,22 +3191,44 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
     startPage(page->getNum(), state, xref);
     delete state;
 
+    // If we would not rasterize this page, we would emit the overprint code anyway for language level 2 and upwards.
+    // As such it is safe to assume for a CMYK printer that it would respect the overprint operands.
+    overprint = globalParams->getOverprintPreview() || (processColorFormat == splashModeCMYK8 && level >= psLevel2);
+
     // set up the SplashOutputDev
-    if (rasterMono || level == psLevel1) {
+    internalColorFormat = processColorFormat;
+    if (processColorFormat == splashModeMono8) {
         numComps = 1;
         paperColor[0] = 0xff;
-        splashOut = new SplashOutputDev(splashModeMono8, 1, false, paperColor, false);
-    } else if (level == psLevel1Sep || level == psLevel2Sep || level == psLevel3Sep || globalParams->getOverprintPreview()) {
+    } else if (processColorFormat == splashModeCMYK8) {
         numComps = 4;
-        paperColor[0] = paperColor[1] = paperColor[2] = paperColor[3] = 0;
-        splashOut = new SplashOutputDev(splashModeCMYK8, 1, false, paperColor, false);
-    } else {
+        splashClearColor(paperColor);
+
+        // If overprinting is emulated, it is not sufficient to just store the CMYK values in a bitmap.
+        // All separation channels need to be stored and collapsed at the end.
+        // Cf. PDF32000_2008 Section 11.7.4.5 and Tables 148, 149
+        if (overprint) {
+            internalColorFormat = splashModeDeviceN8;
+        }
+    } else if (processColorFormat == splashModeRGB8) {
         numComps = 3;
         paperColor[0] = paperColor[1] = paperColor[2] = 0xff;
-        splashOut = new SplashOutputDev(splashModeRGB8, 1, false, paperColor, false);
+    } else {
+        error(errUnimplemented, -1, "Unsupported processColorMode. Falling back to RGB8.");
+        processColorFormat = splashModeRGB8;
+        internalColorFormat = processColorFormat;
+        numComps = 3;
+        paperColor[0] = paperColor[1] = paperColor[2] = 0xff;
     }
+    splashOut = new SplashOutputDev(internalColorFormat, 1, false, paperColor, false, splashThinLineDefault, overprint);
     splashOut->setFontAntialias(rasterAntialias);
     splashOut->setVectorAntialias(rasterAntialias);
+#    ifdef USE_CMS
+    splashOut->setDisplayProfile(getDisplayProfile());
+    splashOut->setDefaultGrayProfile(getDefaultGrayProfile());
+    splashOut->setDefaultRGBProfile(getDefaultRGBProfile());
+    splashOut->setDefaultCMYKProfile(getDefaultCMYKProfile());
+#    endif
     splashOut->startDoc(doc);
 
     // break the page into stripes
@@ -3142,7 +3244,12 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
         sliceW = (int)((box.x2 - box.x1) * hDPI2 / 72.0);
         sliceH = (int)((box.y2 - box.y1) * vDPI2 / 72.0);
     }
-    nStripes = (int)ceil((double)(sliceW * sliceH) / (double)rasterizationSliceSize);
+    int sliceArea;
+    if (checkedMultiply(sliceW, sliceH, &sliceArea)) {
+        delete splashOut;
+        return false;
+    }
+    nStripes = (int)ceil((double)(sliceArea) / (double)rasterizationSliceSize);
     if (unlikely(nStripes == 0)) {
         delete splashOut;
         return false;
@@ -3211,11 +3318,11 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
             p = bitmap->getDataPtr();
             // Check for an all gray image
             if (getOptimizeColorSpace()) {
-                isGray = true;
+                isOptimizedGray = true;
                 for (y = 0; y < h; ++y) {
                     for (x = 0; x < w; ++x) {
                         if (p[4 * x] != p[4 * x + 1] || p[4 * x] != p[4 * x + 2]) {
-                            isGray = false;
+                            isOptimizedGray = false;
                             y = h;
                             break;
                         }
@@ -3223,13 +3330,13 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
                     p += bitmap->getRowSize();
                 }
             } else {
-                isGray = false;
+                isOptimizedGray = false;
             }
-            writePSFmt("{0:d} {1:d} 8 [{2:d} 0 0 {3:d} 0 {4:d}] pdfIm1{5:s}{6:s}\n", w, h, w, -h, h, isGray ? "" : "Sep", useBinary ? "Bin" : "");
+            writePSFmt("{0:d} {1:d} 8 [{2:d} 0 0 {3:d} 0 {4:d}] pdfIm1{5:s}{6:s}\n", w, h, w, -h, h, isOptimizedGray ? "" : "Sep", useBinary ? "Bin" : "");
             p = bitmap->getDataPtr() + (h - 1) * bitmap->getRowSize();
             i = 0;
             col[0] = col[1] = col[2] = col[3] = 0;
-            if (isGray) {
+            if (isOptimizedGray) {
                 int g;
                 if ((psProcessBlack & processColors) == 0) {
                     // Check if the image uses black
@@ -3366,39 +3473,43 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
         case psLevel3:
         case psLevel3Sep:
             p = bitmap->getDataPtr() + (h - 1) * bitmap->getRowSize();
-            str0 = new MemStream((char *)p, 0, w * h * numComps, Object(objNull));
+            if (processColorFormat == splashModeCMYK8 && internalColorFormat != splashModeCMYK8) {
+                str0 = new SplashBitmapCMYKEncoder(bitmap);
+            } else {
+                str0 = new MemStream((char *)p, 0, w * h * numComps, Object(objNull));
+            }
             // Check for a color image that uses only gray
             if (!getOptimizeColorSpace()) {
-                isGray = false;
+                isOptimizedGray = false;
             } else if (numComps == 4) {
                 int compCyan;
-                isGray = true;
+                isOptimizedGray = true;
                 while ((compCyan = str0->getChar()) != EOF) {
                     if (str0->getChar() != compCyan || str0->getChar() != compCyan) {
-                        isGray = false;
+                        isOptimizedGray = false;
                         break;
                     }
                     str0->getChar();
                 }
             } else if (numComps == 3) {
                 int compRed;
-                isGray = true;
+                isOptimizedGray = true;
                 while ((compRed = str0->getChar()) != EOF) {
                     if (str0->getChar() != compRed || str0->getChar() != compRed) {
-                        isGray = false;
+                        isOptimizedGray = false;
                         break;
                     }
                 }
             } else {
-                isGray = false;
+                isOptimizedGray = false;
             }
             str0->reset();
 #    ifdef ENABLE_ZLIB
             if (useFlate) {
-                if (isGray && numComps == 4) {
+                if (isOptimizedGray && numComps == 4) {
                     str = new FlateEncoder(new CMYKGrayEncoder(str0));
                     numComps = 1;
-                } else if (isGray && numComps == 3) {
+                } else if (isOptimizedGray && numComps == 3) {
                     str = new FlateEncoder(new RGBGrayEncoder(str0));
                     numComps = 1;
                 } else {
@@ -3407,20 +3518,20 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
             } else
 #    endif
                     if (useLZW) {
-                if (isGray && numComps == 4) {
+                if (isOptimizedGray && numComps == 4) {
                     str = new LZWEncoder(new CMYKGrayEncoder(str0));
                     numComps = 1;
-                } else if (isGray && numComps == 3) {
+                } else if (isOptimizedGray && numComps == 3) {
                     str = new LZWEncoder(new RGBGrayEncoder(str0));
                     numComps = 1;
                 } else {
                     str = new LZWEncoder(str0);
                 }
             } else {
-                if (isGray && numComps == 4) {
+                if (isOptimizedGray && numComps == 4) {
                     str = new RunLengthEncoder(new CMYKGrayEncoder(str0));
                     numComps = 1;
-                } else if (isGray && numComps == 3) {
+                } else if (isOptimizedGray && numComps == 3) {
                     str = new RunLengthEncoder(new RGBGrayEncoder(str0));
                     numComps = 1;
                 } else {
@@ -3440,7 +3551,13 @@ bool PSOutputDev::checkPageSlice(Page *page, double /*hDPI*/, double /*vDPI*/, i
             writePSFmt("  /ImageMatrix [{0:d} 0 0 {1:d} 0 {2:d}]\n", w, -h, h);
             writePS("  /BitsPerComponent 8\n");
             if (numComps == 1) {
-                writePS("  /Decode [1 0]\n");
+                // the optimized gray variants are implemented as a subtractive color space,
+                // such that the range is flipped for them
+                if (isOptimizedGray) {
+                    writePS("  /Decode [1 0]\n");
+                } else {
+                    writePS("  /Decode [0 1]\n");
+                }
             } else if (numComps == 3) {
                 writePS("  /Decode [0 1 0 1 0 1]\n");
             } else {
@@ -3578,7 +3695,10 @@ void PSOutputDev::startPage(int pageNum, GfxState *state, XRef *xrefA)
         y1 = (int)floor(state->getY1());
         x2 = (int)ceil(state->getX2());
         y2 = (int)ceil(state->getY2());
-        width = x2 - x1;
+        if (unlikely(checkedSubtraction(x2, x1, &width))) {
+            error(errSyntaxError, -1, "width too big");
+            return;
+        }
         height = y2 - y1;
         tx = ty = 0;
         // rotation and portrait/landscape mode
@@ -3628,6 +3748,10 @@ void PSOutputDev::startPage(int pageNum, GfxState *state, XRef *xrefA)
             xScale = xScale0;
             yScale = yScale0;
         } else if ((globalParams->getPSShrinkLarger() && (width > imgWidth2 || height > imgHeight2)) || (globalParams->getPSExpandSmaller() && (width < imgWidth2 && height < imgHeight2))) {
+            if (unlikely(width == 0)) {
+                error(errSyntaxError, -1, "width 0, xScale would be infinite");
+                return;
+            }
             xScale = (double)imgWidth2 / (double)width;
             yScale = (double)imgHeight2 / (double)height;
             if (yScale < xScale) {
@@ -4335,9 +4459,28 @@ bool PSOutputDev::tilingPatternFillL2(GfxState *state, Catalog *cat, Object *str
     return true;
 }
 
-bool PSOutputDev::tilingPatternFill(GfxState *state, Gfx *gfxA, Catalog *cat, Object *str, const double *pmat, int paintType, int tilingType, Dict *resDict, const double *mat, const double *bbox, int x0, int y0, int x1, int y1,
-                                    double xStep, double yStep)
+bool PSOutputDev::tilingPatternFill(GfxState *state, Gfx *gfxA, Catalog *cat, GfxTilingPattern *tPat, const double *mat, int x0, int y0, int x1, int y1, double xStep, double yStep)
 {
+    std::set<int>::iterator patternRefIt;
+    const int patternRefNum = tPat->getPatternRefNum();
+    if (patternRefNum != -1) {
+        if (patternsBeingTiled.find(patternRefNum) == patternsBeingTiled.end()) {
+            patternRefIt = patternsBeingTiled.insert(patternRefNum).first;
+        } else {
+            // pretend we drew it anyway
+            error(errSyntaxError, -1, "Loop in pattern fills");
+            return true;
+        }
+    }
+
+    const double *bbox = tPat->getBBox();
+    const double *pmat = tPat->getMatrix();
+    const int paintType = tPat->getPaintType();
+    const int tilingType = tPat->getTilingType();
+    Dict *resDict = tPat->getResDict();
+    Object *str = tPat->getContentStream();
+
+    bool res;
     if (x1 - x0 == 1 && y1 - y0 == 1) {
         // Don't need to use patterns if only one instance of the pattern is used
         PDFRectangle box;
@@ -4357,14 +4500,18 @@ bool PSOutputDev::tilingPatternFill(GfxState *state, Gfx *gfxA, Catalog *cat, Ob
         gfx->display(str);
         inType3Char = false;
         delete gfx;
-        return true;
+        res = true;
+    } else if (level == psLevel1 || level == psLevel1Sep) {
+        res = tilingPatternFillL1(state, cat, str, pmat, paintType, tilingType, resDict, mat, bbox, x0, y0, x1, y1, xStep, yStep);
+    } else {
+        res = tilingPatternFillL2(state, cat, str, pmat, paintType, tilingType, resDict, mat, bbox, x0, y0, x1, y1, xStep, yStep);
     }
 
-    if (level == psLevel1 || level == psLevel1Sep) {
-        return tilingPatternFillL1(state, cat, str, pmat, paintType, tilingType, resDict, mat, bbox, x0, y0, x1, y1, xStep, yStep);
-    } else {
-        return tilingPatternFillL2(state, cat, str, pmat, paintType, tilingType, resDict, mat, bbox, x0, y0, x1, y1, xStep, yStep);
+    if (patternRefNum != -1) {
+        patternsBeingTiled.erase(patternRefIt);
     }
+
+    return res;
 }
 
 bool PSOutputDev::functionShadedFill(GfxState *state, GfxFunctionShading *shading)
@@ -6497,8 +6644,15 @@ void PSOutputDev::dumpColorSpaceL2(GfxState *state, GfxColorSpace *colorSpace, b
         GfxICCBasedColorSpace *iccBasedCS;
         iccBasedCS = (GfxICCBasedColorSpace *)colorSpace;
         Ref ref = iccBasedCS->getRef();
+        const bool validref = ref != Ref::INVALID();
         int intent = state->getCmsRenderingIntent();
-        GooString *name = GooString::format("ICCBased-{0:d}-{1:d}-{2:d}", ref.num, ref.gen, intent);
+        GooString *name;
+        if (validref) {
+            name = GooString::format("ICCBased-{0:d}-{1:d}-{2:d}", ref.num, ref.gen, intent);
+        } else {
+            const unsigned long long hash = std::hash<GfxLCMSProfilePtr> {}(iccBasedCS->getProfile());
+            name = GooString::format("ICCBased-hashed-{0:ullX}-{1:d}", hash, intent);
+        }
         const auto &it = iccEmitted.find(name->toStr());
         if (it != iccEmitted.end()) {
             writePSFmt("{0:t}", name);
@@ -6981,6 +7135,7 @@ void PSOutputDev::type3D1(GfxState *state, double wx, double wy, double llx, dou
     t3LLY = lly;
     t3URX = urx;
     t3URY = ury;
+    delete t3String;
     t3String = new GooString();
     writePS("q\n");
     t3FillColorOnly = true;

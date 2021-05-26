@@ -15,15 +15,16 @@
 //
 // Copyright (C) 2007 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright (C) 2008 Kees Cook <kees@outflux.net>
-// Copyright (C) 2008, 2010, 2017-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2008, 2010, 2017-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009 Jakub Wilk <jwilk@jwilk.net>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2013, 2017, 2018 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2013 Adrian Perez de Castro <aperez@igalia.com>
-// Copyright (C) 2016 Jakub Alba <jakubalba@gmail.com>
+// Copyright (C) 2016, 2020 Jakub Alba <jakubalba@gmail.com>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -42,6 +43,7 @@
 #include "goo/GooString.h"
 #include "goo/GooLikely.h"
 #include "Error.h"
+#include "poppler_private_export.h"
 
 #define OBJECT_TYPE_CHECK(wanted_type)                                                                                                                                                                                                         \
     if (unlikely(type != wanted_type)) {                                                                                                                                                                                                       \
@@ -151,16 +153,17 @@ enum ObjType
 
     // poppler-only objects
     objInt64, // integer with at least 64-bits
+    objHexString, // hex string
     objDead // and object after shallowCopy
 };
 
-constexpr int numObjTypes = 16; // total number of object types
+constexpr int numObjTypes = 17; // total number of object types
 
 //------------------------------------------------------------------------
 // Object
 //------------------------------------------------------------------------
 
-class Object
+class POPPLER_PRIVATE_EXPORT Object
 {
 public:
     Object() : type(objNone) { }
@@ -186,6 +189,13 @@ public:
     {
         assert(stringA);
         type = objString;
+        string = stringA;
+    }
+    Object(ObjType typeA, GooString *stringA)
+    {
+        assert(typeA == objHexString);
+        assert(stringA);
+        type = typeA;
         string = stringA;
     }
     Object(ObjType typeA, const char *stringA)
@@ -290,6 +300,11 @@ public:
     {
         CHECK_NOT_DEAD;
         return type == objString;
+    }
+    bool isHexString() const
+    {
+        CHECK_NOT_DEAD;
+        return type == objHexString;
     }
     bool isName() const
     {
@@ -401,6 +416,17 @@ public:
         type = objDead;
         return string;
     }
+    const GooString *getHexString() const
+    {
+        OBJECT_TYPE_CHECK(objHexString);
+        return string;
+    }
+    GooString *takeHexString()
+    {
+        OBJECT_TYPE_CHECK(objHexString);
+        type = objDead;
+        return string;
+    }
     const char *getName() const
     {
         OBJECT_TYPE_CHECK(objName);
@@ -475,8 +501,8 @@ public:
     // Stream accessors.
     void streamReset();
     void streamClose();
-    int streamGetChar() const;
-    int streamGetChars(int nChars, unsigned char *buffer) const;
+    int streamGetChar();
+    int streamGetChars(int nChars, unsigned char *buffer);
     void streamSetPos(Goffset pos, int dir = 0);
     Dict *streamGetDict() const;
 
@@ -504,7 +530,7 @@ private:
         int intg; //   integer
         long long int64g; //   64-bit integer
         double real; //   real
-        GooString *string; //   string
+        GooString *string; // [hex] string
         char *cString; //   name or command, depending on objType
         Array *array; //   array
         Dict *dict; //   dictionary
@@ -638,13 +664,13 @@ inline void Object::streamClose()
     stream->close();
 }
 
-inline int Object::streamGetChar() const
+inline int Object::streamGetChar()
 {
     OBJECT_TYPE_CHECK(objStream);
     return stream->getChar();
 }
 
-inline int Object::streamGetChars(int nChars, unsigned char *buffer) const
+inline int Object::streamGetChars(int nChars, unsigned char *buffer)
 {
     OBJECT_TYPE_CHECK(objStream);
     return stream->doGetChars(nChars, buffer);

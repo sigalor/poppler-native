@@ -28,7 +28,8 @@
 // Copyright (C) 2013 Pino Toscano <pino@kde.org>
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
 // Copyright (C) 2019 Alexander Volkov <a.volkov@rusbitech.ru>
-// Copyright (C) 2020 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2020, 2021 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2020 Philipp Knechtges <philipp-dev@knechtges.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -42,11 +43,15 @@
 #include <cstdio>
 
 #include "poppler-config.h"
+#include "poppler_private_export.h"
 #include "Object.h"
 
 class GooFile;
 class BaseStream;
 class CachedFile;
+#ifdef HAVE_SPLASH
+class SplashBitmap;
+#endif
 
 //------------------------------------------------------------------------
 
@@ -99,7 +104,7 @@ typedef struct _ByteRange
 // Stream (base class)
 //------------------------------------------------------------------------
 
-class Stream
+class POPPLER_PRIVATE_EXPORT Stream
 {
 public:
     // Constructor.
@@ -196,6 +201,11 @@ public:
     // Get next line from stream.
     virtual char *getLine(char *buf, int size);
 
+    // Discard the next <n> bytes from stream.  Returns the number of
+    // bytes discarded, which will be less than <n> only if EOF is
+    // reached.
+    virtual unsigned int discardChars(unsigned int n);
+
     // Get current position in file.
     virtual Goffset getPos() = 0;
 
@@ -257,7 +267,7 @@ private:
 //
 // This is the base class for all streams that output to a file
 //------------------------------------------------------------------------
-class OutStream
+class POPPLER_PRIVATE_EXPORT OutStream
 {
 public:
     // Constructor.
@@ -284,7 +294,7 @@ public:
 //------------------------------------------------------------------------
 // FileOutStream
 //------------------------------------------------------------------------
-class FileOutStream : public OutStream
+class POPPLER_PRIVATE_EXPORT FileOutStream : public OutStream
 {
 public:
     FileOutStream(FILE *fa, Goffset startA);
@@ -310,7 +320,7 @@ private:
 // This is the base class for all streams that read directly from a file.
 //------------------------------------------------------------------------
 
-class BaseStream : public Stream
+class POPPLER_PRIVATE_EXPORT BaseStream : public Stream
 {
 public:
     // TODO Mirar si puedo hacer que dictA sea un puntero
@@ -340,7 +350,7 @@ protected:
 // BaseInputStream
 //------------------------------------------------------------------------
 
-class BaseSeekInputStream : public BaseStream
+class POPPLER_PRIVATE_EXPORT BaseSeekInputStream : public BaseStream
 {
 public:
     // This enum is used to tell the seek() method how it must reposition
@@ -421,7 +431,7 @@ protected:
 // ImageStream
 //------------------------------------------------------------------------
 
-class ImageStream
+class POPPLER_PRIVATE_EXPORT ImageStream
 {
 public:
     // Create an image stream object for an image with the specified
@@ -577,7 +587,7 @@ private:
 
 #define cachedStreamBufSize 1024
 
-class CachedFileStream : public BaseStream
+class POPPLER_PRIVATE_EXPORT CachedFileStream : public BaseStream
 {
 public:
     CachedFileStream(CachedFile *ccA, Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA);
@@ -715,7 +725,7 @@ private:
     T *bufPtr;
 };
 
-class MemStream : public BaseMemStream<const char>
+class POPPLER_PRIVATE_EXPORT MemStream : public BaseMemStream<const char>
 {
 public:
     MemStream(const char *bufA, Goffset startA, Goffset lengthA, Object &&dictA) : BaseMemStream(bufA, startA, lengthA, std::move(dictA)) { }
@@ -739,7 +749,7 @@ public:
 // that creating a new FileStream (using makeSubStream).
 //------------------------------------------------------------------------
 
-class EmbedStream : public BaseStream
+class POPPLER_PRIVATE_EXPORT EmbedStream : public BaseStream
 {
 public:
     EmbedStream(Stream *strA, Object &&dictA, bool limitedA, Goffset lengthA, bool reusableA = false);
@@ -1427,5 +1437,54 @@ private:
 
     bool fillBuf();
 };
+
+//------------------------------------------------------------------------
+// SplashBitmapCMYKEncoder
+//
+// This stream helps to condense SplashBitmaps (mostly of DeviceN8 type) into
+// pure CMYK colors. In particular for a DeviceN8 bitmap it redacts the spot colorants.
+//------------------------------------------------------------------------
+
+#ifdef HAVE_SPLASH
+class SplashBitmapCMYKEncoder : public Stream
+{
+public:
+    SplashBitmapCMYKEncoder(SplashBitmap *bitmapA);
+    ~SplashBitmapCMYKEncoder() override;
+    StreamKind getKind() const override { return strWeird; }
+    void reset() override;
+    int getChar() override;
+    int lookChar() override;
+    GooString *getPSFilter(int /*psLevel*/, const char * /*indent*/) override { return nullptr; }
+    bool isBinary(bool /*last = true*/) override { return true; }
+
+    // Although we are an encoder, we return false here, since we do not want do be auto-deleted by
+    // successive streams.
+    bool isEncoder() override { return false; }
+
+    int getUnfilteredChar() override { return getChar(); }
+    void unfilteredReset() override { reset(); }
+
+    BaseStream *getBaseStream() override { return nullptr; }
+    Stream *getUndecodedStream() override { return this; }
+
+    Dict *getDict() override { return nullptr; }
+    Object *getDictObject() override { return nullptr; }
+
+    Goffset getPos() override;
+    void setPos(Goffset pos, int dir = 0) override;
+
+private:
+    SplashBitmap *bitmap;
+    size_t width;
+    int height;
+
+    std::vector<unsigned char> buf;
+    size_t bufPtr;
+    int curLine;
+
+    bool fillBuf();
+};
+#endif
 
 #endif

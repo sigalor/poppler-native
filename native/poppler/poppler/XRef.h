@@ -21,7 +21,7 @@
 // Copyright (C) 2010 Hib Eris <hib@hiberis.nl>
 // Copyright (C) 2012, 2013, 2016 Thomas Freitag <Thomas.Freitag@kabelmail.de>
 // Copyright (C) 2012, 2013 Fabio D'Urso <fabiodurso@hotmail.it>
-// Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2013, 2017, 2019 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2016 Jakub Alba <jakubalba@gmail.com>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2018 Marek Kasik <mkasik@redhat.com>
@@ -35,6 +35,7 @@
 #define XREF_H
 
 #include "poppler-config.h"
+#include "poppler_private_export.h"
 #include "Object.h"
 #include "Stream.h"
 #include "PopplerCache.h"
@@ -92,7 +93,7 @@ struct XRefEntry
     }
 };
 
-class XRef
+class POPPLER_PRIVATE_EXPORT XRef
 {
 public:
     // Constructor, create an empty XRef, used for PDF writing
@@ -149,15 +150,19 @@ public:
 
     // Fetch an indirect reference.
     Object fetch(const Ref ref, int recursion = 0);
-    Object fetch(int num, int gen, int recursion = 0);
+    // If endPos is not null, returns file position after parsing the object. This will
+    // be a few bytes after the end of the object due to the parser reading ahead.
+    // Returns -1 if object is in compressed stream.
+    Object fetch(int num, int gen, int recursion = 0, Goffset *endPos = nullptr);
 
     // Return the document's Info dictionary (if any).
     Object getDocInfo();
     Object getDocInfoNF();
 
-    // Create and return the document's Info dictionary if none exists.
+    // Create and return the document's Info dictionary if needed.
     // Otherwise return the existing one.
-    Object createDocInfoIfNoneExists();
+    // Returns in the given parameter the Ref the Info is in
+    Object createDocInfoIfNeeded(Ref *ref);
 
     // Remove the document's Info dictionary and update the trailer dictionary.
     void removeDocInfo();

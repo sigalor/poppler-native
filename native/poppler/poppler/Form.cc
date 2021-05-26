@@ -5,9 +5,9 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2006-2008 Julien Rebetez <julienr@svn.gnome.org>
-// Copyright 2007-2012, 2015-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright 2007-2012, 2015-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright 2007-2008, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright 2007, 2013, 2016 Adrian Johnson <ajohnson@redneon.com>
+// Copyright 2007, 2013, 2016, 2019 Adrian Johnson <ajohnson@redneon.com>
 // Copyright 2007 Iñigo Martínez <inigomartinez@gmail.com>
 // Copyright 2008, 2011 Pino Toscano <pino@kde.org>
 // Copyright 2008 Michael Vrable <mvrable@cs.ucsd.edu>
@@ -23,11 +23,13 @@
 // Copyright 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright 2018 Chinmoy Ranjan Pradhan <chinmoyrp65@protonmail.com>
 // Copyright 2018 Adam Reichold <adam.reichold@t-online.de>
-// Copyright 2018-2020 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright 2018-2021 Nelson Benítez León <nbenitezl@gmail.com>
 // Copyright 2019, 2020 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright 2019 Tomoyuki Kubota <himajin100000@gmail.com>
 // Copyright 2019 João Netto <joaonetto901@gmail.com>
 // Copyright 2020 Marek Kasik <mkasik@redhat.com>
+// Copyright 2020 Thorsten Behrens <Thorsten.Behrens@CIB.de>
+// Copyright 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
 //
 //========================================================================
 
@@ -40,8 +42,10 @@
 #include <cstring>
 #include <cctype>
 #include "goo/gmem.h"
+#include "goo/gfile.h"
 #include "goo/GooString.h"
 #include "Error.h"
+#include "ErrorCodes.h"
 #include "Object.h"
 #include "Array.h"
 #include "Dict.h"
@@ -53,11 +57,13 @@
 #    include "SignatureHandler.h"
 #endif
 #include "SignatureInfo.h"
+#include "CertificateInfo.h"
 #include "XRef.h"
 #include "PDFDocEncoding.h"
 #include "Annot.h"
 #include "Link.h"
 #include "Lexer.h"
+#include "Parser.h"
 
 // return a newly allocated char* containing an UTF16BE string of size length
 char *pdfDocEncodingToUTF16(const std::string &orig, int *length)
@@ -263,6 +269,54 @@ void FormWidgetButton::setState(bool astate)
 
     parent()->setState(astate ? getOnStr() : (char *)"Off");
     // Parent will call setAppearanceState()
+
+    // Now handle standAlone fields which are related to this one by having the same
+    // fully qualified name. This is *partially* by spec, as seen in "Field names"
+    // section inside "8.6.2 Field Dictionaries" in 1.7 PDF spec. Issue #1034
+
+    if (!astate) // We're only interested when this field is being set to ON,
+        return; // to check if it has related fields and then set them OFF
+
+    unsigned this_page_num, this_field_num;
+    decodeID(getID(), &this_page_num, &this_field_num);
+    Page *this_page = doc->getCatalog()->getPage(this_page_num);
+    const FormField *this_field = getField();
+    if (!this_page->hasStandaloneFields() || this_field == nullptr)
+        return;
+
+    auto this_page_widgets = this_page->getFormWidgets();
+    const FormButtonType this_button_type = getButtonType();
+
+    const int tot = this_page_widgets->getNumWidgets();
+    for (int i = 0; i < tot; i++) {
+        bool found_related = false;
+        FormWidget *wid = this_page_widgets->getWidget(i);
+        const bool same_fqn = wid->getFullyQualifiedName()->cmp(getFullyQualifiedName()) == 0;
+        const bool same_button_type = wid->getType() == formButton && static_cast<const FormWidgetButton *>(wid)->getButtonType() == this_button_type;
+
+        if (same_fqn && same_button_type) {
+            if (this_field->isStandAlone()) {
+                //'this_field' is standAlone, so we need to search in both standAlone fields and normal fields
+                if (this_field != wid->getField()) { // so take care to not choose our same field
+                    found_related = true;
+                }
+            } else {
+                //'this_field' is not standAlone, so we just need to search in standAlone fields
+                if (wid->getField()->isStandAlone()) {
+                    found_related = true;
+                }
+            }
+        }
+
+        if (found_related) {
+            FormFieldButton *ffb = static_cast<FormFieldButton *>(wid->getField());
+            if (ffb == nullptr) {
+                error(errInternal, -1, "FormWidgetButton::setState : FormFieldButton expected\n");
+                continue;
+            }
+            ffb->setState((char *)"Off", true);
+        }
+    }
 }
 
 bool FormWidgetButton::getState() const
@@ -488,6 +542,266 @@ SignatureInfo *FormWidgetSignature::validateSignature(bool doVerifyCert, bool fo
     return static_cast<FormFieldSignature *>(field)->validateSignature(doVerifyCert, forceRevalidation, validationTime);
 }
 
+#ifdef ENABLE_NSS3
+// update hash with the specified range of data from the file
+static bool hashFileRange(FILE *f, SignatureHandler *handler, Goffset start, Goffset end)
+{
+    const int BUF_SIZE = 65536;
+
+    unsigned char *buf = new unsigned char[BUF_SIZE];
+
+    while (start < end) {
+        if (Gfseek(f, start, SEEK_SET) != 0) {
+            delete[] buf;
+            return false;
+        }
+        int len = BUF_SIZE;
+        if (end - start < len)
+            len = end - start;
+        if (fread(buf, 1, len, f) != static_cast<size_t>(len)) {
+            delete[] buf;
+            return false;
+        }
+        handler->updateHash(buf, len);
+        start += len;
+    }
+    delete[] buf;
+    return true;
+}
+#endif
+
+bool FormWidgetSignature::signDocument(const char *saveFilename, const char *certNickname, const char *digestName, const char *password, const char *reason)
+{
+#ifdef ENABLE_NSS3
+    if (!certNickname) {
+        fprintf(stderr, "signDocument: Empty nickname\n");
+        return false;
+    }
+
+    // calculate a signature over tmp_buffer with the certificate to get its size
+    unsigned char tmp_buffer[4];
+    memcpy(tmp_buffer, "PDF", 4);
+    SignatureHandler sigHandler(certNickname, SEC_OID_SHA256);
+    sigHandler.updateHash(tmp_buffer, 4);
+    const std::unique_ptr<GooString> tmpSignature = sigHandler.signDetached(password);
+    if (!tmpSignature)
+        return false;
+
+    FormFieldSignature *signatureField = static_cast<FormFieldSignature *>(field);
+    std::unique_ptr<X509CertificateInfo> certInfo = sigHandler.getCertificateInfo();
+    const std::string signerName = certInfo->getSubjectInfo().commonName;
+    signatureField->setCertificateInfo(certInfo);
+    updateWidgetAppearance(); // add visible signing info to appearance
+
+    GooString gReason(reason ? reason : "");
+    Object vObj(new Dict(xref));
+    Ref vref = xref->addIndirectObject(&vObj);
+    if (!createSignature(vObj, vref, GooString(signerName), gReason, tmpSignature.get())) {
+        return false;
+    }
+
+    // Incremental save to avoid breaking any existing signatures
+    GooString *fname = new GooString(saveFilename);
+    if (doc->saveAs(fname, writeForceIncremental) != errNone) {
+        fprintf(stderr, "signDocument: error saving to file \"%s\"\n", saveFilename);
+        delete fname;
+        return false;
+    }
+
+    // Get start/end offset of signature object in the saved PDF
+    Goffset objStart, objEnd;
+    if (!getObjectStartEnd(fname, vref.num, &objStart, &objEnd)) {
+        fprintf(stderr, "signDocument: unable to get signature object offsets\n");
+    }
+
+    // Update byte range of signature in the saved PDF
+    Goffset sigStart, sigEnd, fileSize;
+    FILE *file = openFile(saveFilename, "r+b");
+    if (!updateOffsets(file, objStart, objEnd, &sigStart, &sigEnd, &fileSize)) {
+        fprintf(stderr, "signDocument: unable update byte range\n");
+        fclose(file);
+        return false;
+    }
+
+    // compute hash of byte ranges
+    sigHandler.restartHash();
+    if (!hashFileRange(file, &sigHandler, 0LL, sigStart)) {
+        fclose(file);
+        return false;
+    }
+    if (!hashFileRange(file, &sigHandler, sigEnd, fileSize)) {
+        fclose(file);
+        return false;
+    }
+
+    // and sign it
+    const std::unique_ptr<GooString> signature = sigHandler.signDetached(password);
+    if (!signature) {
+        fclose(file);
+        return false;
+    }
+
+    // write signature to saved file
+    if (!updateSignature(file, sigStart, sigEnd, signature.get())) {
+        fprintf(stderr, "signDocument: unable update signature\n");
+        fclose(file);
+        return false;
+    }
+    signatureField->setSignature(*signature);
+
+    fclose(file);
+
+    return true;
+#else
+    return false;
+#endif
+}
+
+// Get start and end file position of objNum in the PDF named filename.
+bool FormWidgetSignature::getObjectStartEnd(GooString *filename, int objNum, Goffset *objStart, Goffset *objEnd)
+{
+    PDFDoc newDoc(filename);
+    if (!newDoc.isOk())
+        return false;
+
+    XRef *newXref = newDoc.getXRef();
+    XRefEntry *entry = newXref->getEntry(objNum);
+    if (entry->type != xrefEntryUncompressed)
+        return false;
+
+    *objStart = entry->offset;
+    newXref->fetch(objNum, entry->gen, 0, objEnd);
+    return true;
+}
+
+// find next offset containing the dummy offset '9999999999' and overwrite with offset
+static char *setNextOffset(char *start, Goffset offset)
+{
+    char buf[50];
+    sprintf(buf, "%lld", offset);
+    strcat(buf, "                  "); // add some padding
+
+    char *p = strstr(start, "9999999999");
+    if (p) {
+        strncpy(p, buf, 10); // overwrite exact size.
+        p += 10;
+    } else {
+        return nullptr;
+    }
+    return p;
+}
+
+// Updates the ByteRange array of the signature object in the file.
+// Returns start/end of signature string and file size.
+bool FormWidgetSignature::updateOffsets(FILE *f, Goffset objStart, Goffset objEnd, Goffset *sigStart, Goffset *sigEnd, Goffset *fileSize)
+{
+    if (Gfseek(f, 0, SEEK_END) != 0) {
+        return false;
+    }
+    *fileSize = Gftell(f);
+
+    if (objEnd > *fileSize)
+        objEnd = *fileSize;
+
+    // sanity check object offsets
+    if (objEnd <= objStart || (objEnd - objStart >= INT_MAX)) {
+        return false;
+    }
+
+    const size_t bufSize = static_cast<int>(objEnd - objStart);
+    if (Gfseek(f, objStart, SEEK_SET) != 0) {
+        return false;
+    }
+    std::vector<char> buf(bufSize + 1);
+    if (fread(buf.data(), 1, bufSize, f) != bufSize) {
+        return false;
+    }
+    buf[bufSize] = 0; // prevent string functions from searching past the end
+
+    // search for the Contents field which contains the signature
+    // which always must start with hex digits 308
+    *sigStart = -1;
+    *sigEnd = -1;
+    for (size_t i = 0; i < bufSize - 14; i++) {
+        if (buf[i] == '/' && strncmp(&buf[i], "/Contents <308", 14) == 0) {
+            *sigStart = objStart + i + 10;
+            char *p = strchr(&buf[i], '>');
+            if (p)
+                *sigEnd = objStart + (p - buf.data()) + 1;
+            break;
+        }
+    }
+
+    if (*sigStart == -1 || *sigEnd == -1)
+        return false;
+
+    // Search for ByteRange array and update offsets
+    for (size_t i = 0; i < bufSize - 10; i++) {
+        if (buf[i] == '/' && strncmp(&buf[i], "/ByteRange", 10) == 0) {
+            // update range
+            char *p = setNextOffset(&buf[i], *sigStart);
+            if (!p)
+                return false;
+            p = setNextOffset(p, *sigEnd);
+            if (!p)
+                return false;
+            p = setNextOffset(p, *fileSize - *sigEnd);
+            if (!p)
+                return false;
+            break;
+        }
+    }
+
+    // write buffer back to disk
+    if (Gfseek(f, objStart, SEEK_SET) != 0) {
+        return false;
+    }
+    fwrite(buf.data(), bufSize, 1, f);
+    return true;
+}
+
+// Overwrite signature string in the file with new signature
+bool FormWidgetSignature::updateSignature(FILE *f, Goffset sigStart, Goffset sigEnd, const GooString *signature)
+{
+    if (signature->getLength() * 2 + 2 != sigEnd - sigStart)
+        return false;
+
+    if (Gfseek(f, sigStart, SEEK_SET) != 0) {
+        return false;
+    }
+    const char *c = signature->c_str();
+    fprintf(f, "<");
+    for (int i = 0; i < signature->getLength(); i++) {
+        unsigned char value = *(c + i) & 0x000000ff;
+        fprintf(f, "%2.2x", value);
+    }
+    fprintf(f, "> ");
+    return true;
+}
+
+bool FormWidgetSignature::createSignature(Object &vObj, Ref vRef, const GooString &name, const GooString &reason, const GooString *signature)
+{
+    vObj.dictAdd("Type", Object(objName, "Sig"));
+    vObj.dictAdd("Filter", Object(objName, "Adobe.PPKLite"));
+    vObj.dictAdd("SubFilter", Object(objName, "adbe.pkcs7.detached"));
+    vObj.dictAdd("Name", Object(name.copy()));
+    GooString *date = timeToDateString(nullptr);
+    vObj.dictAdd("M", Object(date));
+    if (reason.getLength() > 0)
+        vObj.dictAdd("Reason", Object(reason.copy()));
+    vObj.dictAdd("Contents", Object(objHexString, signature->copy()));
+    Object bObj(new Array(xref));
+    // reserve space in byte range for maximum number of bytes
+    bObj.arrayAdd(Object(static_cast<long long>(0LL)));
+    bObj.arrayAdd(Object(static_cast<long long>(9999999999LL)));
+    bObj.arrayAdd(Object(static_cast<long long>(9999999999LL)));
+    bObj.arrayAdd(Object(static_cast<long long>(9999999999LL)));
+    vObj.dictAdd("ByteRange", bObj.copy());
+    obj.dictSet("V", Object(vRef));
+    xref->setModifiedObject(&obj, ref);
+    return true;
+}
+
 std::vector<Goffset> FormWidgetSignature::getSignedRangeBounds() const
 {
     return static_cast<FormFieldSignature *>(field)->getSignedRangeBounds();
@@ -500,7 +814,8 @@ GooString *FormWidgetSignature::getCheckedSignature(Goffset *checkedFileSize)
 
 void FormWidgetSignature::updateWidgetAppearance()
 {
-    // Unimplemented
+    if (widget)
+        widget->updateAppearanceStream();
 }
 
 //========================================================================
@@ -604,8 +919,11 @@ FormField::FormField(PDFDoc *docA, Object &&aobj, const Ref aref, FormField *par
 
     obj1 = Form::fieldLookup(dict, "Q");
     if (obj1.isInt()) {
-        quadding = static_cast<VariableTextQuadding>(obj1.getInt());
-        hasQuadding = true;
+        const int aux = obj1.getInt();
+        hasQuadding = aux == quaddingLeftJustified || aux == quaddingCentered || aux == quaddingRightJustified;
+        if (likely(hasQuadding)) {
+            quadding = static_cast<VariableTextQuadding>(aux);
+        }
     }
 
     obj1 = dict->lookup("T");
@@ -1015,7 +1333,7 @@ void FormFieldButton::fillChildrenSiblingsID()
     }
 }
 
-bool FormFieldButton::setState(const char *state)
+bool FormFieldButton::setState(const char *state, bool ignoreToggleOff)
 {
     // A check button could behave as a radio button
     // when it's in a set of more than 1 buttons
@@ -1032,7 +1350,7 @@ bool FormFieldButton::setState(const char *state)
 
     bool isOn = strcmp(state, "Off") != 0;
 
-    if (!isOn && noAllOff)
+    if (!isOn && noAllOff && !ignoreToggleOff)
         return false; // Don't allow to set all radio to off
 
     const char *current = getAppearanceState();
@@ -1672,10 +1990,8 @@ void FormFieldChoice::reset(const std::vector<std::string> &excludedFields)
 // FormFieldSignature
 //------------------------------------------------------------------------
 FormFieldSignature::FormFieldSignature(PDFDoc *docA, Object &&dict, const Ref refA, FormField *parentA, std::set<int> *usedParents)
-    : FormField(docA, std::move(dict), refA, parentA, usedParents, formSignature), signature_type(unknown_signature_type), signature(nullptr), signature_info(nullptr)
+    : FormField(docA, std::move(dict), refA, parentA, usedParents, formSignature), signature_type(unknown_signature_type), signature(nullptr)
 {
-    signature = nullptr;
-
     signature_info = new SignatureInfo();
     parseInfo();
 }
@@ -1684,6 +2000,39 @@ FormFieldSignature::~FormFieldSignature()
 {
     delete signature_info;
     delete signature;
+}
+
+void FormFieldSignature::setSignature(const GooString &sig)
+{
+    delete signature;
+    signature = sig.copy();
+}
+
+const GooString &FormFieldSignature::getCustomAppearanceContent() const
+{
+    return customAppearanceContent;
+}
+
+void FormFieldSignature::setCustomAppearanceContent(const GooString &s)
+{
+    customAppearanceContent = GooString(s.toStr());
+}
+
+void FormFieldSignature::setCertificateInfo(std::unique_ptr<X509CertificateInfo> &certInfo)
+{
+    certificate_info.swap(certInfo);
+}
+
+FormWidget *FormFieldSignature::getCreateWidget()
+{
+    ::FormWidget *fw = getWidget(0);
+    if (!fw) {
+        error(errSyntaxError, 0, "FormFieldSignature: was asked for widget and didn't had one, creating it");
+        _createWidget(&obj, ref);
+        fw = getWidget(0);
+        fw->createWidgetAnnotation();
+    }
+    return fw;
 }
 
 void FormFieldSignature::parseInfo()
@@ -1760,6 +2109,11 @@ void FormFieldSignature::hashSignedDataBlock(SignatureHandler *handler, Goffset 
 FormSignatureType FormWidgetSignature::signatureType() const
 {
     return static_cast<FormFieldSignature *>(field)->getSignatureType();
+}
+
+void FormWidgetSignature::setSignatureType(FormSignatureType fst)
+{
+    static_cast<FormFieldSignature *>(field)->setSignatureType(fst);
 }
 
 SignatureInfo *FormFieldSignature::validateSignature(bool doVerifyCert, bool forceRevalidation, time_t validationTime)

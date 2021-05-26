@@ -391,7 +391,6 @@ GlobalParams::GlobalParams(const char *customPopplerDataDir) : popplerDataDir(cu
     sysFonts = new SysFontList();
     psExpandSmaller = false;
     psShrinkLarger = true;
-    psLevel = psLevel2;
     textEncoding = new GooString("UTF-8");
     overprintPreview = false;
     printCommands = false;
@@ -702,7 +701,7 @@ static FcPattern *buildFcPattern(const GfxFont *font, const GooString *base14Nam
     FcPattern *p;
 
     // this is all heuristics will be overwritten if font had proper info
-    char *fontName = strdup(((base14Name == nullptr) ? font->getName() : base14Name)->c_str());
+    char *fontName = strdup(((base14Name == nullptr) ? font->getNameWithoutSubsetTag() : base14Name->toStr()).c_str());
 
     const char *modifiers = strchr(fontName, ',');
     if (modifiers == nullptr)
@@ -1133,12 +1132,6 @@ bool GlobalParams::getPSShrinkLarger()
     return psShrinkLarger;
 }
 
-PSLevel GlobalParams::getPSLevel()
-{
-    globalParamsLocker();
-    return psLevel;
-}
-
 std::string GlobalParams::getTextEncodingName() const
 {
     globalParamsLocker();
@@ -1202,10 +1195,10 @@ const UnicodeMap *GlobalParams::getUnicodeMap(const std::string &encodingName)
     return map;
 }
 
-CMap *GlobalParams::getCMap(const GooString *collection, const GooString *cMapName, Stream *stream)
+CMap *GlobalParams::getCMap(const GooString *collection, const GooString *cMapName)
 {
     cMapCacheLocker();
-    return cMapCache->getCMap(collection, cMapName, stream);
+    return cMapCache->getCMap(collection, cMapName);
 }
 
 const UnicodeMap *GlobalParams::getTextEncoding()
@@ -1245,12 +1238,6 @@ void GlobalParams::setPSShrinkLarger(bool shrink)
 {
     globalParamsLocker();
     psShrinkLarger = shrink;
-}
-
-void GlobalParams::setPSLevel(PSLevel level)
-{
-    globalParamsLocker();
-    psLevel = level;
 }
 
 void GlobalParams::setTextEncoding(const char *encodingName)

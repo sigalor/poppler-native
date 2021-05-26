@@ -6,14 +6,17 @@
 //
 // Copyright 2010 Hib Eris <hib@hiberis.nl>
 // Copyright 2010, 2018 Albert Astals Cid <aacid@kde.org>
-// Copyright 2019 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright 2019, 2021 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 //========================================================================
 
 #ifndef PDFDOCFACTORY_H
 #define PDFDOCFACTORY_H
 
+#include <memory>
+
 #include "PDFDoc.h"
+#include "poppler_private_export.h"
 
 class GooString;
 class PDFDocBuilder;
@@ -30,7 +33,7 @@ class PDFDocBuilder;
 // the constructor, or by registering a new PDFDocBuilder afterwards.
 //------------------------------------------------------------------------
 
-class PDFDocFactory
+class POPPLER_PRIVATE_EXPORT PDFDocFactory
 {
 
 public:
@@ -43,7 +46,7 @@ public:
     // Create a PDFDoc. Returns a PDFDoc. You should check this PDFDoc
     // with PDFDoc::isOk() for failures.
     // The caller is responsible for deleting ownerPassword, userPassWord and guiData.
-    PDFDoc *createPDFDoc(const GooString &uri, GooString *ownerPassword = nullptr, GooString *userPassword = nullptr, void *guiDataA = nullptr);
+    std::unique_ptr<PDFDoc> createPDFDoc(const GooString &uri, GooString *ownerPassword = nullptr, GooString *userPassword = nullptr, void *guiDataA = nullptr);
 
     // Extend supported URIs with the ones from the PDFDocBuilder.
     void registerPDFDocBuilder(PDFDocBuilder *pdfDocBuilder);

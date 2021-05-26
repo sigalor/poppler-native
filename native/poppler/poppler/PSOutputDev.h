@@ -15,7 +15,7 @@
 //
 // Copyright (C) 2005 Martin Kretzschmar <martink@gnome.org>
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2006-2008, 2012, 2013, 2015, 2017-2019 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006-2008, 2012, 2013, 2015, 2017-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2007 Brad Hards <bradh@kde.org>
 // Copyright (C) 2009-2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2009 Till Kamppeter <till.kamppeter@gmail.com>
@@ -26,7 +26,7 @@
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
-// Copyright (C) 2018 Philipp Knechtges <philipp-dev@knechtges.com>
+// Copyright (C) 2018, 2020 Philipp Knechtges <philipp-dev@knechtges.com>
 // Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 // To see a description of the changes please see the Changelog file that
@@ -38,6 +38,7 @@
 #define PSOUTPUTDEV_H
 
 #include "poppler-config.h"
+#include "poppler_private_export.h"
 #include <cstddef>
 #include "Object.h"
 #include "GfxState.h"
@@ -49,6 +50,10 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <string>
+
+#ifdef HAVE_SPLASH
+#    include "splash/Splash.h"
+#endif
 
 class PDFDoc;
 class XRef;
@@ -68,6 +73,16 @@ class PSOutputDev;
 //------------------------------------------------------------------------
 // PSOutputDev
 //------------------------------------------------------------------------
+
+enum PSLevel
+{
+    psLevel1,
+    psLevel1Sep,
+    psLevel2,
+    psLevel2Sep,
+    psLevel3,
+    psLevel3Sep
+};
 
 enum PSOutMode
 {
@@ -101,19 +116,20 @@ typedef void (*PSOutputFunc)(void *stream, const char *data, int len);
 
 typedef GooString *(*PSOutCustomCodeCbk)(PSOutputDev *psOut, PSOutCustomCodeLocation loc, int n, void *data);
 
-class PSOutputDev : public OutputDev
+class POPPLER_PRIVATE_EXPORT PSOutputDev : public OutputDev
 {
 public:
     // Open a PostScript output file, and write the prolog.
     // pages has to be sorted in increasing order
     PSOutputDev(const char *fileName, PDFDoc *docA, char *psTitleA, const std::vector<int> &pages, PSOutMode modeA, int paperWidthA = -1, int paperHeightA = -1, bool noCrop = false, bool duplexA = true, int imgLLXA = 0, int imgLLYA = 0,
-                int imgURXA = 0, int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr, void *customCodeCbkDataA = nullptr);
+                int imgURXA = 0, int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr, void *customCodeCbkDataA = nullptr,
+                PSLevel levelA = psLevel2);
 
     // Open a PSOutputDev that will write to a generic stream.
     // pages has to be sorted in increasing order
     PSOutputDev(PSOutputFunc outputFuncA, void *outputStreamA, char *psTitleA, PDFDoc *docA, const std::vector<int> &pages, PSOutMode modeA, int paperWidthA = -1, int paperHeightA = -1, bool noCrop = false, bool duplexA = true,
                 int imgLLXA = 0, int imgLLYA = 0, int imgURXA = 0, int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr,
-                void *customCodeCbkDataA = nullptr);
+                void *customCodeCbkDataA = nullptr, PSLevel levelA = psLevel2);
 
     // Destructor -- writes the trailer and closes the file.
     ~PSOutputDev() override;
@@ -217,8 +233,7 @@ public:
     void stroke(GfxState *state) override;
     void fill(GfxState *state) override;
     void eoFill(GfxState *state) override;
-    bool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, Object *str, const double *pmat, int paintType, int tilingType, Dict *resDict, const double *mat, const double *bbox, int x0, int y0, int x1, int y1, double xStep,
-                           double yStep) override;
+    bool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, GfxTilingPattern *tPat, const double *mat, int x0, int y0, int x1, int y1, double xStep, double yStep) override;
     bool functionShadedFill(GfxState *state, GfxFunctionShading *shading) override;
     bool axialShadedFill(GfxState *state, GfxAxialShading *shading, double /*tMin*/, double /*tMax*/) override;
     bool radialShadedFill(GfxState *state, GfxRadialShading *shading, double /*sMin*/, double /*sMax*/) override;
@@ -292,7 +307,14 @@ public:
     void setRasterAntialias(bool a) { rasterAntialias = a; }
     void setForceRasterize(PSForceRasterize f) { forceRasterize = f; }
     void setRasterResolution(double r) { rasterResolution = r; }
-    void setRasterMono(bool b) { rasterMono = b; }
+    void setRasterMono(bool b)
+    {
+#ifdef HAVE_SPLASH
+        processColorFormat = splashModeMono8;
+        processColorFormatSpecified = true;
+#endif
+    }
+
     void setUncompressPreloadedImages(bool b) { uncompressPreloadedImages = b; }
 
     bool getEmbedType1() const { return embedType1; }
@@ -327,9 +349,17 @@ public:
     void setEnableLZW(bool b) { enableLZW = b; }
     void setEnableFlate(bool b) { enableFlate = b; }
 
+#ifdef HAVE_SPLASH
+    void setProcessColorFormat(SplashColorMode format)
+    {
+        processColorFormat = format;
+        processColorFormatSpecified = true;
+    }
+#endif
+
 private:
     void init(PSOutputFunc outputFuncA, void *outputStreamA, PSFileType fileTypeA, char *psTitleA, PDFDoc *doc, const std::vector<int> &pages, PSOutMode modeA, int imgLLXA, int imgLLYA, int imgURXA, int imgURYA, bool manualCtrlA,
-              int paperWidthA, int paperHeightA, bool noCropA, bool duplexA);
+              int paperWidthA, int paperHeightA, bool noCropA, bool duplexA, PSLevel levelA);
     void postInit();
     void setupResources(Dict *resDict);
     void setupFonts(Dict *resDict);
@@ -476,9 +506,6 @@ private:
     bool rasterAntialias; // antialias on rasterize
     bool uncompressPreloadedImages;
     double rasterResolution; // PostScript rasterization resolution (dpi)
-    bool rasterMono; // true to do PostScript rasterization
-                     //   in monochrome (gray); false to do it
-                     //   in color (RGB/CMYK)
     bool embedType1; // embed Type 1 fonts?
     bool embedTrueType; // embed TrueType fonts?
     bool embedCIDPostScript; // embed CID PostScript fonts?
@@ -497,6 +524,11 @@ private:
     bool enableLZW; // enable LZW compression
     bool enableFlate; // enable Flate compression
 
+#ifdef HAVE_SPLASH
+    SplashColorMode processColorFormat;
+    bool processColorFormatSpecified;
+#endif
+
     std::unordered_set<std::string> iccEmitted; // contains ICCBased CSAs that have been emitted
 
 #ifdef OPI_SUPPORT
@@ -505,6 +537,7 @@ private:
 #endif
 
     bool ok; // set up ok?
+    std::set<int> patternsBeingTiled; // the patterns that are being tiled
 
     friend class WinPDFPrinter;
 };

@@ -15,19 +15,21 @@
 //
 // Copyright (C) 2005 Dan Sheridan <dan.sheridan@postman.org.uk>
 // Copyright (C) 2005 Brad Hards <bradh@frogmouth.net>
-// Copyright (C) 2006, 2008, 2010, 2012-2014, 2016-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006, 2008, 2010, 2012-2014, 2016-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2007-2008 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright (C) 2007 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2009, 2010 Ilya Gorenbein <igorenbein@finjan.com>
 // Copyright (C) 2010 Hib Eris <hib@hiberis.nl>
 // Copyright (C) 2012, 2013, 2016 Thomas Freitag <Thomas.Freitag@kabelmail.de>
 // Copyright (C) 2012, 2013 Fabio D'Urso <fabiodurso@hotmail.it>
-// Copyright (C) 2013, 2014, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2013, 2014, 2017, 2019 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2013 Pino Toscano <pino@kde.org>
 // Copyright (C) 2016 Jakub Alba <jakubalba@gmail.com>
 // Copyright (C) 2018, 2019 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2018 Tobias Deiminger <haxtibal@posteo.de>
 // Copyright (C) 2019 LE GARREC Vincent <legarrec.vincent@gmail.com>
+// Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
+// Copyright (C) 2010 William Bader <william@newspapersystems.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -44,6 +46,7 @@
 #include <cctype>
 #include <climits>
 #include <cfloat>
+#include <limits>
 #include "goo/gfile.h"
 #include "goo/gmem.h"
 #include "Object.h"
@@ -328,6 +331,10 @@ XRef::XRef(BaseStream *strA, Goffset pos, Goffset mainXRefEntriesOffsetA, bool *
 XRef::~XRef()
 {
     for (int i = 0; i < size; i++) {
+        if (entries[i].type == xrefEntryFree) {
+            continue;
+        }
+
         entries[i].obj.~Object();
     }
     gfree(entries);
@@ -456,13 +463,18 @@ bool XRef::readXRef(Goffset *pos, std::vector<Goffset> *followedXRefStm, std::ve
     Object obj;
     bool more;
 
-    if (unlikely(start > (LLONG_MAX - *pos))) {
+    Goffset parsePos;
+    if (unlikely(checkedAdd(start, *pos, &parsePos))) {
+        ok = false;
+        return false;
+    }
+    if (parsePos < 0) {
         ok = false;
         return false;
     }
 
     // start up a parser, parse one token
-    parser = new Parser(nullptr, str->makeSubStream(start + *pos, false, 0, Object(objNull)), true);
+    parser = new Parser(nullptr, str->makeSubStream(parsePos, false, 0, Object(objNull)), true);
     obj = parser->getObj(true);
 
     // parse an old-style xref table
@@ -788,8 +800,13 @@ bool XRef::readXRefStreamSection(Stream *xrefStr, const int *w, int first, int n
             gen = (gen << 8) + c;
         }
         if (gen > INT_MAX) {
-            error(errSyntaxError, -1, "Gen inside xref table too large (bigger than INT_MAX)");
-            return false;
+            if (i == 0 && gen == std::numeric_limits<uint32_t>::max()) {
+                // workaround broken generators
+                gen = 65535;
+            } else {
+                error(errSyntaxError, -1, "Gen inside xref table too large (bigger than INT_MAX)");
+                return false;
+            }
         }
         if (entries[i].offset == -1) {
             switch (type) {
@@ -1114,7 +1131,7 @@ Object XRef::fetch(const Ref ref, int recursion)
     return fetch(ref.num, ref.gen, recursion);
 }
 
-Object XRef::fetch(int num, int gen, int recursion)
+Object XRef::fetch(int num, int gen, int recursion, Goffset *endPos)
 {
     XRefEntry *e;
     Object obj1, obj2, obj3;
@@ -1151,6 +1168,9 @@ Object XRef::fetch(int num, int gen, int recursion)
                     if (longNumber <= INT_MAX && longNumber >= INT_MIN && *end_ptr == '\0') {
                         int number = longNumber;
                         error(errSyntaxWarning, -1, "Cmd was not obj but {0:s}, assuming the creator meant obj {1:d}", cmd, number);
+                        if (endPos) {
+                            *endPos = parser.getPos();
+                        }
                         return Object(number);
                     }
                 }
@@ -1158,6 +1178,9 @@ Object XRef::fetch(int num, int gen, int recursion)
             goto err;
         }
         Object obj = parser.getObj(false, (encrypted && !e->getFlag(XRefEntry::Unencrypted)) ? fileKey : nullptr, encAlgorithm, keyLength, num, gen, recursion);
+        if (endPos) {
+            *endPos = parser.getPos();
+        }
         return obj;
     }
 
@@ -1185,6 +1208,9 @@ Object XRef::fetch(int num, int gen, int recursion)
                 objStrs.put(e->offset, objStr);
             }
         }
+        if (endPos) {
+            *endPos = -1;
+        }
         return objStr->getObject(e->gen, num);
     }
 
@@ -1194,10 +1220,28 @@ Object XRef::fetch(int num, int gen, int recursion)
 
 err:
     if (!xRefStream && !xrefReconstructed) {
+        // Check if there has been any updated object, if there has been we can't reconstruct because that would mean losing the changes
+        bool xrefHasChanges = false;
+        for (int i = 0; i < size; i++) {
+            if (entries[i].getFlag(XRefEntry::Updated)) {
+                xrefHasChanges = true;
+                break;
+            }
+        }
+        if (xrefHasChanges) {
+            error(errInternal, -1, "xref num {0:d} not found but needed, document has changes, reconstruct aborted\n", num);
+            // pretend we constructed the xref, otherwise we will do this check again and again
+            xrefReconstructed = true;
+            return Object(objNull);
+        }
+
         error(errInternal, -1, "xref num {0:d} not found but needed, try to reconstruct\n", num);
         rootNum = -1;
         constructXRef(&xrefReconstructed);
-        return fetch(num, gen, ++recursion);
+        return fetch(num, gen, ++recursion, endPos);
+    }
+    if (endPos) {
+        *endPos = -1;
     }
     return Object(objNull);
 }
@@ -1223,20 +1267,21 @@ Object XRef::getDocInfoNF()
     return trailerDict.dictLookupNF("Info").copy();
 }
 
-Object XRef::createDocInfoIfNoneExists()
+Object XRef::createDocInfoIfNeeded(Ref *ref)
 {
-    Object obj = getDocInfo();
+    Object obj = trailerDict.getDict()->lookup("Info", ref);
+    getDocInfo();
 
-    if (obj.isDict()) {
+    if (obj.isDict() && *ref != Ref::INVALID()) {
+        // Info is valid if it's a dict and to pointed by an indirect reference
         return obj;
-    } else if (!obj.isNull()) {
-        // DocInfo exists, but isn't a dictionary (doesn't comply with the PDF reference)
-        removeDocInfo();
     }
 
+    removeDocInfo();
+
     obj = Object(new Dict(this));
-    const Ref ref = addIndirectObject(&obj);
-    trailerDict.dictSet("Info", Object(ref));
+    *ref = addIndirectObject(&obj);
+    trailerDict.dictSet("Info", Object(*ref));
 
     return obj;
 }
@@ -1250,7 +1295,9 @@ void XRef::removeDocInfo()
 
     trailerDict.dictRemove("Info");
 
-    removeIndirectObject(infoObjRef.getRef());
+    if (likely(infoObjRef.isRef())) {
+        removeIndirectObject(infoObjRef.getRef());
+    }
 }
 
 bool XRef::getStreamEnd(Goffset streamStart, Goffset *streamEnd)
@@ -1347,7 +1394,7 @@ Ref XRef::addIndirectObject(const Object *o)
     int entryIndexToUse = -1;
     for (int i = 1; entryIndexToUse == -1 && i < size; ++i) {
         XRefEntry *e = getEntry(i, false /* complainIfMissing */);
-        if (e->type == xrefEntryFree && e->gen != 65535) {
+        if (e->type == xrefEntryFree && e->gen < 65535) {
             entryIndexToUse = i;
         }
     }
@@ -1387,7 +1434,9 @@ void XRef::removeIndirectObject(Ref r)
     }
     e->obj.~Object();
     e->type = xrefEntryFree;
-    e->gen++;
+    if (likely(e->gen < 65535)) {
+        e->gen++;
+    }
     e->setFlag(XRefEntry::Updated, true);
     setModified();
 }

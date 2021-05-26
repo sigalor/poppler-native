@@ -19,6 +19,7 @@
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2018 Stefan Brüns <stefan.bruens@rwth-aachen.de>
+// Copyright (C) 2020 Albert Astals Cid <aacid@kde.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -35,7 +36,7 @@
 
 /* Defines the poppler version. */
 #ifndef POPPLER_VERSION
-#define POPPLER_VERSION "20.11.0"
+#define POPPLER_VERSION "21.05.0"
 #endif
 
 /* Use single precision arithmetic in the Splash backend */
@@ -54,9 +55,9 @@
 #endif
 
 /* Support for curl is compiled in. */
-#ifndef POPPLER_HAS_CURL_SUPPORT
-/* #define POPPLER_HAS_CURL_SUPPORT 1 */
-#endif
+/* #ifndef POPPLER_HAS_CURL_SUPPORT
+#define POPPLER_HAS_CURL_SUPPORT 1
+#endif */
 
 /* Use libjpeg instead of builtin jpeg decoder. */
 #ifndef ENABLE_LIBJPEG
@@ -116,12 +117,17 @@
 /* #undef USE_BOOST_HEADERS */
 #endif
 
+/* Is splash backend available */
+/* #ifndef HAVE_SPLASH
+#define HAVE_SPLASH 1
+#endif */
+
 //------------------------------------------------------------------------
 // version
 //------------------------------------------------------------------------
 
 // copyright notice
-#define popplerCopyright "Copyright 2005-2020 The Poppler Developers - http://poppler.freedesktop.org"
+#define popplerCopyright "Copyright 2005-2021 The Poppler Developers - http://poppler.freedesktop.org"
 #define xpdfCopyright "Copyright 1996-2011 Glyph & Cog, LLC"
 
 //------------------------------------------------------------------------

@@ -7,7 +7,7 @@
 #define ENABLE_LIBJPEG 1
 
 /* Use libopenjpeg instead of builtin jpeg2000 decoder. */
-/* #define ENABLE_LIBOPENJPEG 1*/
+/* #define ENABLE_LIBOPENJPEG 1 */
 
 /* Build against libtiff. */
 /* #undef ENABLE_LIBTIFF */
@@ -82,12 +82,6 @@
 /* Define to 1 if you have the `mkstemp' function. */
 #define HAVE_MKSTEMP 1
 
-/* Define to 1 if you have the `strcpy_s' function. */
-/* #undef HAVE_STRCPY_S */
-
-/* Define to 1 if you have the `strcat_s' function. */
-/* #undef HAVE_STRCAT_S */
-
 /* Defines if strtok_r is available on your system */
 #define HAVE_STRTOK_R 1
 
@@ -98,7 +92,6 @@
 #define HAVE_POPEN 1
 
 /* Use splash for rendering. */
-/* #define HAVE_SPLASH 1 */
 #define SPOT_NCOMPS 4  // this is from splash/SplashTypes.h and is the only thing needed by GfxState.cc from Splash
 
 /* Define to 1 if you have the <sys/dir.h> header file, and it defines `DIR'.
@@ -117,9 +110,6 @@
 
 /* Define to 1 if you have the <unistd.h> header file. */
 #define HAVE_UNISTD_H 1
-
-/* Define to 1 if you have the <codecvt> header file. */
-#define HAVE_CODECVT
 
 /* Define to 1 if you have a big endian machine */
 /* #undef WORDS_BIGENDIAN */
@@ -140,7 +130,7 @@
 #define PACKAGE_NAME "poppler"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "poppler 20.11.0"
+#define PACKAGE_STRING "poppler 21.05.0"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "poppler"
@@ -149,7 +139,7 @@
 #define PACKAGE_URL ""
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "20.11.0"
+#define PACKAGE_VERSION "21.05.0"
 
 /* Poppler data dir */
 #define POPPLER_DATADIR "/usr/share/poppler"
@@ -167,7 +157,7 @@
 /* #undef USE_FLOAT */
 
 /* Version number of package */
-#define VERSION "20.11.0"
+#define VERSION "21.05.0"
 
 /* Use fontconfig font configuration backend */
 /* #define WITH_FONTCONFIGURATION_FONTCONFIG 1 */

@@ -6,7 +6,7 @@
 //
 // Copyright 2006 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright 2007, 2008, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright 2007-2010, 2012, 2015-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright 2007-2010, 2012, 2015-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright 2010 Mark Riedesel <mark@klowner.com>
 // Copyright 2011 Pino Toscano <pino@kde.org>
 // Copyright 2012 Fabio D'Urso <fabiodurso@hotmail.it>
@@ -20,8 +20,10 @@
 // Copyright 2018 Chinmoy Ranjan Pradhan <chinmoyrp65@protonmail.com>
 // Copyright 2019, 2020 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright 2019 João Netto <joaonetto901@gmail.com>
-// Copyright 2020 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright 2020, 2021 Nelson Benítez León <nbenitezl@gmail.com>
 // Copyright 2020 Marek Kasik <mkasik@redhat.com>
+// Copyright 2020 Thorsten Behrens <Thorsten.Behrens@CIB.de>
+// Copyright 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
 //
 //========================================================================
 
@@ -30,6 +32,7 @@
 
 #include "Object.h"
 #include "Annot.h"
+#include "poppler_private_export.h"
 
 #include <ctime>
 
@@ -46,6 +49,7 @@ class LinkAction;
 class GfxResources;
 class PDFDoc;
 class SignatureInfo;
+class X509CertificateInfo;
 class SignatureHandler;
 
 enum FormFieldType
@@ -98,7 +102,7 @@ class FormFieldChoice;
 // to a page.
 //------------------------------------------------------------------------
 
-class FormWidget
+class POPPLER_PRIVATE_EXPORT FormWidget
 {
 public:
     virtual ~FormWidget();
@@ -143,6 +147,7 @@ public:
 
     void createWidgetAnnotation();
     AnnotWidget *getWidgetAnnotation() const { return widget; }
+    void setWidgetAnnotation(AnnotWidget *_widget) { widget = _widget; }
 
     virtual void updateWidgetAppearance() = 0;
 
@@ -177,7 +182,7 @@ protected:
 // FormWidgetButton
 //------------------------------------------------------------------------
 
-class FormWidgetButton : public FormWidget
+class POPPLER_PRIVATE_EXPORT FormWidgetButton : public FormWidget
 {
 public:
     FormWidgetButton(PDFDoc *docA, Object *dictObj, unsigned num, Ref ref, FormField *p);
@@ -201,7 +206,7 @@ protected:
 // FormWidgetText
 //------------------------------------------------------------------------
 
-class FormWidgetText : public FormWidget
+class POPPLER_PRIVATE_EXPORT FormWidgetText : public FormWidget
 {
 public:
     FormWidgetText(PDFDoc *docA, Object *dictObj, unsigned num, Ref ref, FormField *p);
@@ -236,7 +241,7 @@ protected:
 // FormWidgetChoice
 //------------------------------------------------------------------------
 
-class FormWidgetChoice : public FormWidget
+class POPPLER_PRIVATE_EXPORT FormWidgetChoice : public FormWidget
 {
 public:
     FormWidgetChoice(PDFDoc *docA, Object *dictObj, unsigned num, Ref ref, FormField *p);
@@ -280,13 +285,15 @@ protected:
 // FormWidgetSignature
 //------------------------------------------------------------------------
 
-class FormWidgetSignature : public FormWidget
+class POPPLER_PRIVATE_EXPORT FormWidgetSignature : public FormWidget
 {
 public:
     FormWidgetSignature(PDFDoc *docA, Object *dictObj, unsigned num, Ref ref, FormField *p);
     void updateWidgetAppearance() override;
 
     FormSignatureType signatureType() const;
+    void setSignatureType(FormSignatureType fst);
+
     // Use -1 for now as validationTime
     SignatureInfo *validateSignature(bool doVerifyCert, bool forceRevalidation, time_t validationTime);
 
@@ -294,12 +301,27 @@ public:
     // the elements of the list are of type Goffset
     std::vector<Goffset> getSignedRangeBounds() const;
 
+    // creates or replaces the dictionary name "V" in the signature dictionary and
+    // fills it with the fields of the signature; the field "Contents" is the signature
+    // in PKCS#7 format, which is calculated over the byte range encompassing the whole
+    // document except for the signature itself; this byte range is specified in the
+    // field "ByteRange" in the dictionary "V"
+    // return success
+    bool signDocument(const char *filename, const char *certNickname, const char *digestName, const char *password, const char *reason = nullptr);
+
     // checks the length encoding of the signature and returns the hex encoded signature
     // if the check passed (and the checked file size as output parameter in checkedFileSize)
     // otherwise a nullptr is returned
     GooString *getCheckedSignature(Goffset *checkedFileSize);
 
     const GooString *getSignature() const;
+
+private:
+    bool createSignature(Object &vObj, Ref vRef, const GooString &name, const GooString &reason, const GooString *signature);
+    bool getObjectStartEnd(GooString *filename, int objNum, Goffset *objStart, Goffset *objEnd);
+    bool updateOffsets(FILE *f, Goffset objStart, Goffset objEnd, Goffset *sigStart, Goffset *sigEnd, Goffset *fileSize);
+
+    bool updateSignature(FILE *f, Goffset sigStart, Goffset sigEnd, const GooString *signature);
 };
 
 //------------------------------------------------------------------------
@@ -403,7 +425,7 @@ public:
     bool noToggleToOff() const { return noAllOff; }
 
     // returns true if the state modification is accepted
-    bool setState(const char *state);
+    bool setState(const char *state, bool ignoreToggleOff = false);
     bool getState(const char *state) const;
 
     const char *getAppearanceState() const { return appearanceState.isName() ? appearanceState.getName() : nullptr; }
@@ -566,7 +588,7 @@ protected:
 // FormFieldSignature
 //------------------------------------------------------------------------
 
-class FormFieldSignature : public FormField
+class POPPLER_PRIVATE_EXPORT FormFieldSignature : public FormField
 {
 public:
     FormFieldSignature(PDFDoc *docA, Object &&dict, const Ref ref, FormField *parent, std::set<int> *usedParents);
@@ -586,7 +608,16 @@ public:
     ~FormFieldSignature() override;
     Object *getByteRange() { return &byte_range; }
     const GooString *getSignature() const { return signature; }
+    void setSignature(const GooString &sig);
     FormSignatureType getSignatureType() const { return signature_type; }
+    void setSignatureType(FormSignatureType t) { signature_type = t; }
+
+    const GooString &getCustomAppearanceContent() const;
+    void setCustomAppearanceContent(const GooString &s);
+
+    void setCertificateInfo(std::unique_ptr<X509CertificateInfo> &);
+
+    FormWidget *getCreateWidget();
 
 private:
     void parseInfo();
@@ -596,6 +627,8 @@ private:
     Object byte_range;
     GooString *signature;
     SignatureInfo *signature_info;
+    GooString customAppearanceContent;
+    std::unique_ptr<X509CertificateInfo> certificate_info;
 
     void print(int indent) override;
 };
@@ -606,7 +639,7 @@ private:
 // Catalog entry).
 //------------------------------------------------------------------------
 
-class Form
+class POPPLER_PRIVATE_EXPORT Form
 {
 public:
     Form(PDFDoc *docA, Object *acroForm);
@@ -664,7 +697,7 @@ private:
 // FormPageWidgets
 //------------------------------------------------------------------------
 
-class FormPageWidgets
+class POPPLER_PRIVATE_EXPORT FormPageWidgets
 {
 public:
     FormPageWidgets(Annots *annots, unsigned int page, Form *form);

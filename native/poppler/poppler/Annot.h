@@ -28,13 +28,16 @@
 // Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Dileep Sankhla <sankhla.dileep96@gmail.com>
-// Copyright (C) 2018, 2019 Tobias Deiminger <haxtibal@posteo.de>
+// Copyright (C) 2018-2020 Tobias Deiminger <haxtibal@posteo.de>
 // Copyright (C) 2018, 2020 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2019 Umang Malik <umang99m@gmail.com>
 // Copyright (C) 2019 João Netto <joaonetto901@gmail.com>
 // Copyright (C) 2020 Nelson Benítez León <nbenitezl@gmail.com>
 // Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
+// Copyright (C) 2020 Katarina Behrens <Katarina.Behrens@cib.de>
+// Copyright (C) 2020 Thorsten Behrens <Thorsten.Behrens@CIB.de>
+// Copyright (C) 2021 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>.
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -50,6 +53,7 @@
 #include <vector>
 
 #include "Object.h"
+#include "poppler_private_export.h"
 
 class XRef;
 class Gfx;
@@ -64,6 +68,7 @@ class FormField;
 class FormFieldButton;
 class FormFieldText;
 class FormFieldChoice;
+class FormFieldSignature;
 class PDFRectangle;
 class Movie;
 class LinkAction;
@@ -111,7 +116,7 @@ protected:
 // AnnotPath
 //------------------------------------------------------------------------
 
-class AnnotPath
+class POPPLER_PRIVATE_EXPORT AnnotPath
 {
 public:
     AnnotPath();
@@ -137,7 +142,7 @@ protected:
 // AnnotCalloutLine
 //------------------------------------------------------------------------
 
-class AnnotCalloutLine
+class POPPLER_PRIVATE_EXPORT AnnotCalloutLine
 {
 public:
     AnnotCalloutLine(double x1, double y1, double x2, double y2);
@@ -159,7 +164,7 @@ protected:
 // AnnotCalloutMultiLine
 //------------------------------------------------------------------------
 
-class AnnotCalloutMultiLine : public AnnotCalloutLine
+class POPPLER_PRIVATE_EXPORT AnnotCalloutMultiLine : public AnnotCalloutLine
 {
 public:
     AnnotCalloutMultiLine(double x1, double y1, double x2, double y2, double x3, double y3);
@@ -199,10 +204,10 @@ private:
 // AnnotQuadrilateral
 //------------------------------------------------------------------------
 
-class AnnotQuadrilaterals
+class POPPLER_PRIVATE_EXPORT AnnotQuadrilaterals
 {
 public:
-    class AnnotQuadrilateral
+    class POPPLER_PRIVATE_EXPORT AnnotQuadrilateral
     {
     public:
         AnnotQuadrilateral();
@@ -287,7 +292,7 @@ protected:
 // AnnotBorderArray
 //------------------------------------------------------------------------
 
-class AnnotBorderArray : public AnnotBorder
+class POPPLER_PRIVATE_EXPORT AnnotBorderArray : public AnnotBorder
 {
 public:
     AnnotBorderArray();
@@ -333,7 +338,7 @@ private:
 // AnnotColor
 //------------------------------------------------------------------------
 
-class AnnotColor
+class POPPLER_PRIVATE_EXPORT AnnotColor
 {
 public:
     enum AnnotColorSpace
@@ -366,11 +371,11 @@ private:
 // DefaultAppearance
 //------------------------------------------------------------------------
 
-class DefaultAppearance
+class POPPLER_PRIVATE_EXPORT DefaultAppearance
 {
 public:
     DefaultAppearance(Object &&fontNameA, double fontPtSizeA, std::unique_ptr<AnnotColor> fontColorA);
-    DefaultAppearance(GooString *da);
+    DefaultAppearance(const GooString *da);
     void setFontName(Object &&fontNameA);
     const Object &getFontName() const { return fontName; }
     void setFontPtSize(double fontPtSizeA);
@@ -470,7 +475,7 @@ protected:
 // AnnotAppearanceCharacs
 //------------------------------------------------------------------------
 
-class AnnotAppearanceCharacs
+class POPPLER_PRIVATE_EXPORT AnnotAppearanceCharacs
 {
 public:
     enum AnnotAppearanceCharacsTextPos
@@ -492,7 +497,9 @@ public:
 
     int getRotation() const { return rotation; }
     const AnnotColor *getBorderColor() const { return borderColor.get(); }
+    void setBorderColor(std::unique_ptr<AnnotColor> &&color) { borderColor = std::move(color); }
     const AnnotColor *getBackColor() const { return backColor.get(); }
+    void setBackColor(std::unique_ptr<AnnotColor> &&color) { backColor = std::move(color); }
     const GooString *getNormalCaption() const { return normalCaption.get(); }
     const GooString *getRolloverCaption() { return rolloverCaption.get(); }
     const GooString *getAlternateCaption() { return alternateCaption.get(); }
@@ -556,6 +563,7 @@ public:
     void setLineStyleForBorder(const AnnotBorder *border);
     void setTextFont(const Object &fontName, double fontSize);
     void drawCircle(double cx, double cy, double r, bool fill);
+    void drawEllipse(double cx, double cy, double rx, double ry, bool fill, bool stroke);
     void drawCircleTopLeft(double cx, double cy, double r);
     void drawCircleBottomRight(double cx, double cy, double r);
     void drawLineEnding(AnnotLineEndingStyle endingStyle, double x, double y, double size, bool fill, const Matrix &m);
@@ -566,7 +574,7 @@ public:
     void drawLineEndSlash(double x, double y, double size, const Matrix &m);
     void drawFieldBorder(const FormField *field, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect);
     bool drawFormField(const FormField *field, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect,
-                       const GooString *appearState, XRef *xref, bool *addedDingbatsResource);
+                       const GooString *appearState, XRef *xref, bool *addedDingbatsResource, Dict *resourcesDict);
     static double lineEndingXShorten(AnnotLineEndingStyle endingStyle, double size);
     static double lineEndingXExtendBBox(AnnotLineEndingStyle endingStyle, double size);
     void writeString(const GooString &str);
@@ -582,6 +590,8 @@ private:
                              XRef *xref, bool *addedDingbatsResource);
     bool drawFormFieldText(const FormFieldText *fieldText, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect);
     bool drawFormFieldChoice(const FormFieldChoice *fieldChoice, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect);
+    bool drawSignatureFieldText(const FormFieldSignature *field, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect,
+                                XRef *xref, Dict *resourcesDict);
     bool drawText(const GooString *text, const GooString *da, const GfxResources *resources, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect, bool multiline, int comb, int quadding,
                   bool txField, bool forceZapfDingbats, XRef *xref, bool *addedDingbatsResource, // xref and addedDingbatsResource both must not be null if forceZapfDingbats is passed
                   bool password);
@@ -594,7 +604,7 @@ private:
 // Annot
 //------------------------------------------------------------------------
 
-class Annot
+class POPPLER_PRIVATE_EXPORT Annot
 {
     friend class Annots;
     friend class Page;
@@ -752,7 +762,7 @@ protected:
     void update(const char *key, Object &&value);
 
     // Delete appearance streams and reset appearance state
-    void invalidateAppearance();
+    virtual void invalidateAppearance();
 
     Object annotObj;
 
@@ -790,7 +800,7 @@ protected:
 // AnnotPopup
 //------------------------------------------------------------------------
 
-class AnnotPopup : public Annot
+class POPPLER_PRIVATE_EXPORT AnnotPopup : public Annot
 {
 public:
     AnnotPopup(PDFDoc *docA, PDFRectangle *rect);
@@ -813,7 +823,7 @@ protected:
 // AnnotMarkup
 //------------------------------------------------------------------------
 
-class AnnotMarkup : public Annot
+class POPPLER_PRIVATE_EXPORT AnnotMarkup : public Annot
 {
 public:
     enum AnnotMarkupReplyType
@@ -868,7 +878,7 @@ private:
 // AnnotText
 //------------------------------------------------------------------------
 
-class AnnotText : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotText : public AnnotMarkup
 {
 public:
     enum AnnotTextState
@@ -913,7 +923,7 @@ private:
 // AnnotMovie
 //------------------------------------------------------------------------
 
-class AnnotMovie : public Annot
+class POPPLER_PRIVATE_EXPORT AnnotMovie : public Annot
 {
 public:
     AnnotMovie(PDFDoc *docA, PDFRectangle *rect, Movie *movieA);
@@ -936,7 +946,7 @@ private:
 // AnnotScreen
 //------------------------------------------------------------------------
 
-class AnnotScreen : public Annot
+class POPPLER_PRIVATE_EXPORT AnnotScreen : public Annot
 {
 public:
     AnnotScreen(PDFDoc *docA, PDFRectangle *rect);
@@ -1000,7 +1010,7 @@ protected:
 // AnnotFreeText
 //------------------------------------------------------------------------
 
-class AnnotFreeText : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotFreeText : public AnnotMarkup
 {
 public:
     enum AnnotFreeTextQuadding
@@ -1068,7 +1078,7 @@ protected:
 // AnnotLine
 //------------------------------------------------------------------------
 
-class AnnotLine : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotLine : public AnnotMarkup
 {
 public:
     enum AnnotLineIntent
@@ -1146,7 +1156,7 @@ protected:
 // AnnotTextMarkup
 //------------------------------------------------------------------------
 
-class AnnotTextMarkup : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotTextMarkup : public AnnotMarkup
 {
 public:
     AnnotTextMarkup(PDFDoc *docA, PDFRectangle *rect, AnnotSubtype subType);
@@ -1166,13 +1176,16 @@ protected:
     void initialize(PDFDoc *docA, Dict *dict);
 
     std::unique_ptr<AnnotQuadrilaterals> quadrilaterals; // QuadPoints
+
+private:
+    bool shouldCreateApperance(Gfx *gfx) const;
 };
 
 //------------------------------------------------------------------------
 // AnnotStamp
 //------------------------------------------------------------------------
 
-class AnnotStamp : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotStamp : public AnnotMarkup
 {
 public:
     AnnotStamp(PDFDoc *docA, PDFRectangle *rect);
@@ -1194,7 +1207,7 @@ private:
 // AnnotGeometry
 //------------------------------------------------------------------------
 
-class AnnotGeometry : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotGeometry : public AnnotMarkup
 {
 public:
     AnnotGeometry(PDFDoc *docA, PDFRectangle *rect, AnnotSubtype subType);
@@ -1223,7 +1236,7 @@ private:
 // AnnotPolygon
 //------------------------------------------------------------------------
 
-class AnnotPolygon : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotPolygon : public AnnotMarkup
 {
 public:
     enum AnnotPolygonIntent
@@ -1274,7 +1287,7 @@ private:
 // AnnotCaret
 //------------------------------------------------------------------------
 
-class AnnotCaret : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotCaret : public AnnotMarkup
 {
 public:
     enum AnnotCaretSymbol
@@ -1304,7 +1317,7 @@ private:
 // AnnotInk
 //------------------------------------------------------------------------
 
-class AnnotInk : public AnnotMarkup
+class POPPLER_PRIVATE_EXPORT AnnotInk : public AnnotMarkup
 {
 public:
     AnnotInk(PDFDoc *docA, PDFRectangle *rect);
@@ -1392,7 +1405,7 @@ private:
 // AnnotWidget
 //------------------------------------------------------------------------
 
-class AnnotWidget : public Annot
+class POPPLER_PRIVATE_EXPORT AnnotWidget : public Annot
 {
 public:
     enum AnnotWidgetHighlightMode
@@ -1408,12 +1421,14 @@ public:
     ~AnnotWidget() override;
 
     void draw(Gfx *gfx, bool printing) override;
+    void invalidateAppearance() override;
 
     void generateFieldAppearance(bool *addedDingbatsResource);
     void updateAppearanceStream();
 
     AnnotWidgetHighlightMode getMode() { return mode; }
     AnnotAppearanceCharacs *getAppearCharacs() { return appearCharacs.get(); }
+    void setAppearCharacs(std::unique_ptr<AnnotAppearanceCharacs> &&appearCharacsA) { appearCharacs = std::move(appearCharacsA); }
     LinkAction *getAction() { return action.get(); } // The caller should not delete the result
     std::unique_ptr<LinkAction> getAdditionalAction(AdditionalActionsType type);
     std::unique_ptr<LinkAction> getFormAdditionalAction(FormAdditionalActionsType type);
@@ -1507,10 +1522,10 @@ private:
 // AnnotRichMedia
 //------------------------------------------------------------------------
 
-class AnnotRichMedia : public Annot
+class POPPLER_PRIVATE_EXPORT AnnotRichMedia : public Annot
 {
 public:
-    class Params
+    class POPPLER_PRIVATE_EXPORT Params
     {
     public:
         Params(Dict *dict);
@@ -1526,7 +1541,7 @@ public:
         std::unique_ptr<GooString> flashVars; // FlashVars
     };
 
-    class Instance
+    class POPPLER_PRIVATE_EXPORT Instance
     {
     public:
         enum Type
@@ -1552,7 +1567,7 @@ public:
         std::unique_ptr<Params> params; // Params
     };
 
-    class Configuration
+    class POPPLER_PRIVATE_EXPORT Configuration
     {
     public:
         enum Type
@@ -1584,7 +1599,7 @@ public:
 
     class Content;
 
-    class Asset
+    class POPPLER_PRIVATE_EXPORT Asset
     {
     public:
         Asset();
@@ -1603,7 +1618,7 @@ public:
         Object fileSpec;
     };
 
-    class Content
+    class POPPLER_PRIVATE_EXPORT Content
     {
     public:
         Content(Dict *dict);
@@ -1627,7 +1642,7 @@ public:
         int nAssets;
     };
 
-    class Activation
+    class POPPLER_PRIVATE_EXPORT Activation
     {
     public:
         enum Condition
@@ -1646,7 +1661,7 @@ public:
         Condition condition;
     };
 
-    class Deactivation
+    class POPPLER_PRIVATE_EXPORT Deactivation
     {
     public:
         enum Condition
@@ -1665,7 +1680,7 @@ public:
         Condition condition;
     };
 
-    class Settings
+    class POPPLER_PRIVATE_EXPORT Settings
     {
     public:
         Settings(Dict *dict);

@@ -40,11 +40,15 @@
 // Copyright 2018 Andre Heinecke <aheinecke@intevation.de>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2018 Dileep Sankhla <sankhla.dileep96@gmail.com>
-// Copyright (C) 2018, 2019 Tobias Deiminger <haxtibal@posteo.de>
+// Copyright (C) 2018-2020 Tobias Deiminger <haxtibal@posteo.de>
 // Copyright (C) 2018-2020 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2019 Umang Malik <umang99m@gmail.com>
 // Copyright (C) 2019 João Netto <joaonetto901@gmail.com>
 // Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
+// Copyright (C) 2020 Katarina Behrens <Katarina.Behrens@cib.de>
+// Copyright (C) 2020 Thorsten Behrens <Thorsten.Behrens@CIB.de>
+// Copyright (C) 2020 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2021 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>.
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -216,16 +220,17 @@ static std::unique_ptr<LinkAction> getAdditionalAction(Annot::AdditionalActionsT
     Object additionalActionsObject = additionalActions->fetch(doc->getXRef());
 
     if (additionalActionsObject.isDict()) {
-        const char *key =
-                (type == Annot::actionCursorEntering ? "E"
-                                                     : type == Annot::actionCursorLeaving ? "X"
-                                                                                          : type == Annot::actionMousePressed ? "D"
-                                                                                                                              : type == Annot::actionMouseReleased ? "U"
-                                                                                                                                                                   : type == Annot::actionFocusIn ? "Fo"
-                                                                                                                                                                                                  : type == Annot::actionFocusOut
-                                                                 ? "Bl"
-                                                                 : type == Annot::actionPageOpening ? "PO"
-                                                                                                    : type == Annot::actionPageClosing ? "PC" : type == Annot::actionPageVisible ? "PV" : type == Annot::actionPageInvisible ? "PI" : nullptr);
+        const char *key = (type == Annot::actionCursorEntering          ? "E"
+                                   : type == Annot::actionCursorLeaving ? "X"
+                                   : type == Annot::actionMousePressed  ? "D"
+                                   : type == Annot::actionMouseReleased ? "U"
+                                   : type == Annot::actionFocusIn       ? "Fo"
+                                   : type == Annot::actionFocusOut      ? "Bl"
+                                   : type == Annot::actionPageOpening   ? "PO"
+                                   : type == Annot::actionPageClosing   ? "PC"
+                                   : type == Annot::actionPageVisible   ? "PV"
+                                   : type == Annot::actionPageInvisible ? "PI"
+                                                                        : nullptr);
 
         Object actionObject = additionalActionsObject.dictLookup(key);
         if (actionObject.isDict())
@@ -586,20 +591,14 @@ AnnotBorderBS::AnnotBorderBS() { }
 
 AnnotBorderBS::AnnotBorderBS(Dict *dict)
 {
-    Object obj1, obj2;
+    // Border width (in points)
+    Object obj1 = dict->lookup("W");
+    width = obj1.getNumWithDefaultValue(1.0);
 
-    // acroread 8 seems to need both W and S entries for
-    // any border to be drawn, even though the spec
-    // doesn't claim anything of that sort. We follow
-    // that behaviour by verifying both entries exist
-    // otherwise we set the borderWidth to 0
-    // --jrmuizel
-    obj1 = dict->lookup("W");
-    obj2 = dict->lookup("S");
-    if (obj1.isNum() && obj2.isName()) {
-        const char *styleName = obj2.getName();
-
-        width = obj1.getNum();
+    // Border style
+    obj1 = dict->lookup("S");
+    if (obj1.isName()) {
+        const char *styleName = obj1.getName();
 
         if (!strcmp(styleName, "S")) {
             style = borderSolid;
@@ -615,9 +614,10 @@ AnnotBorderBS::AnnotBorderBS(Dict *dict)
             style = borderSolid;
         }
     } else {
-        width = 0;
+        style = borderSolid;
     }
 
+    // Border dash style
     if (style == borderDashed) {
         obj1 = dict->lookup("D");
         if (obj1.isArray())
@@ -762,7 +762,7 @@ Object AnnotColor::writeToObject(XRef *xref) const
 
 DefaultAppearance::DefaultAppearance(Object &&fontNameA, double fontPtSizeA, std::unique_ptr<AnnotColor> fontColorA) : fontName(std::move(fontNameA)), fontPtSize(fontPtSizeA), fontColor(std::move(fontColorA)) { }
 
-DefaultAppearance::DefaultAppearance(GooString *da)
+DefaultAppearance::DefaultAppearance(const GooString *da)
 {
     fontPtSize = -1;
 
@@ -1630,12 +1630,29 @@ void AnnotAppearanceBuilder::setLineStyleForBorder(const AnnotBorder *border)
 // If <fill> is true, the circle is filled; otherwise it is stroked.
 void AnnotAppearanceBuilder::drawCircle(double cx, double cy, double r, bool fill)
 {
-    appearBuf->appendf("{0:.2f} {1:.2f} m\n", cx + r, cy);
-    appearBuf->appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", cx + r, cy + bezierCircle * r, cx + bezierCircle * r, cy + r, cx, cy + r);
-    appearBuf->appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", cx - bezierCircle * r, cy + r, cx - r, cy + bezierCircle * r, cx - r, cy);
-    appearBuf->appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", cx - r, cy - bezierCircle * r, cx - bezierCircle * r, cy - r, cx, cy - r);
-    appearBuf->appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", cx + bezierCircle * r, cy - r, cx + r, cy - bezierCircle * r, cx + r, cy);
-    appearBuf->append(fill ? "f\n" : "s\n");
+    if (fill)
+        drawEllipse(cx, cy, r, r, true, false);
+    else
+        drawEllipse(cx, cy, r, r, false, true);
+}
+
+// Draw an (approximate) ellipse of radius <rx> on x-axis and <ry> on y-axis, centered at (<cx>, <cy>).
+// If <fill> is true, the ellipse is filled with current color for non-stroking operations.
+// If <stroke> is true, the ellipse path ist stroked with current color and color space for stroking operations.
+// Path will be closed if either fill or stroke is true; otherwise it's left open.
+void AnnotAppearanceBuilder::drawEllipse(double cx, double cy, double rx, double ry, bool fill, bool stroke)
+{
+    appearBuf->appendf("{0:.2f} {1:.2f} m\n", cx + rx, cy);
+    appearBuf->appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", cx + rx, cy + bezierCircle * ry, cx + bezierCircle * rx, cy + ry, cx, cy + ry);
+    appearBuf->appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", cx - bezierCircle * rx, cy + ry, cx - rx, cy + bezierCircle * ry, cx - rx, cy);
+    appearBuf->appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", cx - rx, cy - bezierCircle * ry, cx - bezierCircle * rx, cy - ry, cx, cy - ry);
+    appearBuf->appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", cx + bezierCircle * rx, cy - ry, cx + rx, cy - bezierCircle * ry, cx + rx, cy);
+    if (!fill && stroke)
+        appearBuf->append("s\n");
+    else if (fill && !stroke)
+        appearBuf->append("f\n");
+    else if (fill && stroke)
+        appearBuf->append("b\n");
 }
 
 // Draw the top-left half of an (approximate) circle of radius <r>
@@ -2828,19 +2845,21 @@ std::unique_ptr<DefaultAppearance> AnnotFreeText::getDefaultAppearance() const
     return std::make_unique<DefaultAppearance>(appearanceString.get());
 }
 
-static GfxFont *createAnnotDrawFont(XRef *xref, Dict *fontResDict, const char *resourceName = "AnnotDrawFont", const char *fontname = "Helvetica")
+static GfxFont *createAnnotDrawFont(XRef *xref, Dict *fontParentDict, const char *resourceName = "AnnotDrawFont", const char *fontname = "Helvetica")
 {
     const Ref dummyRef = { -1, -1 };
 
     Dict *fontDict = new Dict(xref);
     fontDict->add("BaseFont", Object(objName, fontname));
-    fontDict->add("Subtype", Object(objName, "Type0"));
-    fontDict->add("Encoding", Object(objName, "WinAnsiEncoding"));
+    fontDict->add("Subtype", Object(objName, "Type1"));
 
-    Dict *fontsDict = new Dict(xref);
-    fontsDict->add(resourceName, Object(fontDict));
+    Object fontsDictObj = fontParentDict->lookup("Font");
+    if (!fontsDictObj.isDict()) {
+        fontsDictObj = Object(new Dict(xref));
+        fontParentDict->add("Font", fontsDictObj.copy()); // This is not a copy it's a ref
+    }
 
-    fontResDict->add("Font", Object(fontsDict));
+    fontsDictObj.dictSet(resourceName, Object(fontDict));
 
     return GfxFont::makeFont(xref, resourceName, dummyRef, fontDict);
 }
@@ -3545,6 +3564,32 @@ void AnnotTextMarkup::setQuadrilaterals(AnnotQuadrilaterals *quadPoints)
     invalidateAppearance();
 }
 
+bool AnnotTextMarkup::shouldCreateApperance(Gfx *gfx) const
+{
+    if (appearance.isNull())
+        return true;
+
+    // Adobe Reader seems to have a complex condition for when to use the
+    // appearance stream of typeHighlight, which is "use it if it has a Resources dictionary with ExtGState"
+    // this is reverse engineering of me editing a file by hand and checking what it does so the real
+    // condition may be more or less complex
+    if (type == typeHighlight) {
+        XRef *xref = gfx->getXRef();
+        const Object fetchedApperance = appearance.fetch(xref);
+        if (fetchedApperance.isStream()) {
+            const Object resources = fetchedApperance.streamGetDict()->lookup("Resources");
+            if (resources.isDict()) {
+                if (resources.dictLookup("ExtGState").isDict()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
 void AnnotTextMarkup::draw(Gfx *gfx, bool printing)
 {
     double ca = 1;
@@ -3554,7 +3599,7 @@ void AnnotTextMarkup::draw(Gfx *gfx, bool printing)
         return;
 
     annotLocker();
-    if (appearance.isNull() || type == typeHighlight) {
+    if (shouldCreateApperance(gfx)) {
         bool blendMultiply = true;
         ca = opacity;
 
@@ -4762,7 +4807,7 @@ void AnnotAppearanceBuilder::drawFieldBorder(const FormField *field, const Annot
 }
 
 bool AnnotAppearanceBuilder::drawFormField(const FormField *field, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect,
-                                           const GooString *appearState, XRef *xref, bool *addedDingbatsResource)
+                                           const GooString *appearState, XRef *xref, bool *addedDingbatsResource, Dict *resourcesDict)
 {
     // draw the field contents
     switch (field->getType()) {
@@ -4775,7 +4820,7 @@ bool AnnotAppearanceBuilder::drawFormField(const FormField *field, const Form *f
         return drawFormFieldChoice(static_cast<const FormFieldChoice *>(field), form, resources, da, border, appearCharacs, rect);
         break;
     case formSignature:
-        //~unimp
+        return drawSignatureFieldText(static_cast<const FormFieldSignature *>(field), form, resources, da, border, appearCharacs, rect, xref, resourcesDict);
         break;
     case formUndef:
     default:
@@ -4837,7 +4882,13 @@ bool AnnotAppearanceBuilder::drawFormFieldText(const FormFieldText *fieldText, c
 
     contents = fieldText->getAppearanceContent();
     if (contents) {
-        quadding = fieldText->hasTextQuadding() ? fieldText->getTextQuadding() : form->getTextQuadding();
+        if (fieldText->hasTextQuadding()) {
+            quadding = fieldText->getTextQuadding();
+        } else if (form) {
+            quadding = form->getTextQuadding();
+        } else {
+            quadding = quaddingLeftJustified;
+        }
 
         int comb = 0;
         if (fieldText->isComb())
@@ -4849,13 +4900,75 @@ bool AnnotAppearanceBuilder::drawFormFieldText(const FormFieldText *fieldText, c
     return true;
 }
 
+bool AnnotAppearanceBuilder::drawSignatureFieldText(const FormFieldSignature *field, const Form *form, const GfxResources *resources, const GooString *_da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs,
+                                                    const PDFRectangle *rect, XRef *xref, Dict *resourcesDict)
+{
+    DefaultAppearance da(_da);
+    const GooString &contents = field->getCustomAppearanceContent();
+    if (contents.toStr().empty())
+        return false;
+
+    double borderWidth = 0;
+    append("q\n");
+
+    if (border) {
+        borderWidth = border->getWidth();
+        if (borderWidth > 0)
+            setLineStyleForBorder(border);
+    }
+
+    // Box size
+    const double width = rect->x2 - rect->x1;
+    const double height = rect->y2 - rect->y1;
+
+    // Setup text clipping
+    const double textmargin = borderWidth * 2;
+    const double textwidth = width - 2 * textmargin;
+    appendf("{0:.2f} {0:.2f} {1:.2f} {2:.2f} re W n\n", textmargin, textwidth, height - 2 * textmargin);
+
+    GfxFont *font = nullptr;
+
+    // create a Helvetica fake font
+    font = createAnnotDrawFont(xref, resourcesDict, da.getFontName().getName());
+
+    // Set font state
+    setDrawColor(da.getFontColor(), true);
+    appendf("BT 1 0 0 1 {0:.2f} {1:.2f} Tm\n", textmargin, height - textmargin - da.getFontPtSize() * font->getDescent());
+    setTextFont(da.getFontName(), da.getFontPtSize());
+
+    int i = 0;
+    double xposPrev = 0;
+    while (i < contents.getLength()) {
+        GooString out;
+        double linewidth, xpos;
+        Annot::layoutText(&contents, &out, &i, font, &linewidth, textwidth / da.getFontPtSize(), nullptr, false);
+        linewidth *= da.getFontPtSize();
+        xpos = 0;
+        appendf("{0:.2f} {1:.2f} Td\n", xpos - xposPrev, -da.getFontPtSize());
+        writeString(out);
+        append("Tj\n");
+        xposPrev = xpos;
+    }
+
+    font->decRefCnt();
+    append("ET Q\n");
+
+    return true;
+}
+
 bool AnnotAppearanceBuilder::drawFormFieldChoice(const FormFieldChoice *fieldChoice, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs,
                                                  const PDFRectangle *rect)
 {
     const GooString *selected;
     VariableTextQuadding quadding;
 
-    quadding = fieldChoice->hasTextQuadding() ? fieldChoice->getTextQuadding() : form->getTextQuadding();
+    if (fieldChoice->hasTextQuadding()) {
+        quadding = fieldChoice->getTextQuadding();
+    } else if (form) {
+        quadding = form->getTextQuadding();
+    } else {
+        quadding = quaddingLeftJustified;
+    }
 
     if (fieldChoice->isCombo()) {
         selected = fieldChoice->getSelectedChoice();
@@ -4873,7 +4986,6 @@ bool AnnotAppearanceBuilder::drawFormFieldChoice(const FormFieldChoice *fieldCho
 
 void AnnotWidget::generateFieldAppearance(bool *addedDingbatsResource)
 {
-    GfxResources *resources;
     const GooString *da;
 
     AnnotAppearanceBuilder appearBuilder;
@@ -4892,20 +5004,27 @@ void AnnotWidget::generateFieldAppearance(bool *addedDingbatsResource)
         appearBuilder.drawFieldBorder(field, border.get(), appearCharacs.get(), rect.get());
 
     da = field->getDefaultAppearance();
-    if (!da)
+    if (!da && form)
         da = form->getDefaultAppearance();
 
-    resources = form->getDefaultResources();
+    const GfxResources *resources = form ? form->getDefaultResources() : nullptr;
+    Dict *appearDict = new Dict(doc->getXRef());
 
-    const bool success = appearBuilder.drawFormField(field, form, resources, da, border.get(), appearCharacs.get(), rect.get(), appearState.get(), doc->getXRef(), addedDingbatsResource);
-    if (!success && da != form->getDefaultAppearance()) {
+    Object resourcesDictObj;
+    if (form && form->getDefaultResourcesObj()->isDict()) {
+        resourcesDictObj = form->getDefaultResourcesObj()->copy();
+    } else {
+        resourcesDictObj = Object(new Dict(doc->getXRef()));
+    }
+
+    const bool success = appearBuilder.drawFormField(field, form, resources, da, border.get(), appearCharacs.get(), rect.get(), appearState.get(), doc->getXRef(), addedDingbatsResource, resourcesDictObj.getDict());
+    if (!success && form && da != form->getDefaultAppearance()) {
         da = form->getDefaultAppearance();
-        appearBuilder.drawFormField(field, form, resources, da, border.get(), appearCharacs.get(), rect.get(), appearState.get(), doc->getXRef(), addedDingbatsResource);
+        appearBuilder.drawFormField(field, form, resources, da, border.get(), appearCharacs.get(), rect.get(), appearState.get(), doc->getXRef(), addedDingbatsResource, resourcesDictObj.getDict());
     }
 
     const GooString *appearBuf = appearBuilder.buffer();
-    // build the appearance stream dictionary
-    Dict *appearDict = new Dict(doc->getXRef());
+    // fill the appearance stream dictionary
     appearDict->add("Length", Object(appearBuf->getLength()));
     appearDict->add("Subtype", Object(objName, "Form"));
     Array *bbox = new Array(doc->getXRef());
@@ -4916,9 +5035,8 @@ void AnnotWidget::generateFieldAppearance(bool *addedDingbatsResource)
     appearDict->add("BBox", Object(bbox));
 
     // set the resource dictionary
-    Object *resDict = form->getDefaultResourcesObj();
-    if (resDict->isDict()) {
-        appearDict->add("Resources", resDict->copy());
+    if (resourcesDictObj.getDict()->getLength() > 0) {
+        appearDict->set("Resources", std::move(resourcesDictObj));
     }
 
     // build the appearance stream
@@ -4979,8 +5097,8 @@ void AnnotWidget::draw(Gfx *gfx, bool printing)
     // Only construct the appearance stream when
     // - annot doesn't have an AP or
     // - NeedAppearances is true
-    if (field && form) {
-        if (appearance.isNull() || form->getNeedAppearances()) {
+    if (field) {
+        if (appearance.isNull() || (form && form->getNeedAppearances())) {
             generateFieldAppearance(&addDingbatsResource);
         }
     }
@@ -5006,6 +5124,12 @@ void AnnotWidget::draw(Gfx *gfx, bool printing)
     if (addDingbatsResource) {
         gfx->popResources();
     }
+}
+
+void AnnotWidget::invalidateAppearance()
+{
+    updatedAppearanceStream = Ref::INVALID();
+    Annot::invalidateAppearance();
 }
 
 //------------------------------------------------------------------------
@@ -5331,6 +5455,7 @@ void AnnotGeometry::draw(Gfx *gfx, bool printing)
 
     annotLocker();
     if (appearance.isNull()) {
+        const bool fill = interiorColor && interiorColor->getSpace() != AnnotColor::colorTransparent;
         ca = opacity;
 
         AnnotAppearanceBuilder appearBuilder;
@@ -5346,55 +5471,21 @@ void AnnotGeometry::draw(Gfx *gfx, bool printing)
 
         if (type == typeSquare) {
             appearBuilder.appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} re\n", borderWidth / 2.0, borderWidth / 2.0, (rect->x2 - rect->x1) - borderWidth, (rect->y2 - rect->y1) - borderWidth);
+            if (fill) {
+                if (borderWidth > 0) {
+                    appearBuilder.append("b\n");
+                } else {
+                    appearBuilder.append("f\n");
+                }
+            } else if (borderWidth > 0) {
+                appearBuilder.append("S\n");
+            }
         } else {
-            double width, height;
-            double b;
-            double x1, y1, x2, y2, x3, y3;
-
-            width = rect->x2 - rect->x1;
-            height = rect->y2 - rect->y1;
-            b = borderWidth / 2.0;
-
-            x1 = b;
-            y1 = height / 2.0;
-            appearBuilder.appendf("{0:.2f} {1:.2f} m\n", x1, y1);
-
-            y1 += height / 4.0;
-            x2 = width / 4.0;
-            y2 = height - b;
-            x3 = width / 2.0;
-            y3 = y2;
-            appearBuilder.appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", x1, y1, x2, y2, x3, y3);
-            x2 = width - b;
-            y2 = y1;
-            x1 = x3 + (width / 4.0);
-            y1 = y3;
-            x3 = x2;
-            y3 = height / 2.0;
-            appearBuilder.appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", x1, y1, x2, y2, x3, y3);
-
-            x2 = x1;
-            y2 = b;
-            x1 = x3;
-            y1 = height / 4.0;
-            x3 = width / 2.0;
-            y3 = b;
-            appearBuilder.appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", x1, y1, x2, y2, x3, y3);
-
-            x2 = b;
-            y2 = y1;
-            x1 = width / 4.0;
-            y1 = b;
-            x3 = b;
-            y3 = height / 2.0;
-            appearBuilder.appendf("{0:.2f} {1:.2f} {2:.2f} {3:.2f} {4:.2f} {5:.2f} c\n", x1, y1, x2, y2, x3, y3);
+            const double rx { (rect->x2 - rect->x1) / 2. };
+            const double ry { (rect->y2 - rect->y1) / 2. };
+            const double bwHalf { borderWidth / 2.0 };
+            appearBuilder.drawEllipse(rx, ry, rx - bwHalf, ry - bwHalf, fill, borderWidth > 0);
         }
-
-        if (interiorColor && interiorColor->getSpace() != AnnotColor::colorTransparent)
-            appearBuilder.append("b\n");
-        else
-            appearBuilder.append("S\n");
-
         appearBuilder.append("Q\n");
 
         double bbox[4];
@@ -5711,9 +5802,14 @@ void AnnotPolygon::draw(Gfx *gfx, bool printing)
                     appearBBox->extendTo(vertices->getX(i) - rect->x1, vertices->getY(i) - rect->y1);
                 }
 
+                const double borderWidth = border->getWidth();
                 if (interiorColor && interiorColor->getSpace() != AnnotColor::colorTransparent) {
-                    appearBuilder.append("b\n");
-                } else {
+                    if (borderWidth > 0) {
+                        appearBuilder.append("b\n");
+                    } else {
+                        appearBuilder.append("f\n");
+                    }
+                } else if (borderWidth > 0) {
                     appearBuilder.append("s\n");
                 }
             }

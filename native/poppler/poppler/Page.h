@@ -25,7 +25,7 @@
 // Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020 Oliver Sander <oliver.sander@tu-dresden.de>
-// Copyright (C) 2020 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2020, 2021 Nelson Benítez León <nbenitezl@gmail.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -40,6 +40,7 @@
 
 #include "poppler-config.h"
 #include "Object.h"
+#include "poppler_private_export.h"
 
 class Dict;
 class PDFDoc;
@@ -135,7 +136,7 @@ private:
 // Page
 //------------------------------------------------------------------------
 
-class Page
+class POPPLER_PRIVATE_EXPORT Page
 {
 public:
     // Constructor.
@@ -201,7 +202,7 @@ public:
     Object getTrans() { return trans.fetch(xref); }
 
     // Get form.
-    FormPageWidgets *getFormWidgets();
+    std::unique_ptr<FormPageWidgets> getFormWidgets();
 
     // Get duration, the maximum length of time, in seconds,
     // that the page is displayed before the presentation automatically
@@ -238,6 +239,8 @@ public:
 
     // Get the page's default CTM.
     void getDefaultCTM(double *ctm, double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown);
+
+    bool hasStandaloneFields() const { return !standaloneFields.empty(); }
 
 private:
     // replace xref
