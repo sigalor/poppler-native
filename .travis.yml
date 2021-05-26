@@ -1,7 +1,8 @@
 language: node_js
 node_js:
   - 'node'
-python: '3.8'
+env:
+  - PYTHON_VERSION="3.8.5"
 install:
   - npm ci
   - npx node-gyp rebuild
