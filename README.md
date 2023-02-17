@@ -6,7 +6,7 @@ Allows you to use the native Poppler C++ backend to efficiently parse PDF files 
 
 ## Getting started
 
-1. dependencies for a Dockerfile based on `node:14-buster-slim`: `ghostscript python build-essential libjpeg62-turbo-dev libpng-dev libcurl4-gnutls-dev mupdf-tools libfreetype6-dev qpdf`
+1. dependencies: `build-essential`, curl development headers, possibly also PNG, JPEG and FreeType development headers
 2. `npm install poppler-native` (only tested on Ubuntu 16.04 and 20.04 so far)
 
 ```javascript
