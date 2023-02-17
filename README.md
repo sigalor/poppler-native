@@ -1,6 +1,6 @@
 # Poppler for Node
 
-[![GitHub license](https://img.shields.io/github/license/sigalor/poppler-native)](https://github.com/sigalor/poppler-native/blob/master/LICENSE) [![npm](https://img.shields.io/npm/v/poppler-native)](https://www.npmjs.com/package/poppler-native) [![Build Status](https://travis-ci.com/sigalor/poppler-native.svg?branch=master)](https://travis-ci.com/sigalor/poppler-native)
+[![GitHub license](https://img.shields.io/github/license/sigalor/poppler-native)](https://github.com/sigalor/poppler-native/blob/master/LICENSE) [![npm](https://img.shields.io/npm/v/poppler-native)](https://www.npmjs.com/package/poppler-native) [![Unit tests workflow status](https://github.com/sigalor/poppler-native/actions/workflows/tests.yaml/badge.svg)](https://github.com/sigalor/poppler-native/actions/workflows/tests.yaml)
 
 Allows you to use the native Poppler C++ backend to efficiently parse PDF files from NodeJS. Outputs similar information to `pdftohtml -xml -stdout test.pdf` (with `pdftohtml` from the `poppler-utils` package), because it uses parts of the same codebase which have been rewritten to output N-API objects instead of XML code. All contained functions return JavaScript promises.
 
