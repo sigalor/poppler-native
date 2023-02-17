@@ -1,7 +1,0 @@
-dist: bionic
-language: node_js
-node_js:
-  - 'node'
-install:
-  - npm ci
-  - npx node-gyp rebuild
