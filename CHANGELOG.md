@@ -1,3 +1,8 @@
+# 2.2.0 (2023-02-17)
+
+- update Poppler to 23.02
+- update NPM dependencies
+
 # 2.1.3 (2021-05-26)
 
 - update Poppler to 21.05.0
