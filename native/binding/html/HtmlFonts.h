@@ -24,13 +24,15 @@
 // Copyright (C) 2012 Igor Slepchin <igor.slepchin@gmail.com>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020 Eddie Kohler <ekohler@gmail.com>
+// Copyright (C) 2022 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
 //
 //========================================================================
 
-#pragma once
+#ifndef _HTML_FONTS_H
+#define _HTML_FONTS_H
 
 #include <string>
 #include <vector>
@@ -93,7 +95,7 @@ private:
     double rotSkewMat[4]; // only four values needed for rotation and skew
     bool hasToUnicodeCMap;
 public:
-    HtmlFont(GfxFont *font, int _size, GfxRGB rgb, double opacity);
+    HtmlFont(const GfxFont &font, int _size, GfxRGB rgb, double opacity);
     HtmlFont(const HtmlFont &x);
     HtmlFont &operator=(const HtmlFont &x);
     HtmlFontColor getColor() const { return color; }
@@ -112,10 +114,12 @@ public:
     }
     const double *getRotMat() const { return rotSkewMat; }
     GooString *getFontName();
+    static GooString *HtmlFilter(const Unicode *u, int uLen); // char* s);
     static std::string codepointsEncode(const Unicode *u, int uLen); // char* s);
     bool isEqual(const HtmlFont &x) const;
     bool isEqualIgnoreBold(const HtmlFont &x) const;
-    
+    void print() const { printf("font: %s (%s) %d %s%s\n", FontName->c_str(), familyName.c_str(), size, bold ? "bold " : "", italic ? "italic " : ""); };
+
     friend class HtmlFontAccu;
 };
 
@@ -132,5 +136,7 @@ public:
     int AddFont(const HtmlFont &font);
     const HtmlFont *Get(int i) const { return &accu[i]; }
     ReadPDFOutputs::Font serialize(int i);
+    GooString *CSStyle(int i, int j = 0);
     int size() const { return accu.size(); }
 };
+#endif

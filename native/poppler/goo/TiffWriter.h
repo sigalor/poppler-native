@@ -5,7 +5,7 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright (C) 2010, 2012 William Bader <williambader@hotmail.com>
-// Copyright (C) 2011, 2012 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2011, 2012, 2021, 2022 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2012, 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2012 Pino Toscano <pino@kde.org>
 //
@@ -44,7 +44,7 @@ public:
         RGB48
     };
 
-    TiffWriter(Format format = RGB);
+    explicit TiffWriter(Format format = RGB);
     ~TiffWriter() override;
 
     TiffWriter(const TiffWriter &other) = delete;
@@ -52,7 +52,7 @@ public:
 
     void setCompressionString(const char *compressionStringArg);
 
-    bool init(FILE *openedFile, int width, int height, int hDPI, int vDPI) override;
+    bool init(FILE *openedFile, int width, int height, double hDPI, double vDPI) override;
 
     bool writePointers(unsigned char **rowPointers, int rowCount) override;
     bool writeRow(unsigned char **rowData) override;

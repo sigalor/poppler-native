@@ -5,7 +5,9 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2013 Igalia S.L.
-// Copyright 2018-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright 2018-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright 2021 Adrian Johnson <ajohnson@redneon.com>
+// Copyright 2022 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 //========================================================================
 
@@ -38,28 +40,27 @@ public:
 
     ~TextSpan()
     {
-        if (data && --data->refcount == 0)
+        if (data && --data->refcount == 0) {
             delete data;
+        }
     }
 
-    GfxFont *getFont() const { return data->font; }
+    const std::shared_ptr<GfxFont> &getFont() const { return data->font; }
     GooString *getText() const { return data->text; }
     GfxRGB &getColor() const { return data->color; }
 
 private:
     // Note: Takes ownership of strings, increases refcount for font.
-    TextSpan(GooString *text, GfxFont *font, const GfxRGB color) : data(new Data)
+    TextSpan(GooString *text, std::shared_ptr<GfxFont> font, const GfxRGB color) : data(new Data)
     {
         data->text = text;
-        data->font = font;
+        data->font = std::move(font);
         data->color = color;
-        if (data->font)
-            data->font->incRefCnt();
     }
 
     struct Data
     {
-        GfxFont *font;
+        std::shared_ptr<GfxFont> font;
         GooString *text;
         GfxRGB color;
         unsigned refcount;
@@ -69,8 +70,6 @@ private:
         ~Data()
         {
             assert(refcount == 0);
-            if (font)
-                font->decRefCnt();
             delete text;
         }
 
@@ -88,7 +87,7 @@ typedef std::vector<TextSpan> TextSpanArray;
 class POPPLER_PRIVATE_EXPORT MarkedContentOutputDev : public OutputDev
 {
 public:
-    MarkedContentOutputDev(int mcidA);
+    explicit MarkedContentOutputDev(int mcidA, const Object &stmObj);
     ~MarkedContentOutputDev() override;
 
     virtual bool isOk() { return true; }
@@ -101,6 +100,9 @@ public:
     void startPage(int pageNum, GfxState *state, XRef *xref) override;
     void endPage() override;
 
+    void beginForm(Ref id) override;
+    void endForm(Ref id) override;
+
     void drawChar(GfxState *state, double xx, double yy, double dx, double dy, double ox, double oy, CharCode c, int nBytes, const Unicode *u, int uLen) override;
 
     void beginMarkedContent(const char *name, Dict *properties) override;
@@ -111,17 +113,20 @@ public:
 private:
     void endSpan();
     bool inMarkedContent() const { return mcidStack.size() > 0; }
-    bool needFontChange(const GfxFont *font) const;
+    bool contentStreamMatch();
+    bool needFontChange(const std::shared_ptr<const GfxFont> &font) const;
 
-    GfxFont *currentFont;
+    std::shared_ptr<GfxFont> currentFont;
     GooString *currentText;
     GfxRGB currentColor;
     TextSpanArray textSpans;
     int mcid;
     std::vector<int> mcidStack;
+    std::vector<Ref> formStack;
     double pageWidth;
     double pageHeight;
     const UnicodeMap *unicodeMap;
+    Object stmRef;
 };
 
 #endif /* !MARKEDCONTENTOUTPUTDEV_H */

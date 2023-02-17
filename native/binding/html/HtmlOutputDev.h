@@ -14,7 +14,7 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2006, 2007, 2009, 2012, 2018-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006, 2007, 2009, 2012, 2018-2022 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2008, 2009 Warren Toomey <wkt@tuhs.org>
 // Copyright (C) 2009, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2009 Kovid Goyal <kovid@kovidgoyal.net>
@@ -32,7 +32,8 @@
 //
 //========================================================================
 
-#pragma once
+#ifndef HTMLOUTPUTDEV_H
+#define HTMLOUTPUTDEV_H
 
 #include <cstdio>
 
@@ -47,12 +48,15 @@
 #include "HtmlFonts.h"
 #include "HtmlLinks.h"
 
+#define xoutRound(x) ((int)(x + 0.5))
+
+#define DOCTYPE "<!DOCTYPE html>"
+
 class GfxState;
 class GooString;
 class HtmlImage;
 class PDFDoc;
 class OutlineItem;
-
 //------------------------------------------------------------------------
 // HtmlString
 //------------------------------------------------------------------------
@@ -79,13 +83,13 @@ public:
 
     // Add a character to the string.
     void addChar(GfxState *state, double x, double y, double dx, double dy, Unicode u);
-    HtmlLink *getLink() { return link; }
+    const HtmlLink *getLink() const { return link; }
     const HtmlFont &getFont() const { return *fonts->Get(fontpos); }
     void endString(); // postprocessing
 
 private:
     // aender die text variable
-    HtmlLink *link;
+    const HtmlLink *link;
     double xMin, xMax; // bounding box x coordinates
     double yMin, yMax; // bounding box y coordinates
     int col; // starting column
@@ -111,7 +115,7 @@ class HtmlPage
 {
 public:
     // Constructor.
-    HtmlPage(bool newMergeLines, double newWordBreakThreshold);
+    explicit HtmlPage(bool rawOrder);
 
     // Destructor.
     ~HtmlPage();
@@ -143,12 +147,13 @@ public:
     void AddLink(const HtmlLink &x) { links->AddLink(x); }
 
     // add an image to the current page
-    void addImage(GooString *fname, GfxState *state);
+    void addImage(std::unique_ptr<GooString> &&fname, GfxState *state);
 
     // number of images on the current page
-    int getNumImages() { return imgList->size(); }
+    int getNumImages() { return imgList.size(); }
 
     void serialize(int pageNumber, ReadPDFOutputs::Page &dest);
+    void dump(FILE *f, int pageNum, const std::vector<std::string> &backgroundImages);
 
     // Clear the page.
     void clear();
@@ -159,6 +164,7 @@ private:
     const HtmlFont *getFont(HtmlString *hStr) const { return fonts->Get(hStr->fontpos); }
 
     double fontSize; // current font size
+    bool rawOrder; // keep strings in content stream order
 
     HtmlString *curStr; // currently active string
 
@@ -167,21 +173,41 @@ private:
     HtmlString *yxCur1, *yxCur2; // cursors for yxStrings list
 
     void setDocName(const char *fname);
+    void dumpAsXML(FILE *f, int page);
+    void dumpComplex(FILE *f, int page, const std::vector<std::string> &backgroundImages);
+    int dumpComplexHeaders(FILE *const file, FILE *&pageFile, int page);
 
     // marks the position of the fonts that belong to current page (for noframes)
     int fontsPageMarker;
     HtmlFontAccu *fonts;
     HtmlLinks *links;
-    std::vector<HtmlImage *> *imgList;
+    std::vector<HtmlImage *> imgList;
 
     GooString *DocName;
     int pageWidth;
     int pageHeight;
     int firstPage; // used to begin the numeration of pages
-    bool mergeLines;
-    double wordBreakThreshold;
 
     friend class HtmlOutputDev;
+};
+
+//------------------------------------------------------------------------
+// HtmlMetaVar
+//------------------------------------------------------------------------
+class HtmlMetaVar
+{
+public:
+    HtmlMetaVar(const char *_name, const char *_content);
+    ~HtmlMetaVar();
+
+    HtmlMetaVar(const HtmlMetaVar &) = delete;
+    HtmlMetaVar &operator=(const HtmlMetaVar &) = delete;
+
+    GooString *toString() const;
+
+private:
+    GooString *name;
+    GooString *content;
 };
 
 //------------------------------------------------------------------------
@@ -195,14 +221,16 @@ public:
     // (this is useful, e.g., for searching text).  If <useASCII7> is true,
     // text is converted to 7-bit ASCII; otherwise, text is converted to
     // 8-bit ISO Latin-1.  <useASCII7> should also be set for Japanese
-    // (EUC-JP) text.  Because <rawOrder> is always true, the text is kept in
-  // content stream order.
-    HtmlOutputDev(Catalog *catalogA, const char *fileName, int numPages, bool newIgnoreImages,
-                bool newShowHiddenCharacters, bool mergeLines, double wordBreakThreshold,
+    // (EUC-JP) text.  If <rawOrder> is true, the text is kept in content
+    // stream order.
+    HtmlOutputDev(Catalog *catalogA, const char *fileName, const char *title, const char *author, const char *keywords, const char *subject, const char *date, bool rawOrder, int firstPage, bool outline,
                 std::vector<ReadPDFOutputs::Page> &allPagesDest);
 
     // Destructor.
-    virtual ~HtmlOutputDev();
+    ~HtmlOutputDev() override;
+
+    // Check if file was successfully created.
+    virtual bool isOk() { return ok; }
 
     //---- get info about output device
 
@@ -235,6 +263,10 @@ public:
     // End a page.
     void endPage() override;
 
+    // add a background image to the list of background images,
+    // as this seems to be done outside other processing. takes ownership of img.
+    void addBackgroundImage(const std::string &img);
+
     //----- update text state
     void updateFont(GfxState *state) override;
 
@@ -246,33 +278,55 @@ public:
     void drawImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool interpolate, bool inlineImg) override;
     void drawImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, const int *maskColors, bool inlineImg) override;
 
+    // new feature
+    virtual int DevType() { return 1234; }
+
     int getPageWidth() { return maxPageWidth; }
     int getPageHeight() { return maxPageHeight; }
 
     void generateOutline(PDFDoc *doc, std::vector<ReadPDFOutputs::OutlineItem> &dest);
+    bool dumpDocOutline(PDFDoc *doc);
 
 private:
+    // convert encoding into a HTML standard, or encoding->c_str if not
+    // recognized.
+    static std::string mapEncodingToHtml(const std::string &encoding);
     void doProcessLink(AnnotLink *link);
     GooString *getLinkDest(AnnotLink *link);
     void generateOutlineLevel(const std::vector<OutlineItem *> *outlines, std::vector<ReadPDFOutputs::OutlineItem> &dest);
+    void dumpMetaVars(FILE *);
+    void doFrame(int firstPage);
+    bool newHtmlOutlineLevel(FILE *output, const std::vector<OutlineItem *> *outlines, int level = 1);
+    void newXmlOutlineLevel(FILE *output, const std::vector<OutlineItem *> *outlines);
     int getOutlinePageNum(OutlineItem *item);
     void drawJpegImage(GfxState *state, Stream *str);
     void drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask = false);
+    std::unique_ptr<GooString> createImageFileName(const char *ext);
 
+    FILE *fContentsFrame;
+    FILE *page; // html file
+    // FILE *tin;                    // image log file
+    // bool write;
+    bool needClose; // need to close the file?
     HtmlPage *pages; // text for the current page
+    bool rawOrder; // keep text in content stream order
+    bool doOutline; // output document outline
+    bool ok; // set up ok?
     bool dumpJPEG;
     int pageNum;
     int currPageIndex = 0;
     int maxPageWidth;
     int maxPageHeight;
     GooString *Docname;
+    GooString *docTitle;
+    std::vector<HtmlMetaVar *> glMetaVars;
     Catalog *catalog;
     Page *docPage;
-    bool ignoreImages;
-    bool showHiddenCharacters;
-
+    std::vector<std::string> backgroundImages;
     friend class HtmlPage;
-  
+
 public:
     std::vector<ReadPDFOutputs::Page> &allPages;
 };
+
+#endif

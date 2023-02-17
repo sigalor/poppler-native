@@ -18,7 +18,7 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2008 Boris Toloknov <tlknv@yandex.ru>
-// Copyright (C) 2010 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2010, 2021, 2022 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2013 Julien Nabet <serval2412@yahoo.fr>
 //
 // To see a description of the changes please see the Changelog file that
@@ -27,6 +27,8 @@
 //========================================================================
 
 #include "HtmlLinks.h"
+
+extern bool xml;
 
 HtmlLink::HtmlLink(const HtmlLink &x)
 {
@@ -69,35 +71,88 @@ bool HtmlLink::isEqualDest(const HtmlLink &x) const
 bool HtmlLink::inLink(double xmin, double ymin, double xmax, double ymax) const
 {
     double y = (ymin + ymax) / 2;
-    if (y > Ymax)
+    if (y > Ymax) {
         return false;
+    }
     return (y > Ymin) && (xmin < Xmax) && (xmax > Xmin);
 }
 
-HtmlLinks::HtmlLinks()
+static GooString *EscapeSpecialChars(GooString *s)
 {
-    accu = new std::vector<HtmlLink>();
+    GooString *tmp = nullptr;
+    for (int i = 0, j = 0; i < s->getLength(); i++, j++) {
+        const char *replace = nullptr;
+        switch (s->getChar(i)) {
+        case '"':
+            replace = "&quot;";
+            break;
+        case '&':
+            replace = "&amp;";
+            break;
+        case '<':
+            replace = "&lt;";
+            break;
+        case '>':
+            replace = "&gt;";
+            break;
+        default:
+            continue;
+        }
+        if (replace) {
+            if (!tmp) {
+                tmp = new GooString(s);
+            }
+            if (tmp) {
+                tmp->del(j, 1);
+                int l = strlen(replace);
+                tmp->insert(j, replace, l);
+                j += l - 1;
+            }
+        }
+    }
+    return tmp ? tmp : s;
 }
 
-HtmlLinks::~HtmlLinks()
+GooString *HtmlLink::getLinkStart() const
 {
-    delete accu;
-    accu = nullptr;
+    GooString *res = new GooString("<a href=\"");
+    GooString *d = xml ? EscapeSpecialChars(dest) : dest;
+    res->append(d);
+    if (d != dest) {
+        delete d;
+    }
+    res->append("\">");
+    return res;
 }
 
-bool HtmlLinks::inLink(double xmin, double ymin, double xmax, double ymax, int &p) const
+/*GooString* HtmlLink::Link(GooString* content){
+  //GooString* _dest=new GooString(dest);
+  GooString *tmp=new GooString("<a href=\"");
+  tmp->append(dest);
+  tmp->append("\">");
+  tmp->append(content);
+  tmp->append("</a>");
+  //delete _dest;
+  return tmp;
+  }*/
+
+HtmlLinks::HtmlLinks() { }
+
+HtmlLinks::~HtmlLinks() { }
+
+bool HtmlLinks::inLink(double xmin, double ymin, double xmax, double ymax, size_t &p) const
 {
 
-    for (std::vector<HtmlLink>::iterator i = accu->begin(); i != accu->end(); ++i) {
+    for (std::vector<HtmlLink>::const_iterator i = accu.begin(); i != accu.end(); ++i) {
         if (i->inLink(xmin, ymin, xmax, ymax)) {
-            p = (i - accu->begin());
+            p = (i - accu.begin());
             return true;
         }
     }
     return false;
 }
 
-HtmlLink *HtmlLinks::getLink(int i) const
+const HtmlLink *HtmlLinks::getLink(size_t i) const
 {
-    return &(*accu)[i];
+    return &accu[i];
 }

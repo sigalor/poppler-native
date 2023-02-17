@@ -16,7 +16,7 @@
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2006, 2007 Jeff Muizelaar <jeff@infidigm.net>
 // Copyright (C) 2006, 2010 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright (C) 2006-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006-2022 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009, 2012 Koji Otani <sho@bbr.jp>
 // Copyright (C) 2009, 2011-2016, 2020 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2009, 2019 Christian Persch <chpe@gnome.org>
@@ -29,7 +29,7 @@
 // Copyright (C) 2013 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2015, 2020 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2016 Marek Kasik <mkasik@redhat.com>
-// Copyright (C) 2017, 2019 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2017, 2019, 2022 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Volker Krause <vkrause@kde.org>
 // Copyright (C) 2018, 2019 Adam Reichold <adam.reichold@t-online.de>
@@ -549,8 +549,9 @@ void GfxDeviceGrayColorSpace::getRGBLine(unsigned char *in, unsigned int *out, i
 {
     int i;
 
-    for (i = 0; i < length; i++)
+    for (i = 0; i < length; i++) {
         out[i] = (in[i] << 16) | (in[i] << 8) | (in[i] << 0);
+    }
 }
 
 void GfxDeviceGrayColorSpace::getRGBLine(unsigned char *in, unsigned char *out, int length)
@@ -585,8 +586,9 @@ void GfxDeviceGrayColorSpace::getCMYKLine(unsigned char *in, unsigned char *out,
 void GfxDeviceGrayColorSpace::getDeviceNLine(unsigned char *in, unsigned char *out, int length)
 {
     for (int i = 0; i < length; i++) {
-        for (int j = 0; j < SPOT_NCOMPS + 4; j++)
+        for (int j = 0; j < SPOT_NCOMPS + 4; j++) {
             out[j] = 0;
+        }
         out[4] = in[i];
         out += (SPOT_NCOMPS + 4);
     }
@@ -661,6 +663,7 @@ static const double white_d65_X = 0.9505;
 static const double white_d65_Y = 1.0;
 static const double white_d65_Z = 1.0890;
 
+#ifdef USE_CMS
 // D50 is the default white point as used in ICC profiles and in the lcms2 library
 static const double white_d50_X = 0.96422;
 static const double white_d50_Y = 1.0;
@@ -688,6 +691,7 @@ static void inline bradford_transform_to_d50(double &X, double &Y, double &Z, co
     Y = 0.43069901 * rho_in + 0.52894900 * gamma_in + 0.04035199 * beta_in;
     Z = 0.00849698 * rho_in + 0.04086079 * gamma_in + 0.79284618 * beta_in;
 }
+#endif
 
 static void inline bradford_transform_to_d65(double &X, double &Y, double &Z, const double source_whiteX, const double source_whiteY, const double source_whiteZ)
 {
@@ -907,8 +911,9 @@ void GfxDeviceRGBColorSpace::getRGBLine(unsigned char *in, unsigned int *out, in
     unsigned char *p;
     int i;
 
-    for (i = 0, p = in; i < length; i++, p += 3)
+    for (i = 0, p = in; i < length; i++, p += 3) {
         out[i] = (p[0] << 16) | (p[1] << 8) | (p[2] << 0);
+    }
 }
 
 void GfxDeviceRGBColorSpace::getRGBLine(unsigned char *in, unsigned char *out, int length)
@@ -957,8 +962,9 @@ void GfxDeviceRGBColorSpace::getDeviceNLine(unsigned char *in, unsigned char *ou
     GfxColorComp c, m, y, k;
 
     for (int i = 0; i < length; i++) {
-        for (int j = 0; j < SPOT_NCOMPS + 4; j++)
+        for (int j = 0; j < SPOT_NCOMPS + 4; j++) {
             out[j] = 0;
+        }
         c = byteToCol(255 - *in++);
         m = byteToCol(255 - *in++);
         y = byteToCol(255 - *in++);
@@ -1095,8 +1101,9 @@ GfxColorSpace *GfxCalRGBColorSpace::parse(Array *arr, GfxState *state)
     if (obj2.isArray() && obj2.arrayGetLength() == 9) {
         for (i = 0; i < 9; ++i) {
             Object obj3 = obj2.arrayGet(i);
-            if (likely(obj3.isNum()))
+            if (likely(obj3.isNum())) {
                 cs->mat[i] = obj3.getNum();
+            }
         }
     }
 
@@ -1333,8 +1340,9 @@ void GfxDeviceCMYKColorSpace::getCMYKLine(unsigned char *in, unsigned char *out,
 void GfxDeviceCMYKColorSpace::getDeviceNLine(unsigned char *in, unsigned char *out, int length)
 {
     for (int i = 0; i < length; i++) {
-        for (int j = 0; j < SPOT_NCOMPS + 4; j++)
+        for (int j = 0; j < SPOT_NCOMPS + 4; j++) {
             out[j] = 0;
+        }
         out[0] = *in++;
         out[1] = *in++;
         out[2] = *in++;
@@ -1656,8 +1664,9 @@ GfxICCBasedColorSpace::~GfxICCBasedColorSpace()
 {
     delete alt;
 #ifdef USE_CMS
-    if (psCSA)
+    if (psCSA) {
         gfree(psCSA);
+    }
 #endif
 }
 
@@ -1765,14 +1774,11 @@ GfxColorSpace *GfxICCBasedColorSpace::parse(Array *arr, OutputDev *out, GfxState
         delete cs;
         return nullptr;
     }
-    unsigned char *profBuf;
     Stream *iccStream = obj1.getStream();
-    int length = 0;
 
-    profBuf = iccStream->toUnsignedChars(&length, 65536, 65536);
-    auto hp = make_GfxLCMSProfilePtr(cmsOpenProfileFromMem(profBuf, length));
+    const std::vector<unsigned char> profBuf = iccStream->toUnsignedChars(65536, 65536);
+    auto hp = make_GfxLCMSProfilePtr(cmsOpenProfileFromMem(profBuf.data(), profBuf.size()));
     cs->profile = hp;
-    gfree(profBuf);
     if (!hp) {
         error(errSyntaxWarning, -1, "read ICCBased color space profile error");
     } else {
@@ -2092,10 +2098,12 @@ void GfxICCBasedColorSpace::getDeviceNLine(unsigned char *in, unsigned char *out
         transform->doTransform(in, tmp, length);
         unsigned char *p = tmp;
         for (int i = 0; i < length; i++) {
-            for (int j = 0; j < 4; j++)
+            for (int j = 0; j < 4; j++) {
                 *out++ = *p++;
-            for (int j = 4; j < SPOT_NCOMPS + 4; j++)
+            }
+            for (int j = 4; j < SPOT_NCOMPS + 4; j++) {
                 *out++ = 0;
+            }
         }
         gfree(tmp);
     } else if (lineTransform != nullptr && nComps != 4) {
@@ -2104,8 +2112,9 @@ void GfxICCBasedColorSpace::getDeviceNLine(unsigned char *in, unsigned char *out
         getRGBLine(in, tmp, length);
         unsigned char *p = tmp;
         for (int i = 0; i < length; i++) {
-            for (int j = 0; j < SPOT_NCOMPS + 4; j++)
+            for (int j = 0; j < SPOT_NCOMPS + 4; j++) {
                 out[j] = 0;
+            }
             c = byteToCol(255 - *p++);
             m = byteToCol(255 - *p++);
             y = byteToCol(255 - *p++);
@@ -2280,13 +2289,15 @@ char *GfxICCBasedColorSpace::getPostScriptCSA()
     // Cf. the explanation in the corresponding lcms2 merge request [1], and the original mail thread [2].
     // [1] https://github.com/mm2/Little-CMS/pull/214
     // [2] https://sourceforge.net/p/lcms/mailman/message/33182987/
-    if (cmsGetEncodedCMMversion() < 2100)
+    if (cmsGetEncodedCMMversion() < 2100) {
         return nullptr;
+    }
 
     int size;
 
-    if (psCSA)
+    if (psCSA) {
         return psCSA;
+    }
 
     if (!profile) {
         error(errSyntaxWarning, -1, "profile is nullptr");
@@ -2310,8 +2321,9 @@ char *GfxICCBasedColorSpace::getPostScriptCSA()
     // that there's no room for any , in the rest of the ps code, so replacing all the , with .
     // is an "acceptable" workaround
     for (int i = 0; i < size; ++i) {
-        if (psCSA[i] == ',')
+        if (psCSA[i] == ',') {
             psCSA[i] = '.';
+        }
     }
 
     return psCSA;
@@ -2378,10 +2390,11 @@ GfxColorSpace *GfxIndexedColorSpace::parse(GfxResources *res, Array *arr, Output
         // indexHigh is greater than 2^31, the loop below may overwrite
         // past the end of the array
         int previousValue = indexHighA;
-        if (indexHighA < 0)
+        if (indexHighA < 0) {
             indexHighA = 0;
-        else
+        } else {
             indexHighA = 255;
+        }
         error(errSyntaxWarning, -1, "Bad Indexed color space (invalid indexHigh value, was {0:d} using {1:d} to try to recover)", previousValue, indexHighA);
     }
     GfxIndexedColorSpace *cs = new GfxIndexedColorSpace(baseA, indexHighA);
@@ -2462,9 +2475,11 @@ void GfxIndexedColorSpace::getRGBLine(unsigned char *in, unsigned int *out, int 
 
     n = base->getNComps();
     line = (unsigned char *)gmallocn(length, n);
-    for (i = 0; i < length; i++)
-        for (j = 0; j < n; j++)
+    for (i = 0; i < length; i++) {
+        for (j = 0; j < n; j++) {
             line[i * n + j] = lookup[in[i] * n + j];
+        }
+    }
 
     base->getRGBLine(line, out, length);
 
@@ -2478,9 +2493,11 @@ void GfxIndexedColorSpace::getRGBLine(unsigned char *in, unsigned char *out, int
 
     n = base->getNComps();
     line = (unsigned char *)gmallocn(length, n);
-    for (i = 0; i < length; i++)
-        for (j = 0; j < n; j++)
+    for (i = 0; i < length; i++) {
+        for (j = 0; j < n; j++) {
             line[i * n + j] = lookup[in[i] * n + j];
+        }
+    }
 
     base->getRGBLine(line, out, length);
 
@@ -2494,9 +2511,11 @@ void GfxIndexedColorSpace::getRGBXLine(unsigned char *in, unsigned char *out, in
 
     n = base->getNComps();
     line = (unsigned char *)gmallocn(length, n);
-    for (i = 0; i < length; i++)
-        for (j = 0; j < n; j++)
+    for (i = 0; i < length; i++) {
+        for (j = 0; j < n; j++) {
             line[i * n + j] = lookup[in[i] * n + j];
+        }
+    }
 
     base->getRGBXLine(line, out, length);
 
@@ -2510,9 +2529,11 @@ void GfxIndexedColorSpace::getCMYKLine(unsigned char *in, unsigned char *out, in
 
     n = base->getNComps();
     line = (unsigned char *)gmallocn(length, n);
-    for (i = 0; i < length; i++)
-        for (j = 0; j < n; j++)
+    for (i = 0; i < length; i++) {
+        for (j = 0; j < n; j++) {
             line[i * n + j] = lookup[in[i] * n + j];
+        }
+    }
 
     base->getCMYKLine(line, out, length);
 
@@ -2526,9 +2547,11 @@ void GfxIndexedColorSpace::getDeviceNLine(unsigned char *in, unsigned char *out,
 
     n = base->getNComps();
     line = (unsigned char *)gmallocn(length, n);
-    for (i = 0; i < length; i++)
-        for (j = 0; j < n; j++)
+    for (i = 0; i < length; i++) {
+        for (j = 0; j < n; j++) {
             line[i * n + j] = lookup[in[i] * n + j];
+        }
+    }
 
     base->getDeviceNLine(line, out, length);
 
@@ -2598,8 +2621,9 @@ GfxSeparationColorSpace::~GfxSeparationColorSpace()
     delete name;
     delete alt;
     delete func;
-    if (mapping != nullptr)
+    if (mapping != nullptr) {
         gfree(mapping);
+    }
 }
 
 GfxColorSpace *GfxSeparationColorSpace::copy() const
@@ -2615,7 +2639,6 @@ GfxColorSpace *GfxSeparationColorSpace::copy() const
 //~ handle the 'All' and 'None' colorants
 GfxColorSpace *GfxSeparationColorSpace::parse(GfxResources *res, Array *arr, OutputDev *out, GfxState *state, int recursion)
 {
-    GfxSeparationColorSpace *cs;
     GooString *nameA;
     GfxColorSpace *altA;
     Function *funcA;
@@ -2644,8 +2667,9 @@ GfxColorSpace *GfxSeparationColorSpace::parse(GfxResources *res, Array *arr, Out
         error(errSyntaxWarning, -1, "Bad SeparationColorSpace function");
         goto err5;
     }
-    cs = new GfxSeparationColorSpace(nameA, altA, funcA);
-    return cs;
+    if (altA->getNComps() <= funcA->getOutputSize()) {
+        return new GfxSeparationColorSpace(nameA, altA, funcA);
+    }
 
 err5:
     delete funcA;
@@ -2693,11 +2717,6 @@ void GfxSeparationColorSpace::getRGB(const GfxColor *color, GfxRGB *rgb) const
         const int altNComps = alt->getNComps();
         for (i = 0; i < altNComps; ++i) {
             color2.c[i] = dblToCol(c[i]);
-        }
-        if (unlikely(altNComps > func->getOutputSize())) {
-            for (i = func->getOutputSize(); i < altNComps; ++i) {
-                color2.c[i] = 0;
-            }
         }
         alt->getRGB(&color2, rgb);
     }
@@ -2763,8 +2782,9 @@ void GfxSeparationColorSpace::getDefaultColor(GfxColor *color) const
 
 void GfxSeparationColorSpace::createMapping(std::vector<GfxSeparationColorSpace *> *separationList, int maxSepComps)
 {
-    if (nonMarking)
+    if (nonMarking) {
         return;
+    }
     mapping = (int *)gmalloc(sizeof(int));
     switch (overprintMask) {
     case 0x01:
@@ -2861,8 +2881,9 @@ GfxDeviceNColorSpace::~GfxDeviceNColorSpace()
         delete entry;
     }
     delete sepsCS;
-    if (mapping != nullptr)
+    if (mapping != nullptr) {
         gfree(mapping);
+    }
 }
 
 GfxColorSpace *GfxDeviceNColorSpace::copy() const
@@ -2878,8 +2899,9 @@ GfxColorSpace *GfxDeviceNColorSpace::copy() const
     }
     if (mapping != nullptr) {
         mappingA = (int *)gmalloc(sizeof(int) * nComps);
-        for (int i = 0; i < nComps; i++)
+        for (int i = 0; i < nComps; i++) {
             mappingA[i] = mapping[i];
+        }
     }
     return new GfxDeviceNColorSpace(nComps, names, alt->copy(), func->copy(), sepsCSA, mappingA, nonMarking, overprintMask);
 }
@@ -3024,9 +3046,11 @@ void GfxDeviceNColorSpace::getDeviceN(const GfxColor *color, GfxColor *deviceN) 
         deviceN->c[2] = cmyk.y;
         deviceN->c[3] = cmyk.k;
     } else {
-        for (int j = 0; j < nComps; j++)
-            if (mapping[j] != -1)
+        for (int j = 0; j < nComps; j++) {
+            if (mapping[j] != -1) {
                 deviceN->c[mapping[j]] = color->c[j];
+            }
+        }
     }
 }
 
@@ -3041,8 +3065,9 @@ void GfxDeviceNColorSpace::getDefaultColor(GfxColor *color) const
 
 void GfxDeviceNColorSpace::createMapping(std::vector<GfxSeparationColorSpace *> *separationList, int maxSepComps)
 {
-    if (nonMarking) // None
+    if (nonMarking) { // None
         return;
+    }
     mapping = (int *)gmalloc(sizeof(int) * nComps);
     unsigned int newOverprintMask = 0;
     for (int i = 0; i < nComps; i++) {
@@ -3064,9 +3089,9 @@ void GfxDeviceNColorSpace::createMapping(std::vector<GfxSeparationColorSpace *> 
             unsigned int startOverprintMask = 0x10;
             bool found = false;
             const Function *sepFunc = nullptr;
-            if (nComps == 1)
+            if (nComps == 1) {
                 sepFunc = func;
-            else {
+            } else {
                 for (const GfxSeparationColorSpace *sepCS : *sepsCS) {
                     if (!sepCS->getName()->cmp(names[i])) {
                         sepFunc = sepCS->getFunc();
@@ -3101,9 +3126,9 @@ void GfxDeviceNColorSpace::createMapping(std::vector<GfxSeparationColorSpace *> 
                 }
                 mapping[i] = separationList->size() + 4;
                 newOverprintMask |= startOverprintMask;
-                if (nComps == 1)
+                if (nComps == 1) {
                     separationList->push_back(new GfxSeparationColorSpace(new GooString(names[i]), alt->copy(), func->copy()));
-                else {
+                } else {
                     for (const GfxSeparationColorSpace *sepCS : *sepsCS) {
                         if (!sepCS->getName()->cmp(names[i])) {
                             found = true;
@@ -3781,11 +3806,11 @@ int GfxUnivariateShading::getColor(double t, GfxColor *color)
 
         if (cacheBounds[lastMatch - 1] >= t) {
             upper = std::lower_bound(cacheBounds, cacheBounds + lastMatch - 1, t);
-            lastMatch = upper - cacheBounds;
+            lastMatch = static_cast<int>(upper - cacheBounds);
             lastMatch = std::min<int>(std::max<int>(1, lastMatch), cacheSize - 1);
         } else if (cacheBounds[lastMatch] < t) {
             upper = std::lower_bound(cacheBounds + lastMatch + 1, cacheBounds + cacheSize, t);
-            lastMatch = upper - cacheBounds;
+            lastMatch = static_cast<int>(upper - cacheBounds);
             lastMatch = std::min<int>(std::max<int>(1, lastMatch), cacheSize - 1);
         }
 
@@ -3821,8 +3846,9 @@ void GfxUnivariateShading::setupCache(const Matrix *ctm, double xMin, double yMi
     cacheBounds = nullptr;
     cacheSize = 0;
 
-    if (unlikely(getNFuncs() < 1))
+    if (unlikely(getNFuncs() < 1)) {
         return;
+    }
 
     // NB: there can be one function with n outputs or n functions with
     // one output each (where n = number of color components)
@@ -3830,7 +3856,7 @@ void GfxUnivariateShading::setupCache(const Matrix *ctm, double xMin, double yMi
 
     getParameterRange(&sMin, &sMax, xMin, yMin, xMax, yMax);
     upperBound = ctm->norm() * getDistance(sMin, sMax);
-    maxSize = ceil(upperBound);
+    maxSize = static_cast<int>(ceil(upperBound));
     maxSize = std::max<int>(maxSize, 2);
 
     {
@@ -3864,8 +3890,9 @@ void GfxUnivariateShading::setupCache(const Matrix *ctm, double xMin, double yMi
     }
 
     cacheBounds = (double *)gmallocn_checkoverflow(maxSize, sizeof(double) * (nComps + 2));
-    if (unlikely(!cacheBounds))
+    if (unlikely(!cacheBounds)) {
         return;
+    }
     cacheCoeff = cacheBounds + maxSize;
     cacheValues = cacheCoeff + maxSize;
 
@@ -4091,15 +4118,17 @@ void GfxAxialShading::getParameterRange(double *lower, double *upper, double xMi
     // correct extreme.
 
     range[0] = range[1] = t;
-    if (tdx < 0)
+    if (tdx < 0) {
         range[0] += tdx;
-    else
+    } else {
         range[1] += tdx;
+    }
 
-    if (tdy < 0)
+    if (tdy < 0) {
         range[0] += tdy;
-    else
+    } else {
         range[1] += tdy;
+    }
 
     *lower = std::max<double>(0., std::min<double>(1., range[0]));
     *upper = std::max<double>(0., std::min<double>(1., range[1]));
@@ -4229,12 +4258,13 @@ double GfxRadialShading::getDistance(double sMin, double sMax) const
 // extend range, adapted from cairo, radialExtendRange
 static bool radialExtendRange(double range[2], double value, bool valid)
 {
-    if (!valid)
+    if (!valid) {
         range[0] = range[1] = value;
-    else if (value < range[0])
+    } else if (value < range[0]) {
         range[0] = value;
-    else if (value > range[1])
+    } else if (value > range[1]) {
         range[1] = value;
+    }
 
     return true;
 }
@@ -4245,8 +4275,9 @@ inline void radialEdge(double num, double den, double delta, double lower, doubl
         double t_edge, v;
         t_edge = (num) / (den);
         v = t_edge * (delta);
-        if (t_edge * dr >= mindr && (lower) <= v && v <= (upper))
+        if (t_edge * dr >= mindr && (lower) <= v && v <= (upper)) {
             valid = radialExtendRange(range, t_edge, valid);
+        }
     }
 }
 
@@ -4261,8 +4292,9 @@ inline void radialCorner1(double x, double y, double &b, double dx, double dy, d
         double c = x2 + y2 - cr2;
 
         t_corner = 0.5 * c / b;
-        if (t_corner * dr >= mindr)
+        if (t_corner * dr >= mindr) {
             valid = radialExtendRange(range, t_corner, valid);
+        }
     }
 }
 
@@ -4276,11 +4308,13 @@ inline void radialCorner2(double x, double y, double a, double &b, double &c, do
 
         d = sqrt(d);
         t_corner = (b + d) * inva;
-        if (t_corner * dr >= mindr)
+        if (t_corner * dr >= mindr) {
             valid = radialExtendRange(range, t_corner, valid);
+        }
         t_corner = (b - d) * inva;
-        if (t_corner * dr >= mindr)
+        if (t_corner * dr >= mindr) {
             valid = radialExtendRange(range, t_corner, valid);
+        }
     }
 }
 void GfxRadialShading::getParameterRange(double *lower, double *upper, double xMin, double yMin, double xMax, double yMax)
@@ -4518,7 +4552,7 @@ void GfxRadialShading::getParameterRange(double *lower, double *upper, double xM
 class GfxShadingBitBuf
 {
 public:
-    GfxShadingBitBuf(Stream *strA);
+    explicit GfxShadingBitBuf(Stream *strA);
     ~GfxShadingBitBuf();
     GfxShadingBitBuf(const GfxShadingBitBuf &) = delete;
     GfxShadingBitBuf &operator=(const GfxShadingBitBuf &) = delete;
@@ -5560,8 +5594,9 @@ GfxImageColorMap::GfxImageColorMap(int bitsA, Object *decode, GfxColorSpace *col
     byte_lookup = nullptr;
 
     // bits per component and color space
-    if (unlikely(bitsA <= 0 || bitsA > 30))
+    if (unlikely(bitsA <= 0 || bitsA > 30)) {
         goto err1;
+    }
 
     bits = bitsA;
     maxPixel = (1 << bits) - 1;
@@ -5570,8 +5605,9 @@ GfxImageColorMap::GfxImageColorMap(int bitsA, Object *decode, GfxColorSpace *col
     // we assume a component fits in 8 bits, with this hack
     // we treat 16 bit images as 8 bit ones until it's fixed correctly.
     // The hack has another part on ImageStream::getLine
-    if (maxPixel > 255)
+    if (maxPixel > 255) {
         maxPixel = 255;
+    }
 
     // get decode map
     if (decode->isNull()) {
@@ -5645,8 +5681,9 @@ GfxImageColorMap::GfxImageColorMap(int bitsA, Object *decode, GfxColorSpace *col
 
                 mapped = x[k] + (indexedLookup[j * nComps2 + k] / 255.0) * y[k];
                 lookup2[k][i] = dblToCol(mapped);
-                if (useByteLookup)
+                if (useByteLookup) {
                     byte_lookup[i * nComps2 + k] = (unsigned char)(mapped * 255);
+                }
             }
         }
         break;
@@ -5665,8 +5702,9 @@ GfxImageColorMap::GfxImageColorMap(int bitsA, Object *decode, GfxColorSpace *col
                 x[0] = decodeLow[0] + (i * decodeRange[0]) / maxPixel;
                 sepFunc->transform(x, y);
                 lookup2[k][i] = dblToCol(y[k]);
-                if (useByteLookup)
+                if (useByteLookup) {
                     byte_lookup[i * nComps2 + k] = (unsigned char)(y[k] * 255);
+                }
             }
         }
         break;
@@ -5684,10 +5722,11 @@ GfxImageColorMap::GfxImageColorMap(int bitsA, Object *decode, GfxColorSpace *col
                     int byte;
 
                     byte = (int)(mapped * 255.0 + 0.5);
-                    if (byte < 0)
+                    if (byte < 0) {
                         byte = 0;
-                    else if (byte > 255)
+                    } else if (byte > 255) {
                         byte = 255;
+                    }
                     byte_lookup[i * nComps + k] = byte;
                 }
             }
@@ -5824,8 +5863,9 @@ void GfxImageColorMap::getGrayLine(unsigned char *in, unsigned char *out, int le
         for (i = 0; i < length; i++) {
             for (j = 0; j < nComps2; j++) {
                 unsigned char c = in[i];
-                if (byte_lookup)
+                if (byte_lookup) {
                     c = byte_lookup[c * nComps2 + j];
+                }
                 tmp_line[i * nComps2 + j] = c;
             }
         }
@@ -5836,11 +5876,12 @@ void GfxImageColorMap::getGrayLine(unsigned char *in, unsigned char *out, int le
     default:
         if (byte_lookup) {
             inp = in;
-            for (j = 0; j < length; j++)
+            for (j = 0; j < length; j++) {
                 for (i = 0; i < nComps; i++) {
                     *inp = byte_lookup[*inp * nComps + i];
                     inp++;
                 }
+            }
         }
         colorSpace->getGrayLine(in, out, length);
         break;
@@ -5871,8 +5912,9 @@ void GfxImageColorMap::getRGBLine(unsigned char *in, unsigned int *out, int leng
         for (i = 0; i < length; i++) {
             for (j = 0; j < nComps2; j++) {
                 unsigned char c = in[i];
-                if (byte_lookup)
+                if (byte_lookup) {
                     c = byte_lookup[c * nComps2 + j];
+                }
                 tmp_line[i * nComps2 + j] = c;
             }
         }
@@ -5883,11 +5925,12 @@ void GfxImageColorMap::getRGBLine(unsigned char *in, unsigned int *out, int leng
     default:
         if (byte_lookup) {
             inp = in;
-            for (j = 0; j < length; j++)
+            for (j = 0; j < length; j++) {
                 for (i = 0; i < nComps; i++) {
                     *inp = byte_lookup[*inp * nComps + i];
                     inp++;
                 }
+            }
         }
         colorSpace->getRGBLine(in, out, length);
         break;
@@ -5920,8 +5963,9 @@ void GfxImageColorMap::getRGBLine(unsigned char *in, unsigned char *out, int len
         for (i = 0; i < length; i++) {
             for (j = 0; j < nComps2; j++) {
                 unsigned char c = in[i];
-                if (byte_lookup)
+                if (byte_lookup) {
                     c = byte_lookup[c * nComps2 + j];
+                }
                 tmp_line[i * nComps2 + j] = c;
             }
         }
@@ -5932,11 +5976,12 @@ void GfxImageColorMap::getRGBLine(unsigned char *in, unsigned char *out, int len
     default:
         if (byte_lookup) {
             inp = in;
-            for (j = 0; j < length; j++)
+            for (j = 0; j < length; j++) {
                 for (i = 0; i < nComps; i++) {
                     *inp = byte_lookup[*inp * nComps + i];
                     inp++;
                 }
+            }
         }
         colorSpace->getRGBLine(in, out, length);
         break;
@@ -5970,8 +6015,9 @@ void GfxImageColorMap::getRGBXLine(unsigned char *in, unsigned char *out, int le
         for (i = 0; i < length; i++) {
             for (j = 0; j < nComps2; j++) {
                 unsigned char c = in[i];
-                if (byte_lookup)
+                if (byte_lookup) {
                     c = byte_lookup[c * nComps2 + j];
+                }
                 tmp_line[i * nComps2 + j] = c;
             }
         }
@@ -5982,11 +6028,12 @@ void GfxImageColorMap::getRGBXLine(unsigned char *in, unsigned char *out, int le
     default:
         if (byte_lookup) {
             inp = in;
-            for (j = 0; j < length; j++)
+            for (j = 0; j < length; j++) {
                 for (i = 0; i < nComps; i++) {
                     *inp = byte_lookup[*inp * nComps + i];
                     inp++;
                 }
+            }
         }
         colorSpace->getRGBXLine(in, out, length);
         break;
@@ -6020,8 +6067,9 @@ void GfxImageColorMap::getCMYKLine(unsigned char *in, unsigned char *out, int le
         for (i = 0; i < length; i++) {
             for (j = 0; j < nComps2; j++) {
                 unsigned char c = in[i];
-                if (byte_lookup)
+                if (byte_lookup) {
                     c = byte_lookup[c * nComps2 + j];
+                }
                 tmp_line[i * nComps2 + j] = c;
             }
         }
@@ -6032,11 +6080,12 @@ void GfxImageColorMap::getCMYKLine(unsigned char *in, unsigned char *out, int le
     default:
         if (byte_lookup) {
             inp = in;
-            for (j = 0; j < length; j++)
+            for (j = 0; j < length; j++) {
                 for (i = 0; i < nComps; i++) {
                     *inp = byte_lookup[*inp * nComps + i];
                     inp++;
                 }
+            }
         }
         colorSpace->getCMYKLine(in, out, length);
         break;
@@ -6053,8 +6102,9 @@ void GfxImageColorMap::getDeviceNLine(unsigned char *in, unsigned char *out, int
         inp = in;
         for (int i = 0; i < length; i++) {
             getDeviceN(inp, &deviceN);
-            for (int j = 0; j < SPOT_NCOMPS + 4; j++)
+            for (int j = 0; j < SPOT_NCOMPS + 4; j++) {
                 *out++ = deviceN.c[j];
+            }
             inp += nComps;
         }
         return;
@@ -6067,8 +6117,9 @@ void GfxImageColorMap::getDeviceNLine(unsigned char *in, unsigned char *out, int
         for (int i = 0; i < length; i++) {
             for (int j = 0; j < nComps2; j++) {
                 unsigned char c = in[i];
-                if (byte_lookup)
+                if (byte_lookup) {
                     c = byte_lookup[c * nComps2 + j];
+                }
                 tmp_line[i * nComps2 + j] = c;
             }
         }
@@ -6079,11 +6130,12 @@ void GfxImageColorMap::getDeviceNLine(unsigned char *in, unsigned char *out, int
     default:
         if (byte_lookup) {
             inp = in;
-            for (int j = 0; j < length; j++)
+            for (int j = 0; j < length; j++) {
                 for (int i = 0; i < nComps; i++) {
                     *inp = byte_lookup[*inp * nComps + i];
                     inp++;
                 }
+            }
         }
         colorSpace->getDeviceNLine(in, out, length);
         break;
@@ -6238,8 +6290,9 @@ GfxPath::~GfxPath()
 {
     int i;
 
-    for (i = 0; i < n; ++i)
+    for (i = 0; i < n; ++i) {
         delete subpaths[i];
+    }
     gfree(subpaths);
 }
 
@@ -6254,8 +6307,9 @@ GfxPath::GfxPath(bool justMoved1, double firstX1, double firstY1, GfxSubpath **s
     size = size1;
     n = n1;
     subpaths = (GfxSubpath **)gmallocn(size, sizeof(GfxSubpath *));
-    for (i = 0; i < n; ++i)
+    for (i = 0; i < n; ++i) {
         subpaths[i] = subpaths1[i]->copy();
+    }
 }
 
 void GfxPath::moveTo(double x, double y)
@@ -6449,8 +6503,6 @@ GfxState::GfxState(double hDPIA, double vDPIA, const PDFRectangle *pageBox, int 
     transfer[0] = transfer[1] = transfer[2] = transfer[3] = nullptr;
 
     lineWidth = 1;
-    lineDash = nullptr;
-    lineDashLength = 0;
     lineDashStart = 0;
     flatness = 1;
     lineJoin = 0;
@@ -6532,13 +6584,9 @@ GfxState::~GfxState()
             delete transfer[i];
         }
     }
-    gfree(lineDash);
     if (path) {
         // this gets set to NULL by restore()
         delete path;
-    }
-    if (font) {
-        font->decRefCnt();
     }
 
     delete defaultGrayColorSpace;
@@ -6594,12 +6642,7 @@ GfxState::GfxState(const GfxState *state, bool copyPath)
         }
     }
     lineWidth = state->lineWidth;
-    lineDashLength = state->lineDashLength;
-    lineDash = nullptr;
-    if (lineDashLength > 0) {
-        lineDash = (double *)gmallocn(lineDashLength, sizeof(double));
-        memcpy(lineDash, state->lineDash, lineDashLength * sizeof(double));
-    }
+    lineDash = state->lineDash;
     lineDashStart = state->lineDashStart;
     flatness = state->flatness;
     lineJoin = state->lineJoin;
@@ -6610,8 +6653,6 @@ GfxState::GfxState(const GfxState *state, bool copyPath)
     textKnockout = state->textKnockout;
 
     font = state->font;
-    if (font)
-        font->incRefCnt();
     fontSize = state->fontSize;
     memcpy(textMat, state->textMat, sizeof(textMat));
     charSpace = state->charSpace;
@@ -6905,12 +6946,9 @@ void GfxState::setStrokePattern(GfxPattern *pattern)
     strokePattern = pattern;
 }
 
-void GfxState::setFont(GfxFont *fontA, double fontSizeA)
+void GfxState::setFont(std::shared_ptr<GfxFont> fontA, double fontSizeA)
 {
-    if (font)
-        font->decRefCnt();
-
-    font = fontA;
+    font = std::move(fontA);
     fontSize = fontSizeA;
 }
 
@@ -6926,12 +6964,9 @@ void GfxState::setTransfer(Function **funcs)
     }
 }
 
-void GfxState::setLineDash(double *dash, int length, double start)
+void GfxState::setLineDash(std::vector<double> &&dash, double start)
 {
-    if (lineDash)
-        gfree(lineDash);
     lineDash = dash;
-    lineDashLength = length;
     lineDashStart = start;
 }
 

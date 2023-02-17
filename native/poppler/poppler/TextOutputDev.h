@@ -17,14 +17,14 @@
 // Copyright (C) 2006 Ed Catmur <ed@catmur.co.uk>
 // Copyright (C) 2007, 2008, 2011, 2013 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2007, 2017 Adrian Johnson <ajohnson@redneon.com>
-// Copyright (C) 2008, 2010, 2015, 2016, 2018, 2019 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2008, 2010, 2015, 2016, 2018, 2019, 2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2010 Brian Ewins <brian.ewins@gmail.com>
 // Copyright (C) 2012, 2013, 2015, 2016 Jason Crain <jason@aquaticape.us>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Sanchit Anand <sanxchit@gmail.com>
 // Copyright (C) 2018, 2020, 2021 Nelson Benítez León <nbenitezl@gmail.com>
-// Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2019, 2022 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2019 Dan Shea <dan.shea@logical-innovations.com>
 // Copyright (C) 2020 Suzuki Toshiya <mpsuzuki@hiroshima-u.ac.jp>
 //
@@ -87,7 +87,7 @@ enum EndOfLineKind
 class POPPLER_PRIVATE_EXPORT TextFontInfo
 {
 public:
-    TextFontInfo(const GfxState *state);
+    explicit TextFontInfo(const GfxState *state);
     ~TextFontInfo();
 
     TextFontInfo(const TextFontInfo &) = delete;
@@ -108,18 +108,36 @@ public:
 
 #ifdef TEXTOUT_WORD_LIST
     // Get the font name (which may be NULL).
-    const GooString *getFontName() const { return fontName; }
+    const GooString *getFontName() const
+    {
+        return fontName;
+    }
 
     // Get font descriptor flags.
-    bool isFixedWidth() const { return flags & fontFixedWidth; }
-    bool isSerif() const { return flags & fontSerif; }
-    bool isSymbolic() const { return flags & fontSymbolic; }
-    bool isItalic() const { return flags & fontItalic; }
-    bool isBold() const { return flags & fontBold; }
+    bool isFixedWidth() const
+    {
+        return flags & fontFixedWidth;
+    }
+    bool isSerif() const
+    {
+        return flags & fontSerif;
+    }
+    bool isSymbolic() const
+    {
+        return flags & fontSymbolic;
+    }
+    bool isItalic() const
+    {
+        return flags & fontItalic;
+    }
+    bool isBold() const
+    {
+        return flags & fontBold;
+    }
 #endif
 
 private:
-    GfxFont *gfxFont;
+    std::shared_ptr<GfxFont> gfxFont;
 #ifdef TEXTOUT_WORD_LIST
     GooString *fontName;
     int flags;
@@ -177,10 +195,19 @@ public:
     const TextWord *getNext() const { return next; }
 
 #ifdef TEXTOUT_WORD_LIST
-    int getLength() const { return len; }
-    const Unicode *getChar(int idx) const { return &text[idx]; }
+    int getLength() const
+    {
+        return len;
+    }
+    const Unicode *getChar(int idx) const
+    {
+        return &text[idx];
+    }
     GooString *getText() const;
-    const GooString *getFontName(int idx) const { return font[idx]->fontName; }
+    const GooString *getFontName(int idx) const
+    {
+        return font[idx]->fontName;
+    }
     void getColor(double *r, double *g, double *b) const
     {
         *r = colorR;
@@ -195,18 +222,51 @@ public:
         *yMaxA = yMax;
     }
     void getCharBBox(int charIdx, double *xMinA, double *yMinA, double *xMaxA, double *yMaxA) const;
-    double getFontSize() const { return fontSize; }
-    int getRotation() const { return rot; }
-    int getCharPos() const { return charPos[0]; }
-    int getCharLen() const { return charPos[len] - charPos[0]; }
-    bool getSpaceAfter() const { return spaceAfter; }
+    double getFontSize() const
+    {
+        return fontSize;
+    }
+    int getRotation() const
+    {
+        return rot;
+    }
+    int getCharPos() const
+    {
+        return charPos[0];
+    }
+    int getCharLen() const
+    {
+        return charPos[len] - charPos[0];
+    }
+    bool getSpaceAfter() const
+    {
+        return spaceAfter;
+    }
 #endif
-    bool isUnderlined() const { return underlined; }
-    const AnnotLink *getLink() const { return link; }
-    double getEdge(int i) const { return edge[i]; }
-    double getBaseline() const { return base; }
-    bool hasSpaceAfter() const { return spaceAfter; }
-    const TextWord *nextWord() const { return next; };
+    bool isUnderlined() const
+    {
+        return underlined;
+    }
+    const AnnotLink *getLink() const
+    {
+        return link;
+    }
+    double getEdge(int i) const
+    {
+        return edge[i];
+    }
+    double getBaseline() const
+    {
+        return base;
+    }
+    bool hasSpaceAfter() const
+    {
+        return spaceAfter;
+    }
+    const TextWord *nextWord() const
+    {
+        return next;
+    };
 
 private:
     void ensureCapacity(int capacity);
@@ -525,7 +585,7 @@ public:
     TextWord *get(int idx);
 
 private:
-    std::vector<TextWord *> *words;
+    std::vector<TextWord *> words;
 };
 
 #endif // TEXTOUT_WORD_LIST
@@ -556,7 +616,7 @@ class POPPLER_PRIVATE_EXPORT TextPage
 {
 public:
     // Constructor.
-    TextPage(bool rawOrderA, bool discardDiagA = false);
+    explicit TextPage(bool rawOrderA, bool discardDiagA = false);
 
     TextPage(const TextPage &) = delete;
     TextPage &operator=(const TextPage &) = delete;
@@ -596,6 +656,7 @@ public:
 
     // Coalesce strings that look like parts of the same line.
     void coalesce(bool physLayout, double fixedPitch, bool doHTML);
+    void coalesce(bool physLayout, double fixedPitch, bool doHTML, double minColSpacing1);
 
     // Find a string.  If <startAtTop> is true, starts looking at the
     // top of the page; else if <startAtLast> is true, starts looking
@@ -660,7 +721,7 @@ public:
     // this->rawOrder is true), physical layout order (if <physLayout>
     // is true and this->rawOrder is false), or reading order (if both
     // flags are false).
-    TextWordList *makeWordList(bool physLayout);
+    std::unique_ptr<TextWordList> makeWordList(bool physLayout);
 #endif
 
 private:
@@ -689,7 +750,7 @@ private:
                           //   previous char
     bool diagonal; // whether the current text is diagonal
 
-    TextPool *pools[4]; // a "pool" of TextWords for each rotation
+    std::unique_ptr<TextPool> pools[4]; // a "pool" of TextWords for each rotation
     TextFlow *flows; // linked list of flows
     TextBlock **blocks; // array of blocks, in yx order
     int nBlocks; // number of blocks
@@ -700,14 +761,14 @@ private:
                         //   rawOrder is set)
     TextWord *rawLastWord; // last word on rawWords list
 
-    std::vector<TextFontInfo *> *fonts; // all font info objects used on this page
+    std::vector<std::unique_ptr<TextFontInfo>> fonts; // all font info objects used on this page
 
     double lastFindXMin, // coordinates of the last "find" result
             lastFindYMin;
     bool haveLastFind;
 
-    std::vector<TextUnderline *> *underlines;
-    std::vector<TextLink *> *links;
+    std::vector<std::unique_ptr<TextUnderline>> underlines;
+    std::vector<std::unique_ptr<TextLink>> links;
 
     int refCnt;
 
@@ -728,7 +789,7 @@ class POPPLER_PRIVATE_EXPORT ActualText
 {
 public:
     // Create an ActualText
-    ActualText(TextPage *out);
+    explicit ActualText(TextPage *out);
     ~ActualText();
 
     ActualText(const ActualText &) = delete;
@@ -756,6 +817,8 @@ private:
 class POPPLER_PRIVATE_EXPORT TextOutputDev : public OutputDev
 {
 public:
+    static double minColSpacing1_default;
+
     // Open a text output file.  If <fileName> is NULL, no file is
     // written (this is useful, e.g., for searching text).  If
     // <physLayoutA> is true, the original physical layout of the text
@@ -861,7 +924,7 @@ public:
     // this->rawOrder is true), physical layout order (if
     // this->physLayout is true and this->rawOrder is false), or reading
     // order (if both flags are false).
-    TextWordList *makeWordList();
+    std::unique_ptr<TextWordList> makeWordList();
 #endif
 
     // Returns the TextPage object for the last rasterized page,
@@ -869,7 +932,10 @@ public:
     TextPage *takeText();
 
     // Turn extra processing for HTML conversion on or off.
-    void enableHTMLExtras(bool doHTMLA) { doHTML = doHTMLA; }
+    void enableHTMLExtras(bool doHTMLA)
+    {
+        doHTML = doHTMLA;
+    }
 
     // Get the head of the linked list of TextFlows for the
     // last rasterized page.
@@ -883,8 +949,22 @@ public:
         return eolUnix;
 #endif
     }
-    void setTextEOL(EndOfLineKind textEOLA) { textEOL = textEOLA; }
-    void setTextPageBreaks(bool textPageBreaksA) { textPageBreaks = textPageBreaksA; }
+    void setTextEOL(EndOfLineKind textEOLA)
+    {
+        textEOL = textEOLA;
+    }
+    void setTextPageBreaks(bool textPageBreaksA)
+    {
+        textPageBreaks = textPageBreaksA;
+    }
+    double getMinColSpacing1() const
+    {
+        return minColSpacing1;
+    }
+    void setMinColSpacing1(double val)
+    {
+        minColSpacing1 = val;
+    }
 
 private:
     TextOutputFunc outputFunc; // output function
@@ -897,6 +977,7 @@ private:
     double fixedPitch; // if physLayout is true and this is non-zero,
                        //   assume fixed-pitch characters with this
                        //   width
+    double minColSpacing1; // see default value defined with same name at TextOutputDev.cc
     bool rawOrder; // keep text in content stream order
     bool discardDiag; // Diagonal text, i.e., text that is not close to one of the
                       // 0, 90, 180, or 270 degree axes, is discarded. This is useful

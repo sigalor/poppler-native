@@ -10,6 +10,9 @@
 // Copyright 2017-2020 Albert Astals Cid <aacid@kde.org>
 // Copyright 2018 Chinmoy Ranjan Pradhan <chinmoyrp65@protonmail.com>
 // Copyright 2018 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright 2021 Georgiy Sgibnev <georgiy@sgibnev.com>. Work sponsored by lab50.net.
+// Copyright 2021 André Guerreiro <aguerreiro1985@gmail.com>
+// Copyright 2021 Marek Kasik <mkasik@redhat.com>
 //
 //========================================================================
 
@@ -36,8 +39,6 @@ SignatureInfo::SignatureInfo()
     cert_info = nullptr;
     signer_name = nullptr;
     subject_dn = nullptr;
-    location = nullptr;
-    reason = nullptr;
     hash_type = HASH_AlgNULL;
     signing_time = 0;
     sig_subfilter_supported = false;
@@ -50,8 +51,6 @@ SignatureInfo::SignatureInfo(SignatureValidationStatus sig_val_status, Certifica
     cert_info = nullptr;
     signer_name = nullptr;
     subject_dn = nullptr;
-    location = nullptr;
-    reason = nullptr;
     hash_type = HASH_AlgNULL;
     signing_time = 0;
     sig_subfilter_supported = false;
@@ -59,8 +58,6 @@ SignatureInfo::SignatureInfo(SignatureValidationStatus sig_val_status, Certifica
 
 SignatureInfo::~SignatureInfo()
 {
-    free(location);
-    free(reason);
     free(signer_name);
     free(subject_dn);
 }
@@ -87,12 +84,12 @@ const char *SignatureInfo::getSubjectDN() const
     return subject_dn;
 }
 
-const char *SignatureInfo::getLocation() const
+const GooString &SignatureInfo::getLocation() const
 {
     return location;
 }
 
-const char *SignatureInfo::getReason() const
+const GooString &SignatureInfo::getReason() const
 {
     return reason;
 }
@@ -124,10 +121,10 @@ void SignatureInfo::setCertificateValStatus(enum CertificateValidationStatus cer
     cert_status = cert_val_status;
 }
 
-void SignatureInfo::setSignerName(char *signerName)
+void SignatureInfo::setSignerName(const char *signerName)
 {
     free(signer_name);
-    signer_name = signerName;
+    signer_name = signerName ? strdup(signerName) : nullptr;
 }
 
 void SignatureInfo::setSubjectDN(const char *subjectDN)
@@ -136,16 +133,14 @@ void SignatureInfo::setSubjectDN(const char *subjectDN)
     subject_dn = subjectDN ? strdup(subjectDN) : nullptr;
 }
 
-void SignatureInfo::setLocation(const char *loc)
+void SignatureInfo::setLocation(const GooString *loc)
 {
-    free(location);
-    location = strdup(loc);
+    location = GooString(loc->toStr());
 }
 
-void SignatureInfo::setReason(const char *signingReason)
+void SignatureInfo::setReason(const GooString *signingReason)
 {
-    free(reason);
-    reason = strdup(signingReason);
+    reason = GooString(signingReason->toStr());
 }
 
 void SignatureInfo::setHashAlgorithm(int type)

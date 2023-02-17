@@ -6,7 +6,7 @@
 // Hugo Mercier <hmercier31[at]gmail.com> (c) 2008
 // Pino Toscano <pino@kde.org> (c) 2008
 // Carlos Garcia Campos <carlosgc@gnome.org> (c) 2010
-// Albert Astals Cid <aacid@kde.org> (c) 2010, 2017-2019
+// Albert Astals Cid <aacid@kde.org> (c) 2010, 2017-2019, 2022
 // Evgeny Stambulchik <fnevgeny@gmail.com> (c) 2019
 //
 // This program is free software; you can redistribute it and/or modify
@@ -234,10 +234,11 @@ Movie::Movie(const Object *movieDict)
 {
     ok = true;
 
-    if (movieDict->isDict())
+    if (movieDict->isDict()) {
         parseMovie(movieDict);
-    else
+    } else {
         ok = false;
+    }
 }
 
 Movie::Movie(const Object *movieDict, const Object *aDict)
@@ -246,8 +247,9 @@ Movie::Movie(const Object *movieDict, const Object *aDict)
 
     if (movieDict->isDict()) {
         parseMovie(movieDict);
-        if (aDict->isDict())
+        if (aDict->isDict()) {
             MA.parseMovieActivation(aDict);
+        }
     } else {
         ok = false;
     }
@@ -264,10 +266,11 @@ Movie::Movie(const Movie &other)
 
     poster = other.poster.copy();
 
-    if (other.fileName)
+    if (other.fileName) {
         fileName = other.fileName->copy();
-    else
+    } else {
         fileName = nullptr;
+    }
 }
 
 void Movie::getFloatingWindowSize(int *widthA, int *heightA)
@@ -276,7 +279,7 @@ void Movie::getFloatingWindowSize(int *widthA, int *heightA)
     *heightA = int(height * double(MA.znum) / MA.zdenum);
 }
 
-Movie *Movie::copy() const
+std::unique_ptr<Movie> Movie::copy() const
 {
-    return new Movie(*this);
+    return std::make_unique<Movie>(*this);
 }

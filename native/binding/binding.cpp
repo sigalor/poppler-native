@@ -28,6 +28,26 @@
 
 FT_Library freeTypeLibrary;
 
+// global variables needed by Poppler (also the command line parameters to its pdftohtml tool)
+// same default values as in popplers's "utils/pdftohtml.cc"
+bool complexMode = false;
+bool singleHtml = false;
+bool dataUrls = false;
+bool ignore = false;
+bool printCommands = false;
+bool printHtml = false;
+bool noframes = false;
+bool stout = false;
+bool xml = false;
+bool noRoundedCoordinates = false;
+bool showHidden = false;
+bool noMerge = false;
+double wordBreakThreshold = 0.1;
+bool fontFullName = false;
+
+// global variable added for poppler-native
+bool writeAnyOutput = false;
+
 class ReadPDFWorker : public Napi::AsyncWorker {
  private:
   std::string argError;
@@ -91,7 +111,7 @@ class ReadPDFWorker : public Napi::AsyncWorker {
 
     // parse entire document and generate outline
     HtmlOutputDev *outputDev =
-        new HtmlOutputDev(doc->getCatalog(), "this", doc->getNumPages(), false, false, false, 0.1, pages);
+        new HtmlOutputDev(doc->getCatalog(), "this", nullptr, nullptr, nullptr, nullptr, nullptr, true, 1, false, pages);
     doc->displayPages(outputDev, 1, doc->getNumPages(), 108.0, 108.0, 0, true, false, false);
     outputDev->generateOutline(doc, outline);
     delete outputDev;

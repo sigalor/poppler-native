@@ -107,8 +107,9 @@ inline bool operator!=(const Ref lhs, const Ref rhs) noexcept
 
 inline bool operator<(const Ref lhs, const Ref rhs) noexcept
 {
-    if (lhs.num != rhs.num)
+    if (lhs.num != rhs.num) {
         return lhs.num < rhs.num;
+    }
     return lhs.gen < rhs.gen;
 }
 
@@ -263,8 +264,13 @@ public:
         type = objNull;
     }
 
-    // Copy this to obj
+    // Copies all object types except
+    // objArray, objDict, objStream whose refcount is increased by 1
     Object copy() const;
+
+    // Deep copies all object types (recursively)
+    // except objStream whose refcount is increased by 1
+    Object deepCopy() const;
 
     // If object is a Ref, fetch and return the referenced object.
     // Otherwise, return a copy of the object.
@@ -409,22 +415,9 @@ public:
         OBJECT_TYPE_CHECK(objString);
         return string;
     }
-    // After takeString() the only method that should be called for the object is free().
-    GooString *takeString()
-    {
-        OBJECT_TYPE_CHECK(objString);
-        type = objDead;
-        return string;
-    }
     const GooString *getHexString() const
     {
         OBJECT_TYPE_CHECK(objHexString);
-        return string;
-    }
-    GooString *takeHexString()
-    {
-        OBJECT_TYPE_CHECK(objHexString);
-        type = objDead;
         return string;
     }
     const char *getName() const
