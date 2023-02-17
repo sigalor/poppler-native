@@ -1,0 +1,27 @@
+name: Unit tests
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout the Repo
+      - uses: actions/checkout@v2
+
+      # Install Node 18
+      - name: Setup Node
+        uses: actions/setup-node@v1
+        with:
+          node-version: 18
+
+      # Install NPM dependencies
+      - run: npm install
+
+      # Build library
+      - run: npm run build
+
+      # Run tests
+      - run: npm test
