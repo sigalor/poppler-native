@@ -17,11 +17,11 @@ jobs:
         with:
           node-version: 18
 
+      # Install APT dependencies
+      - run: sudo apt update && sudo apt install -y libcurl-dev
+
       # Install NPM dependencies
       - run: npm install
-
-      # Build library
-      - run: npm run build
 
       # Run tests
       - run: npm test
