@@ -18,7 +18,7 @@ jobs:
           node-version: 18
 
       # Install APT dependencies
-      - run: sudo apt update && sudo apt install -y libcurl-dev
+      - run: sudo apt update && sudo apt install -y libcurl4-openssl-dev
 
       # Install NPM dependencies
       - run: npm install
