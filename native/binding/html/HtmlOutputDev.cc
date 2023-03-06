@@ -1325,7 +1325,7 @@ void HtmlOutputDev::endPage()
 
     // if(!noframes&&!xml) fputs("<br/>\n", fContentsFrame);
     if (!stout && !globalParams->getErrQuiet()) {
-        printf("Page-%d\n", (pageNum));
+        // printf("Page-%d\n", (pageNum));
     }
 }
 
