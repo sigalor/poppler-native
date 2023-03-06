@@ -1,3 +1,7 @@
+# 2.2.1 (2023-03-06)
+
+- fix: do not output page numbers on stdout
+
 # 2.2.0 (2023-02-17)
 
 - update Poppler to 23.02
