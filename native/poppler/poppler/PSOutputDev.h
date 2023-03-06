@@ -15,7 +15,7 @@
 //
 // Copyright (C) 2005 Martin Kretzschmar <martink@gnome.org>
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2006-2008, 2012, 2013, 2015, 2017-2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006-2008, 2012, 2013, 2015, 2017-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2007 Brad Hards <bradh@kde.org>
 // Copyright (C) 2009-2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2009 Till Kamppeter <till.kamppeter@gmail.com>
@@ -28,8 +28,6 @@
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2018, 2020 Philipp Knechtges <philipp-dev@knechtges.com>
 // Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
-// Copyright (C) 2021 Hubert Figuiere <hub@figuiere.net>
-// Copyright (C) 2021 Christian Persch <chpe@src.gnome.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -46,7 +44,6 @@
 #include "GfxState.h"
 #include "GlobalParams.h"
 #include "OutputDev.h"
-#include "fofi/FoFiBase.h"
 #include <set>
 #include <map>
 #include <vector>
@@ -115,6 +112,8 @@ enum PSForceRasterize
     psNeverRasterize // never rasterize, may produce incorrect output
 };
 
+typedef void (*PSOutputFunc)(void *stream, const char *data, int len);
+
 typedef GooString *(*PSOutCustomCodeCbk)(PSOutputDev *psOut, PSOutCustomCodeLocation loc, int n, void *data);
 
 class POPPLER_PRIVATE_EXPORT PSOutputDev : public OutputDev
@@ -126,13 +125,9 @@ public:
                 int imgURXA = 0, int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr, void *customCodeCbkDataA = nullptr,
                 PSLevel levelA = psLevel2);
 
-    // Open a PSOutputDev that will write to a file descriptor
-    PSOutputDev(int fdA, PDFDoc *docA, char *psTitleA, const std::vector<int> &pages, PSOutMode modeA, int paperWidthA = -1, int paperHeightA = -1, bool noCrop = false, bool duplexA = true, int imgLLXA = 0, int imgLLYA = 0, int imgURXA = 0,
-                int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr, void *customCodeCbkDataA = nullptr, PSLevel levelA = psLevel2);
-
     // Open a PSOutputDev that will write to a generic stream.
     // pages has to be sorted in increasing order
-    PSOutputDev(FoFiOutputFunc outputFuncA, void *outputStreamA, char *psTitleA, PDFDoc *docA, const std::vector<int> &pages, PSOutMode modeA, int paperWidthA = -1, int paperHeightA = -1, bool noCrop = false, bool duplexA = true,
+    PSOutputDev(PSOutputFunc outputFuncA, void *outputStreamA, char *psTitleA, PDFDoc *docA, const std::vector<int> &pages, PSOutMode modeA, int paperWidthA = -1, int paperHeightA = -1, bool noCrop = false, bool duplexA = true,
                 int imgLLXA = 0, int imgLLYA = 0, int imgURXA = 0, int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr,
                 void *customCodeCbkDataA = nullptr, PSLevel levelA = psLevel2);
 
@@ -288,10 +283,7 @@ public:
         xScale0 = x;
         yScale0 = y;
     }
-    void setRotate(int rotateA)
-    {
-        rotate0 = rotateA;
-    }
+    void setRotate(int rotateA) { rotate0 = rotateA; }
     void setClip(double llx, double lly, double urx, double ury)
     {
         clipLLX0 = llx;
@@ -309,39 +301,12 @@ public:
         overlayCbk = cbk;
         overlayCbkData = data;
     }
-    void setDisplayText(bool display)
-    {
-        displayText = display;
-    }
+    void setDisplayText(bool display) { displayText = display; }
 
-    void setPSCenter(bool center)
-    {
-        psCenter = center;
-    }
-    void setPSExpandSmaller(bool expand)
-    {
-        psExpandSmaller = expand;
-    }
-    void setPSShrinkLarger(bool shrink)
-    {
-        psShrinkLarger = shrink;
-    }
-    void setOverprintPreview(bool overprintPreviewA)
-    {
-        overprintPreview = overprintPreviewA;
-    }
-    void setRasterAntialias(bool a)
-    {
-        rasterAntialias = a;
-    }
-    void setForceRasterize(PSForceRasterize f)
-    {
-        forceRasterize = f;
-    }
-    void setRasterResolution(double r)
-    {
-        rasterResolution = r;
-    }
+    void setPSCenter(bool center) { psCenter = center; }
+    void setRasterAntialias(bool a) { rasterAntialias = a; }
+    void setForceRasterize(PSForceRasterize f) { forceRasterize = f; }
+    void setRasterResolution(double r) { rasterResolution = r; }
     void setRasterMono(bool b)
     {
 #ifdef HAVE_SPLASH
@@ -350,43 +315,16 @@ public:
 #endif
     }
 
-    void setUncompressPreloadedImages(bool b)
-    {
-        uncompressPreloadedImages = b;
-    }
+    void setUncompressPreloadedImages(bool b) { uncompressPreloadedImages = b; }
 
-    bool getEmbedType1() const
-    {
-        return embedType1;
-    }
-    bool getEmbedTrueType() const
-    {
-        return embedTrueType;
-    }
-    bool getEmbedCIDPostScript() const
-    {
-        return embedCIDPostScript;
-    }
-    bool getEmbedCIDTrueType() const
-    {
-        return embedCIDTrueType;
-    }
-    bool getFontPassthrough() const
-    {
-        return fontPassthrough;
-    }
-    bool getOptimizeColorSpace() const
-    {
-        return optimizeColorSpace;
-    }
-    bool getPassLevel1CustomColor() const
-    {
-        return passLevel1CustomColor;
-    }
-    bool getEnableLZW() const
-    {
-        return enableLZW;
-    };
+    bool getEmbedType1() const { return embedType1; }
+    bool getEmbedTrueType() const { return embedTrueType; }
+    bool getEmbedCIDPostScript() const { return embedCIDPostScript; }
+    bool getEmbedCIDTrueType() const { return embedCIDTrueType; }
+    bool getFontPassthrough() const { return fontPassthrough; }
+    bool getOptimizeColorSpace() const { return optimizeColorSpace; }
+    bool getPassLevel1CustomColor() const { return passLevel1CustomColor; }
+    bool getEnableLZW() const { return enableLZW; };
     bool getEnableFlate() const
 #ifdef ENABLE_ZLIB
     {
@@ -397,58 +335,19 @@ public:
         return false;
     }
 #endif
-    void setEmbedType1(bool b)
-    {
-        embedType1 = b;
-    }
-    void setEmbedTrueType(bool b)
-    {
-        embedTrueType = b;
-    }
-    void setEmbedCIDPostScript(bool b)
-    {
-        embedCIDPostScript = b;
-    }
-    void setEmbedCIDTrueType(bool b)
-    {
-        embedCIDTrueType = b;
-    }
-    void setFontPassthrough(bool b)
-    {
-        fontPassthrough = b;
-    }
-    void setOptimizeColorSpace(bool b)
-    {
-        optimizeColorSpace = b;
-    }
-    void setPassLevel1CustomColor(bool b)
-    {
-        passLevel1CustomColor = b;
-    }
-    void setPreloadImagesForms(bool b)
-    {
-        preloadImagesForms = b;
-    }
-    void setGenerateOPI(bool b)
-    {
-        generateOPI = b;
-    }
-    void setUseASCIIHex(bool b)
-    {
-        useASCIIHex = b;
-    }
-    void setUseBinary(bool b)
-    {
-        useBinary = b;
-    }
-    void setEnableLZW(bool b)
-    {
-        enableLZW = b;
-    }
-    void setEnableFlate(bool b)
-    {
-        enableFlate = b;
-    }
+    void setEmbedType1(bool b) { embedType1 = b; }
+    void setEmbedTrueType(bool b) { embedTrueType = b; }
+    void setEmbedCIDPostScript(bool b) { embedCIDPostScript = b; }
+    void setEmbedCIDTrueType(bool b) { embedCIDTrueType = b; }
+    void setFontPassthrough(bool b) { fontPassthrough = b; }
+    void setOptimizeColorSpace(bool b) { optimizeColorSpace = b; }
+    void setPassLevel1CustomColor(bool b) { passLevel1CustomColor = b; }
+    void setPreloadImagesForms(bool b) { preloadImagesForms = b; }
+    void setGenerateOPI(bool b) { generateOPI = b; }
+    void setUseASCIIHex(bool b) { useASCIIHex = b; }
+    void setUseBinary(bool b) { useBinary = b; }
+    void setEnableLZW(bool b) { enableLZW = b; }
+    void setEnableFlate(bool b) { enableFlate = b; }
 
 #ifdef HAVE_SPLASH
     void setProcessColorFormat(SplashColorMode format)
@@ -459,7 +358,7 @@ public:
 #endif
 
 private:
-    void init(FoFiOutputFunc outputFuncA, void *outputStreamA, PSFileType fileTypeA, char *psTitleA, PDFDoc *doc, const std::vector<int> &pages, PSOutMode modeA, int imgLLXA, int imgLLYA, int imgURXA, int imgURYA, bool manualCtrlA,
+    void init(PSOutputFunc outputFuncA, void *outputStreamA, PSFileType fileTypeA, char *psTitleA, PDFDoc *doc, const std::vector<int> &pages, PSOutMode modeA, int imgLLXA, int imgLLYA, int imgURXA, int imgURYA, bool manualCtrlA,
               int paperWidthA, int paperHeightA, bool noCropA, bool duplexA, PSLevel levelA);
     void postInit();
     void setupResources(Dict *resDict);
@@ -467,14 +366,14 @@ private:
     void setupFont(GfxFont *font, Dict *parentResDict);
     void setupEmbeddedType1Font(Ref *id, GooString *psName);
     void updateFontMaxValidGlyph(GfxFont *font, int maxValidGlyph);
-    void setupExternalType1Font(const GooString *fileName, GooString *psName);
+    void setupExternalType1Font(GooString *fileName, GooString *psName);
     void setupEmbeddedType1CFont(GfxFont *font, Ref *id, GooString *psName);
     void setupEmbeddedOpenTypeT1CFont(GfxFont *font, Ref *id, GooString *psName);
     void setupEmbeddedTrueTypeFont(GfxFont *font, Ref *id, GooString *psName);
-    void setupExternalTrueTypeFont(GfxFont *font, const GooString *fileName, GooString *psName);
+    void setupExternalTrueTypeFont(GfxFont *font, GooString *fileName, GooString *psName);
     void setupEmbeddedCIDType0Font(GfxFont *font, Ref *id, GooString *psName);
     void setupEmbeddedCIDTrueTypeFont(GfxFont *font, Ref *id, GooString *psName, bool needVerticalMetrics);
-    void setupExternalCIDTrueTypeFont(GfxFont *font, const GooString *fileName, GooString *psName, bool needVerticalMetrics);
+    void setupExternalCIDTrueTypeFont(GfxFont *font, GooString *fileName, GooString *psName, bool needVerticalMetrics);
     void setupEmbeddedOpenTypeCFFFont(GfxFont *font, Ref *id, GooString *psName);
     void setupType3Font(GfxFont *font, GooString *psName, Dict *parentResDict);
     GooString *makePSFontName(GfxFont *font, const Ref *id);
@@ -500,7 +399,7 @@ private:
     void opiTransform(GfxState *state, double x0, double y0, double *x1, double *y1);
 #endif
     void cvtFunction(const Function *func, bool invertPSFunction = false);
-    GooString *filterPSName(const std::string &name);
+    GooString *filterPSName(const GooString *name);
 
     // Write the document-level setup.
     void writeDocSetup(Catalog *catalog, const std::vector<int> &pageList, bool duplexA);
@@ -531,7 +430,7 @@ private:
     char *psTitle;
     bool postInitDone; // true if postInit() was called
 
-    FoFiOutputFunc outputFunc;
+    PSOutputFunc outputFunc;
     void *outputStream;
     PSFileType fileType; // file / pipe / stdout
     bool manualCtrl;
@@ -604,9 +503,6 @@ private:
     PSForceRasterize forceRasterize; // controls the rasterization of pages into images
     bool displayText; // displayText
     bool psCenter; // center pages on the paper
-    bool psExpandSmaller = false; // expand smaller pages to fill paper
-    bool psShrinkLarger = true; // shrink larger pages to fit paper
-    bool overprintPreview = false; // enable overprint preview
     bool rasterAntialias; // antialias on rasterize
     bool uncompressPreloadedImages;
     double rasterResolution; // PostScript rasterization resolution (dpi)

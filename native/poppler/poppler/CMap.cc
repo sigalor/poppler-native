@@ -65,9 +65,9 @@ static int getCharFromStream(void *data)
 
 //------------------------------------------------------------------------
 
-std::shared_ptr<CMap> CMap::parse(CMapCache *cache, const GooString *collectionA, Object *obj)
+CMap *CMap::parse(CMapCache *cache, const GooString *collectionA, Object *obj)
 {
-    std::shared_ptr<CMap> cMap;
+    CMap *cMap;
     GooString *cMapNameA;
 
     if (obj->isName()) {
@@ -82,30 +82,31 @@ std::shared_ptr<CMap> CMap::parse(CMapCache *cache, const GooString *collectionA
         }
     } else {
         error(errSyntaxError, -1, "Invalid Encoding in Type 0 font");
-        return {};
+        return nullptr;
     }
     return cMap;
 }
 
-std::shared_ptr<CMap> CMap::parse(CMapCache *cache, const GooString *collectionA, const GooString *cMapNameA)
+CMap *CMap::parse(CMapCache *cache, const GooString *collectionA, const GooString *cMapNameA)
 {
     FILE *f;
+    CMap *cMap;
 
     if (!(f = globalParams->findCMapFile(collectionA, cMapNameA))) {
 
         // Check for an identity CMap.
         if (!cMapNameA->cmp("Identity") || !cMapNameA->cmp("Identity-H")) {
-            return std::shared_ptr<CMap>(new CMap(collectionA->copy(), cMapNameA->copy(), 0));
+            return new CMap(collectionA->copy(), cMapNameA->copy(), 0);
         }
         if (!cMapNameA->cmp("Identity-V")) {
-            return std::shared_ptr<CMap>(new CMap(collectionA->copy(), cMapNameA->copy(), 1));
+            return new CMap(collectionA->copy(), cMapNameA->copy(), 1);
         }
 
         error(errSyntaxError, -1, "Couldn't find '{0:t}' CMap file for '{1:t}' collection", cMapNameA, collectionA);
-        return {};
+        return nullptr;
     }
 
-    auto cMap = std::shared_ptr<CMap>(new CMap(collectionA->copy(), cMapNameA->copy()));
+    cMap = new CMap(collectionA->copy(), cMapNameA->copy());
     cMap->parse2(cache, &getCharFromFile, f);
 
     fclose(f);
@@ -113,9 +114,9 @@ std::shared_ptr<CMap> CMap::parse(CMapCache *cache, const GooString *collectionA
     return cMap;
 }
 
-std::shared_ptr<CMap> CMap::parse(CMapCache *cache, const GooString *collectionA, Stream *str)
+CMap *CMap::parse(CMapCache *cache, const GooString *collectionA, Stream *str)
 {
-    auto cMap = std::shared_ptr<CMap>(new CMap(collectionA->copy(), nullptr));
+    CMap *cMap = new CMap(collectionA->copy(), nullptr);
     Object obj1 = str->getDict()->lookup("UseCMap");
     if (!obj1.isNull()) {
         cMap->useCMap(cache, &obj1);
@@ -205,6 +206,7 @@ CMap::CMap(GooString *collectionA, GooString *cMapNameA)
         vector[i].isVector = false;
         vector[i].cid = 0;
     }
+    refCnt = 1;
 }
 
 CMap::CMap(GooString *collectionA, GooString *cMapNameA, int wModeA)
@@ -214,12 +216,13 @@ CMap::CMap(GooString *collectionA, GooString *cMapNameA, int wModeA)
     isIdent = true;
     wMode = wModeA;
     vector = nullptr;
+    refCnt = 1;
 }
 
 void CMap::useCMap(CMapCache *cache, const char *useName)
 {
     GooString *useNameStr;
-    std::shared_ptr<CMap> subCMap;
+    CMap *subCMap;
 
     useNameStr = new GooString(useName);
     // if cache is non-NULL, we already have a lock, and we can use
@@ -239,11 +242,14 @@ void CMap::useCMap(CMapCache *cache, const char *useName)
     if (subCMap->vector) {
         copyVector(vector, subCMap->vector);
     }
+    subCMap->decRefCnt();
 }
 
 void CMap::useCMap(CMapCache *cache, Object *obj)
 {
-    std::shared_ptr<CMap> subCMap = CMap::parse(cache, collection, obj);
+    CMap *subCMap;
+
+    subCMap = CMap::parse(cache, collection, obj);
     if (!subCMap) {
         return;
     }
@@ -251,6 +257,7 @@ void CMap::useCMap(CMapCache *cache, Object *obj)
     if (subCMap->vector) {
         copyVector(vector, subCMap->vector);
     }
+    subCMap->decRefCnt();
 }
 
 void CMap::copyVector(CMapVectorEntry *dest, CMapVectorEntry *src)
@@ -334,6 +341,18 @@ void CMap::freeCMapVector(CMapVectorEntry *vec)
     gfree(vec);
 }
 
+void CMap::incRefCnt()
+{
+    ++refCnt;
+}
+
+void CMap::decRefCnt()
+{
+    if (--refCnt == 0) {
+        delete this;
+    }
+}
+
 bool CMap::match(const GooString *collectionA, const GooString *cMapNameA)
 {
     return !collection->cmp(collectionA) && !cMapName->cmp(cMapNameA);
@@ -373,9 +392,8 @@ void CMap::setReverseMapVector(unsigned int startCode, CMapVectorEntry *vec, uns
 {
     int i;
 
-    if (vec == nullptr) {
+    if (vec == nullptr)
         return;
-    }
     for (i = 0; i < 256; i++) {
         if (vec[i].isVector) {
             setReverseMapVector((startCode + i) << 8, vec[i].vector, rmap, rmapSize, ncand);
@@ -407,32 +425,56 @@ void CMap::setReverseMap(unsigned int *rmap, unsigned int rmapSize, unsigned int
 
 //------------------------------------------------------------------------
 
-CMapCache::CMapCache() { }
-
-std::shared_ptr<CMap> CMapCache::getCMap(const GooString *collection, const GooString *cMapName)
+CMapCache::CMapCache()
 {
+    int i;
+
+    for (i = 0; i < cMapCacheSize; ++i) {
+        cache[i] = nullptr;
+    }
+}
+
+CMapCache::~CMapCache()
+{
+    int i;
+
+    for (i = 0; i < cMapCacheSize; ++i) {
+        if (cache[i]) {
+            cache[i]->decRefCnt();
+        }
+    }
+}
+
+CMap *CMapCache::getCMap(const GooString *collection, const GooString *cMapName)
+{
+    CMap *cmap;
     int i, j;
 
     if (cache[0] && cache[0]->match(collection, cMapName)) {
+        cache[0]->incRefCnt();
         return cache[0];
     }
     for (i = 1; i < cMapCacheSize; ++i) {
         if (cache[i] && cache[i]->match(collection, cMapName)) {
-            std::shared_ptr<CMap> cmap = cache[i];
+            cmap = cache[i];
             for (j = i; j >= 1; --j) {
                 cache[j] = cache[j - 1];
             }
             cache[0] = cmap;
+            cmap->incRefCnt();
             return cmap;
         }
     }
-    std::shared_ptr<CMap> cmap = CMap::parse(this, collection, cMapName);
-    if (cmap) {
+    if ((cmap = CMap::parse(this, collection, cMapName))) {
+        if (cache[cMapCacheSize - 1]) {
+            cache[cMapCacheSize - 1]->decRefCnt();
+        }
         for (j = cMapCacheSize - 1; j >= 1; --j) {
             cache[j] = cache[j - 1];
         }
         cache[0] = cmap;
+        cmap->incRefCnt();
         return cmap;
     }
-    return {};
+    return nullptr;
 }

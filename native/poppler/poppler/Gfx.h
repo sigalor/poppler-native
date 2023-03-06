@@ -24,7 +24,7 @@
 // Copyright (C) 2013 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
-// Copyright (C) 2019, 2022 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
 //
 // To see a description of the changes please see the Changelog file that
@@ -117,8 +117,8 @@ public:
     GfxResources(const GfxResources &) = delete;
     GfxResources &operator=(const GfxResources &other) = delete;
 
-    std::shared_ptr<GfxFont> lookupFont(const char *name);
-    std::shared_ptr<const GfxFont> lookupFont(const char *name) const;
+    GfxFont *lookupFont(const char *name);
+    const GfxFont *lookupFont(const char *name) const;
     Object lookupXObject(const char *name);
     Object lookupXObjectNF(const char *name);
     Object lookupMarkedContentNF(const char *name);
@@ -131,7 +131,7 @@ public:
     GfxResources *getNext() const { return next; }
 
 private:
-    std::shared_ptr<GfxFont> doLookupFont(const char *name) const;
+    GfxFont *doLookupFont(const char *name) const;
 
     GfxFontDict *fonts;
     Object xObjDict;
@@ -166,10 +166,7 @@ public:
     Gfx(const Gfx &) = delete;
     Gfx &operator=(const Gfx &other) = delete;
 
-    XRef *getXRef()
-    {
-        return xref;
-    }
+    XRef *getXRef() { return xref; }
 
     // Interpret a stream or array of streams.
     void display(Object *obj, bool topLevel = true);
@@ -191,10 +188,7 @@ public:
     void popStateGuard();
 
     // Get the current graphics state object.
-    GfxState *getState()
-    {
-        return state;
-    }
+    GfxState *getState() { return state; }
 
     bool checkTransparencyGroup(Dict *resDict);
 

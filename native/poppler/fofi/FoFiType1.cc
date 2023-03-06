@@ -13,13 +13,12 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2005, 2008, 2010, 2018, 2021, 2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005, 2008, 2010, 2018, 2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2010 Jakub Wilk <jwilk@jwilk.net>
 // Copyright (C) 2014 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2017 Jean Ghali <jghali@libertysurf.fr>
-// Copyright (C) 2022 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -42,12 +41,23 @@
 // FoFiType1
 //------------------------------------------------------------------------
 
-FoFiType1 *FoFiType1::make(const unsigned char *fileA, int lenA)
+FoFiType1 *FoFiType1::make(const char *fileA, int lenA)
 {
     return new FoFiType1(fileA, lenA, false);
 }
 
-FoFiType1::FoFiType1(const unsigned char *fileA, int lenA, bool freeFileDataA) : FoFiBase(fileA, lenA, freeFileDataA)
+FoFiType1 *FoFiType1::load(const char *fileName)
+{
+    char *fileA;
+    int lenA;
+
+    if (!(fileA = FoFiBase::readFile(fileName, &lenA))) {
+        return nullptr;
+    }
+    return new FoFiType1(fileA, lenA, true);
+}
+
+FoFiType1::FoFiType1(const char *fileA, int lenA, bool freeFileDataA) : FoFiBase(fileA, lenA, freeFileDataA)
 {
     name = nullptr;
     encoding = nullptr;
@@ -111,9 +121,8 @@ void FoFiType1::writeEncoded(const char **newEncoding, FoFiOutputFunc outputFunc
     int i;
 
     // copy everything up to the encoding
-    for (line = (char *)file; line && strncmp(line, "/Encoding", 9); line = getNextLine(line)) {
+    for (line = (char *)file; line && strncmp(line, "/Encoding", 9); line = getNextLine(line))
         ;
-    }
     if (!line) {
         // no encoding - just copy the whole font file
         (*outputFunc)(outputStream, (char *)file, len);
@@ -152,9 +161,8 @@ void FoFiType1::writeEncoded(const char **newEncoding, FoFiOutputFunc outputFunc
     // some fonts have two /Encoding entries in their dictionary, so we
     // check for a second one here
     if (line) {
-        for (line2 = line, i = 0; i < 20 && line2 && strncmp(line2, "/Encoding", 9); line2 = getNextLine(line2), ++i) {
+        for (line2 = line, i = 0; i < 20 && line2 && strncmp(line2, "/Encoding", 9); line2 = getNextLine(line2), ++i)
             ;
-        }
         if (i < 20 && line2) {
             (*outputFunc)(outputStream, line, line2 - line);
             if (!strncmp(line2, "/Encoding StandardEncoding def", 30)) {
@@ -212,7 +220,7 @@ void FoFiType1::parse()
         // get font name
         if (!name && (line + 9 <= (char *)file + len) && !strncmp(line, "/FontName", 9)) {
             const auto availableFile = (char *)file + len - line;
-            const int lineLen = static_cast<int>(availableFile < 255 ? availableFile : 255);
+            const int lineLen = availableFile < 255 ? availableFile : 255;
             strncpy(buf, line, lineLen);
             buf[lineLen] = '\0';
             if ((p = strchr(buf + 9, '/')) && (p = strtok_r(p + 1, " \t\n\r", &tokptr))) {
@@ -221,135 +229,105 @@ void FoFiType1::parse()
             line = getNextLine(line);
 
             // get encoding
-        } else if (!encoding && (line + 9 <= (char *)file + len) && !strncmp(line, "/Encoding", 9)) {
-            line = line + 9;
-            const auto availableFile = (char *)file + len - line;
-            const int lineLen = static_cast<int>(availableFile < 255 ? availableFile : 255);
-            strncpy(buf, line, lineLen);
-            buf[lineLen] = '\0';
-            p = strtok_r(buf, " \t\n\r", &tokptr);
-            if (p && (p + 3 <= (char *)buf + lineLen) && !strncmp(p, "256", 3)) {
-                p = strtok_r(nullptr, " \t\n\r", &tokptr);
-                if (p && (p + 5 <= (char *)buf + lineLen) && !strncmp(p, "array", 5)) {
-                    encoding = (char **)gmallocn(256, sizeof(char *));
-                    for (j = 0; j < 256; ++j) {
-                        encoding[j] = nullptr;
-                    }
+        } else if (!encoding && (line + 30 <= (char *)file + len) && !strncmp(line, "/Encoding StandardEncoding def", 30)) {
+            encoding = (char **)fofiType1StandardEncoding;
+        } else if (!encoding && (line + 19 <= (char *)file + len) && !strncmp(line, "/Encoding 256 array", 19)) {
+            encoding = (char **)gmallocn(256, sizeof(char *));
+            for (j = 0; j < 256; ++j) {
+                encoding[j] = nullptr;
+            }
+            continueLine = false;
+            for (j = 0, line = getNextLine(line); j < 300 && line && (line1 = getNextLine(line)); ++j, line = line1) {
+                if ((n = (int)(line1 - line)) > 255) {
+                    error(errSyntaxWarning, -1, "FoFiType1::parse a line has more than 255 characters, we don't support this");
+                    n = 255;
+                }
+                if (continueLine) {
                     continueLine = false;
-                    for (j = 0, line = getNextLine(line); j < 1200 && line && (line1 = getNextLine(line)); ++j, line = line1) {
-                        if ((n = (int)(line1 - line)) > 255) {
-                            error(errSyntaxWarning, -1, "FoFiType1::parse a line has more than 255 characters, we don't support this");
-                            n = 255;
-                        }
-                        if (continueLine) {
-                            continueLine = false;
-                            if ((line1 - firstLine) + 1 > (int)sizeof(buf)) {
-                                break;
-                            }
-                            p = firstLine;
-                            p2 = buf;
-                            while (p < line1) {
-                                if (*p == '\n' || *p == '\r') {
-                                    *p2++ = ' ';
-                                    p++;
-                                } else {
-                                    *p2++ = *p++;
-                                }
-                            }
-                            *p2 = '\0';
+                    if ((line1 - firstLine) + 1 > (int)sizeof(buf))
+                        break;
+                    p = firstLine;
+                    p2 = buf;
+                    while (p < line1) {
+                        if (*p == '\n' || *p == '\r') {
+                            *p2++ = ' ';
+                            p++;
                         } else {
-                            firstLine = line;
-                            strncpy(buf, line, n);
-                            buf[n] = '\0';
+                            *p2++ = *p++;
                         }
-                        for (p = buf; *p == ' ' || *p == '\t'; ++p) {
+                    }
+                    *p2 = '\0';
+                } else {
+                    firstLine = line;
+                    strncpy(buf, line, n);
+                    buf[n] = '\0';
+                }
+                for (p = buf; *p == ' ' || *p == '\t'; ++p)
+                    ;
+                if (!strncmp(p, "dup", 3)) {
+                    while (true) {
+                        p += 3;
+                        for (; *p == ' ' || *p == '\t'; ++p)
                             ;
-                        }
-                        if (!strncmp(p, "dup", 3)) {
-                            while (true) {
-                                p += 3;
-                                for (; *p == ' ' || *p == '\t'; ++p) {
-                                    ;
-                                }
-                                code = 0;
-                                if (*p == '8' && p[1] == '#') {
-                                    base = 8;
-                                    p += 2;
-                                } else if (*p >= '0' && *p <= '9') {
-                                    base = 10;
-                                } else if (*p == '\n' || *p == '\r') {
-                                    continueLine = true;
-                                    break;
-                                } else {
-                                    break;
-                                }
-                                for (; *p >= '0' && *p < '0' + base && code < INT_MAX / (base + (*p - '0')); ++p) {
-                                    code = code * base + (*p - '0');
-                                }
-                                for (; *p == ' ' || *p == '\t'; ++p) {
-                                    ;
-                                }
-                                if (*p == '\n' || *p == '\r' || *p == '\0') {
-                                    continueLine = true;
-                                    break;
-                                } else if (*p != '/') {
-                                    break;
-                                }
-                                ++p;
-                                for (p2 = p; *p2 && *p2 != ' ' && *p2 != '\t'; ++p2) {
-                                    ;
-                                }
-                                if (code >= 0 && code < 256) {
-                                    c = *p2;
-                                    *p2 = '\0';
-                                    gfree(encoding[code]);
-                                    encoding[code] = copyString(p);
-                                    *p2 = c;
-                                }
-                                for (p = p2; *p == ' ' || *p == '\t'; ++p) {
-                                    ;
-                                }
-                                if (*p == '\n' || *p == '\r') {
-                                    continueLine = true;
-                                    break;
-                                }
-                                if (strncmp(p, "put", 3)) {
-                                    break;
-                                }
-                                for (p += 3; *p == ' ' || *p == '\t'; ++p) {
-                                    ;
-                                }
-                                if (strncmp(p, "dup", 3)) {
-                                    break;
-                                }
-                            }
+                        code = 0;
+                        if (*p == '8' && p[1] == '#') {
+                            base = 8;
+                            p += 2;
+                        } else if (*p >= '0' && *p <= '9') {
+                            base = 10;
+                        } else if (*p == '\n' || *p == '\r') {
+                            continueLine = true;
+                            break;
                         } else {
-                            if (strtok_r(buf, " \t", &tokptr) && (p = strtok_r(nullptr, " \t\n\r", &tokptr)) && !strcmp(p, "def")) {
-                                break;
-                            }
+                            break;
                         }
-
-                        bool allEncodingSet = true;
-                        for (int k = 0; allEncodingSet && k < 256; ++k) {
-                            allEncodingSet = encoding[k] != nullptr;
+                        for (; *p >= '0' && *p < '0' + base && code < INT_MAX / (base + (*p - '0')); ++p) {
+                            code = code * base + (*p - '0');
                         }
-                        if (allEncodingSet) {
+                        for (; *p == ' ' || *p == '\t'; ++p)
+                            ;
+                        if (*p == '\n' || *p == '\r') {
+                            continueLine = true;
+                            break;
+                        } else if (*p != '/') {
+                            break;
+                        }
+                        ++p;
+                        for (p2 = p; *p2 && *p2 != ' ' && *p2 != '\t'; ++p2)
+                            ;
+                        if (code >= 0 && code < 256) {
+                            c = *p2;
+                            *p2 = '\0';
+                            gfree(encoding[code]);
+                            encoding[code] = copyString(p);
+                            *p2 = c;
+                        }
+                        for (p = p2; *p == ' ' || *p == '\t'; ++p)
+                            ;
+                        if (*p == '\n' || *p == '\r') {
+                            continueLine = true;
+                            break;
+                        }
+                        if (strncmp(p, "put", 3)) {
+                            break;
+                        }
+                        for (p += 3; *p == ' ' || *p == '\t'; ++p)
+                            ;
+                        if (strncmp(p, "dup", 3)) {
                             break;
                         }
                     }
-                    //~ check for getinterval/putinterval junk
+                } else {
+                    if (strtok_r(buf, " \t", &tokptr) && (p = strtok_r(nullptr, " \t\n\r", &tokptr)) && !strcmp(p, "def")) {
+                        break;
+                    }
                 }
-            } else if (p && (p + 16 <= (char *)buf + lineLen) && !strncmp(p, "StandardEncoding", 16)) {
-                p = strtok_r(nullptr, " \t\n\r", &tokptr);
-                if (p && (p + 3 <= (char *)buf + lineLen) && !strncmp(p, "def", 3)) {
-                    encoding = (char **)fofiType1StandardEncoding;
-                }
-            } else {
-                line = getNextLine(line);
             }
+            //~ check for getinterval/putinterval junk
+
         } else if (!gotMatrix && (line + 11 <= (char *)file + len) && !strncmp(line, "/FontMatrix", 11)) {
             const auto availableFile = (char *)file + len - (line + 11);
-            const int bufLen = static_cast<int>(availableFile < 255 ? availableFile : 255);
+            const int bufLen = availableFile < 255 ? availableFile : 255;
             strncpy(buf, line + 11, bufLen);
             buf[bufLen] = '\0';
             if ((p = strchr(buf, '['))) {

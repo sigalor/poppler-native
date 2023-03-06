@@ -18,7 +18,6 @@
 // Copyright (C) 2011, 2014 William Bader <williambader@hotmail.com>
 // Copyright (C) 2011, 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2011 Adrian Johnson <ajohnson@redneon.com>
-// Copyright (C) 2022 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -53,11 +52,13 @@ void PreScanOutputDev::endPage() { }
 
 void PreScanOutputDev::stroke(GfxState *state)
 {
+    double *dash;
+    int dashLen;
     double dashStart;
 
     check(state->getStrokeColorSpace(), state->getStrokeColor(), state->getStrokeOpacity(), state->getBlendMode());
-    const std::vector<double> &dash = state->getLineDash(&dashStart);
-    if (dash.size() != 0) {
+    state->getLineDash(&dash, &dashLen, &dashStart);
+    if (dashLen != 0) {
         gdi = false;
     }
 }
@@ -150,7 +151,7 @@ void PreScanOutputDev::beginStringOp(GfxState *state)
         check(state->getStrokeColorSpace(), state->getStrokeColor(), state->getStrokeOpacity(), state->getBlendMode());
     }
 
-    std::shared_ptr<const GfxFont> font = state->getFont();
+    const GfxFont *font = state->getFont();
     state->getFontTransMat(&m11, &m12, &m21, &m22);
     //~ this should check for external fonts that are non-TrueType
     simpleTTF = fabs(m11 + m22) < 0.01 && m11 > 0 && fabs(m12) < 0.01 && fabs(m21) < 0.01 && fabs(state->getHorizScaling() - 1) < 0.001 && (font->getType() == fontTrueType || font->getType() == fontTrueTypeOT);
@@ -185,9 +186,8 @@ void PreScanOutputDev::drawImageMask(GfxState *state, Object * /*ref*/, Stream *
     if (inlineImg) {
         str->reset();
         j = height * ((width + 7) / 8);
-        for (i = 0; i < j; ++i) {
+        for (i = 0; i < j; ++i)
             str->getChar();
-        }
         str->close();
     }
 }
@@ -220,9 +220,8 @@ void PreScanOutputDev::drawImage(GfxState *state, Object * /*ref*/, Stream *str,
     if (inlineImg) {
         str->reset();
         j = height * ((width * colorMap->getNumPixelComps() * colorMap->getBits() + 7) / 8);
-        for (i = 0; i < j; ++i) {
+        for (i = 0; i < j; ++i)
             str->getChar();
-        }
         str->close();
     }
 }

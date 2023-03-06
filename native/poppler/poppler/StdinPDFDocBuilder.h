@@ -1,6 +1,6 @@
 //========================================================================
 //
-// CurlPDFDocBuilder.h
+// StdinPDFDocBuilder.h
 //
 // This file is licensed under the GPLv2 or later
 //
@@ -10,18 +10,18 @@
 //
 //========================================================================
 
-#ifndef CURLPDFDOCBUILDER_H
-#define CURLPDFDOCBUILDER_H
+#ifndef STDINPDFDOCBUILDER_H
+#define STDINPDFDOCBUILDER_H
 
 #include "PDFDocBuilder.h"
 
 //------------------------------------------------------------------------
-// CurlPDFDocBuilder
+// StdinPDFDocBuilder
 //
-// The CurlPDFDocBuilder implements a PDFDocBuilder for 'http(s)://'.
+// The StdinPDFDocBuilder implements a PDFDocBuilder that read from stdin.
 //------------------------------------------------------------------------
 
-class CurlPDFDocBuilder : public PDFDocBuilder
+class StdinPDFDocBuilder : public PDFDocBuilder
 {
 
 public:
@@ -29,4 +29,4 @@ public:
     bool supports(const GooString &uri) override;
 };
 
-#endif /* CURLPDFDOCBUILDER_H */
+#endif /* STDINPDFDOCBUILDER_H */

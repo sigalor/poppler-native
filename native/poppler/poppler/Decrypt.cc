@@ -14,7 +14,7 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2008 Julien Rebetez <julien@fhtagn.net>
-// Copyright (C) 2008, 2010, 2016-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2008, 2010, 2016-2020 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009 Matthias Franz <matthias@ktug.or.kr>
 // Copyright (C) 2009 David Benjamin <davidben@mit.edu>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
@@ -365,13 +365,12 @@ int BaseCryptStream::getChar()
     int c = lookChar();
     nextCharBuff = EOF;
 
-    if (c != EOF) {
+    if (c != EOF)
         charactersRead++;
-    }
     return c;
 }
 
-bool BaseCryptStream::isBinary(bool last) const
+bool BaseCryptStream::isBinary(bool last)
 {
     return str->isBinary(last);
 }
@@ -433,9 +432,8 @@ int EncryptStream::lookChar()
     unsigned char in[16];
     int c;
 
-    if (nextCharBuff != EOF) {
+    if (nextCharBuff != EOF)
         return nextCharBuff;
-    }
 
     c = EOF; // make gcc happy
     switch (algo) {
@@ -515,9 +513,8 @@ int DecryptStream::lookChar()
     unsigned char in[16];
     int c;
 
-    if (nextCharBuff != EOF) {
+    if (nextCharBuff != EOF)
         return nextCharBuff;
-    }
 
     c = EOF; // make gcc happy
     switch (algo) {
@@ -566,13 +563,11 @@ static void rc4InitKey(const unsigned char *key, int keyLen, unsigned char *stat
     unsigned char t;
     int i;
 
-    for (i = 0; i < 256; ++i) {
+    for (i = 0; i < 256; ++i)
         state[i] = i;
-    }
 
-    if (unlikely(keyLen == 0)) {
+    if (unlikely(keyLen == 0))
         return;
-    }
 
     index1 = index2 = 0;
     for (i = 0; i < 256; ++i) {

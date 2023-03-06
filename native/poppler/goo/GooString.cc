@@ -18,7 +18,7 @@
 // Copyright (C) 2006 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2006 Krzysztof Kowalczyk <kkowalczyk@gmail.com>
 // Copyright (C) 2007 Jeff Muizelaar <jeff@infidigm.net>
-// Copyright (C) 2008-2011, 2016-2018, 2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2008-2011, 2016-2018 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2011 Kenji Uno <ku@digitaldolphins.jp>
 // Copyright (C) 2012, 2013 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2012, 2017 Adrian Johnson <ajohnson@redneon.com>
@@ -29,7 +29,7 @@
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2018 Greg Knight <lyngvi@gmail.com>
-// Copyright (C) 2019, 2022 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -121,9 +121,9 @@ void formatDoubleSmallAware(double x, char *buf, int bufSize, int prec, bool tri
 
 //------------------------------------------------------------------------
 
-std::unique_ptr<GooString> GooString::format(const char *fmt, ...)
+GooString *GooString::format(const char *fmt, ...)
 {
-    auto s = std::make_unique<GooString>();
+    auto *s = new GooString();
 
     va_list argList;
     va_start(argList, fmt);
@@ -133,9 +133,9 @@ std::unique_ptr<GooString> GooString::format(const char *fmt, ...)
     return s;
 }
 
-std::unique_ptr<GooString> GooString::formatv(const char *fmt, va_list argList)
+GooString *GooString::formatv(const char *fmt, va_list argList)
 {
-    auto s = std::make_unique<GooString>();
+    auto *s = new GooString();
 
     s->appendfv(fmt, argList);
 
@@ -418,13 +418,8 @@ GooString *GooString::appendfv(const char *fmt, va_list argList)
                     reverseAlign = !reverseAlign;
                     break;
                 case fmtGooString:
-                    if (arg.gs) {
-                        str = arg.gs->c_str();
-                        len = arg.gs->getLength();
-                    } else {
-                        str = "(null)";
-                        len = 6;
-                    }
+                    str = arg.gs->c_str();
+                    len = arg.gs->getLength();
                     reverseAlign = !reverseAlign;
                     break;
                 case fmtSpace:
@@ -456,9 +451,8 @@ GooString *GooString::appendfv(const char *fmt, va_list argList)
             append('}');
 
         } else {
-            for (p1 = p0 + 1; *p1 && *p1 != '{' && *p1 != '}'; ++p1) {
+            for (p1 = p0 + 1; *p1 && *p1 != '{' && *p1 != '}'; ++p1)
                 ;
-            }
             append(p0, p1 - p0);
             p0 = p1;
         }
@@ -590,24 +584,13 @@ void formatDoubleSmallAware(double x, char *buf, int bufSize, int prec, bool tri
 
 GooString *GooString::lowerCase()
 {
-    lowerCase(*this);
-    return this;
-}
-
-void GooString::lowerCase(std::string &s)
-{
-    for (auto &c : s) {
+    for (auto &c : *this) {
         if (std::isupper(c)) {
             c = std::tolower(c);
         }
     }
-}
 
-std::string GooString::toLowerCase(const std::string &s)
-{
-    std::string newString = s;
-    lowerCase(newString);
-    return s;
+    return this;
 }
 
 void GooString::prependUnicodeMarker()
@@ -617,17 +600,39 @@ void GooString::prependUnicodeMarker()
 
 bool GooString::startsWith(const char *prefix) const
 {
-    return startsWith(toStr(), prefix);
+    const auto len = size();
+    const auto prefixLen = std::strlen(prefix);
+
+    if (len < prefixLen)
+        return false;
+
+    return static_cast<const std::string &>(*this).compare(0, prefixLen, prefix) == 0;
 }
 
 bool GooString::endsWith(const char *suffix) const
 {
-    return endsWith(toStr(), suffix);
+    const auto len = size();
+    const auto suffixLen = std::strlen(suffix);
+
+    if (len < suffixLen)
+        return false;
+
+    return static_cast<const std::string &>(*this).compare(len - suffixLen, suffixLen, suffix) == 0;
 }
 
-GooString *GooString::sanitizedName() const
+GooString *GooString::sanitizedName(bool psmode) const
 {
     auto *name = new GooString();
+
+    if (psmode) {
+        // ghostscript chokes on names that begin with out-of-limits
+        // numbers, e.g., 1e4foo is handled correctly (as a name), but
+        // 1e999foo generates a limitcheck error
+        const auto c = getChar(0);
+        if (c >= '0' && c <= '9') {
+            name->append('f');
+        }
+    }
 
     for (const auto c : *this) {
         if (c <= (char)0x20 || c >= (char)0x7f || c == ' ' || c == '(' || c == ')' || c == '<' || c == '>' || c == '[' || c == ']' || c == '{' || c == '}' || c == '/' || c == '%' || c == '#') {

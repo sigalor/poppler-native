@@ -6,7 +6,7 @@
 //
 // Copyright 2006 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright 2007, 2008, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright 2007-2010, 2012, 2015-2022 Albert Astals Cid <aacid@kde.org>
+// Copyright 2007-2010, 2012, 2015-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright 2010 Mark Riedesel <mark@klowner.com>
 // Copyright 2011 Pino Toscano <pino@kde.org>
 // Copyright 2012 Fabio D'Urso <fabiodurso@hotmail.it>
@@ -24,23 +24,18 @@
 // Copyright 2020 Marek Kasik <mkasik@redhat.com>
 // Copyright 2020 Thorsten Behrens <Thorsten.Behrens@CIB.de>
 // Copyright 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
-// Copyright 2021 Georgiy Sgibnev <georgiy@sgibnev.com>. Work sponsored by lab50.net.
-// Copyright 2021 Theofilos Intzoglou <int.teo@gmail.com>
-// Copyright 2022 Alexander Sulfrian <asulfrian@zedat.fu-berlin.de>
 //
 //========================================================================
 
 #ifndef FORM_H
 #define FORM_H
 
-#include "Annot.h"
-#include "CharTypes.h"
 #include "Object.h"
+#include "Annot.h"
 #include "poppler_private_export.h"
 
 #include <ctime>
 
-#include <optional>
 #include <set>
 #include <vector>
 
@@ -73,13 +68,19 @@ enum FormButtonType
     formButtonRadio
 };
 
+enum VariableTextQuadding
+{
+    quaddingLeftJustified,
+    quaddingCentered,
+    quaddingRightJustified
+};
+
 enum FormSignatureType
 {
     adbe_pkcs7_sha1,
     adbe_pkcs7_detached,
     ETSI_CAdES_detached,
-    unknown_signature_type,
-    unsigned_signature_field
+    unknown_signature_type
 };
 
 enum FillValueType
@@ -294,37 +295,30 @@ public:
     void setSignatureType(FormSignatureType fst);
 
     // Use -1 for now as validationTime
-    SignatureInfo *validateSignature(bool doVerifyCert, bool forceRevalidation, time_t validationTime, bool ocspRevocationCheck, bool enableAIA);
+    SignatureInfo *validateSignature(bool doVerifyCert, bool forceRevalidation, time_t validationTime);
 
     // returns a list with the boundaries of the signed ranges
     // the elements of the list are of type Goffset
     std::vector<Goffset> getSignedRangeBounds() const;
 
-    // Creates or replaces the dictionary name "V" in the signature dictionary and
+    // creates or replaces the dictionary name "V" in the signature dictionary and
     // fills it with the fields of the signature; the field "Contents" is the signature
     // in PKCS#7 format, which is calculated over the byte range encompassing the whole
     // document except for the signature itself; this byte range is specified in the
-    // field "ByteRange" in the dictionary "V".
-    // Arguments reason and location are UTF-16 big endian strings with BOM. An empty string and nullptr are acceptable too.
-    // Returns success.
-    bool signDocument(const char *filename, const char *certNickname, const char *digestName, const char *password, const GooString *reason = nullptr, const GooString *location = nullptr, const std::optional<GooString> &ownerPassword = {},
-                      const std::optional<GooString> &userPassword = {});
-
-    // Same as above but adds text, font color, etc.
-    bool signDocumentWithAppearance(const char *filename, const char *certNickname, const char *digestName, const char *password, const GooString *reason = nullptr, const GooString *location = nullptr,
-                                    const std::optional<GooString> &ownerPassword = {}, const std::optional<GooString> &userPassword = {}, const GooString &signatureText = {}, const GooString &signatureTextLeft = {}, double fontSize = {},
-                                    double leftFontSize = {}, std::unique_ptr<AnnotColor> &&fontColor = {}, double borderWidth = {}, std::unique_ptr<AnnotColor> &&borderColor = {}, std::unique_ptr<AnnotColor> &&backgroundColor = {});
+    // field "ByteRange" in the dictionary "V"
+    // return success
+    bool signDocument(const char *filename, const char *certNickname, const char *digestName, const char *password, const char *reason = nullptr);
 
     // checks the length encoding of the signature and returns the hex encoded signature
     // if the check passed (and the checked file size as output parameter in checkedFileSize)
     // otherwise a nullptr is returned
-    std::optional<GooString> getCheckedSignature(Goffset *checkedFileSize);
+    GooString *getCheckedSignature(Goffset *checkedFileSize);
 
     const GooString *getSignature() const;
 
 private:
-    bool createSignature(Object &vObj, Ref vRef, const GooString &name, const GooString *signature, const GooString *reason = nullptr, const GooString *location = nullptr);
-    bool getObjectStartEnd(const GooString &filename, int objNum, Goffset *objStart, Goffset *objEnd, const std::optional<GooString> &ownerPassword, const std::optional<GooString> &userPassword);
+    bool createSignature(Object &vObj, Ref vRef, const GooString &name, const GooString &reason, const GooString *signature);
+    bool getObjectStartEnd(GooString *filename, int objNum, Goffset *objStart, Goffset *objEnd);
     bool updateOffsets(FILE *f, Goffset objStart, Goffset objEnd, Goffset *sigStart, Goffset *sigEnd, Goffset *fileSize);
 
     bool updateSignature(FILE *f, Goffset sigStart, Goffset sigEnd, const GooString *signature);
@@ -337,7 +331,7 @@ private:
 // only interact with FormWidgets.
 //------------------------------------------------------------------------
 
-class POPPLER_PRIVATE_EXPORT FormField
+class FormField
 {
 public:
     FormField(PDFDoc *docA, Object &&aobj, const Ref aref, FormField *parent, std::set<int> *usedParents, FormFieldType t = formUndef);
@@ -355,8 +349,6 @@ public:
     bool isStandAlone() const { return standAlone; }
 
     GooString *getDefaultAppearance() const { return defaultAppearance; }
-    void setDefaultAppearance(const std::string &appearance);
-
     bool hasTextQuadding() const { return hasQuadding; }
     VariableTextQuadding getTextQuadding() const { return quadding; }
 
@@ -501,10 +493,10 @@ public:
     void print(int indent) override;
     void reset(const std::vector<std::string> &excludedFields) override;
 
-    static int tokenizeDA(const std::string &daString, std::vector<std::string> *daToks, const char *searchTok);
+    static int tokenizeDA(const GooString *daString, std::vector<GooString *> *daToks, const char *searchTok);
 
 protected:
-    int parseDA(std::vector<std::string> *daToks);
+    int parseDA(std::vector<GooString *> *daToks);
     void fillContent(FillValueType fillType);
 
     GooString *content;
@@ -602,7 +594,7 @@ public:
     FormFieldSignature(PDFDoc *docA, Object &&dict, const Ref ref, FormField *parent, std::set<int> *usedParents);
 
     // Use -1 for now as validationTime
-    SignatureInfo *validateSignature(bool doVerifyCert, bool forceRevalidation, time_t validationTime, bool ocspRevocationCheck, bool enableAIA);
+    SignatureInfo *validateSignature(bool doVerifyCert, bool forceRevalidation, time_t validationTime);
 
     // returns a list with the boundaries of the signed ranges
     // the elements of the list are of type Goffset
@@ -611,7 +603,7 @@ public:
     // checks the length encoding of the signature and returns the hex encoded signature
     // if the check passed (and the checked file size as output parameter in checkedFileSize)
     // otherwise a nullptr is returned
-    std::optional<GooString> getCheckedSignature(Goffset *checkedFileSize);
+    GooString *getCheckedSignature(Goffset *checkedFileSize);
 
     ~FormFieldSignature() override;
     Object *getByteRange() { return &byte_range; }
@@ -622,16 +614,6 @@ public:
 
     const GooString &getCustomAppearanceContent() const;
     void setCustomAppearanceContent(const GooString &s);
-
-    const GooString &getCustomAppearanceLeftContent() const;
-    void setCustomAppearanceLeftContent(const GooString &s);
-
-    double getCustomAppearanceLeftFontSize() const;
-    void setCustomAppearanceLeftFontSize(double size);
-
-    // Background image (ref to an object of type XObject). Invalid ref if not required.
-    Ref getImageResource() const;
-    void setImageResource(const Ref imageResourceA);
 
     void setCertificateInfo(std::unique_ptr<X509CertificateInfo> &);
 
@@ -646,9 +628,6 @@ private:
     GooString *signature;
     SignatureInfo *signature_info;
     GooString customAppearanceContent;
-    GooString customAppearanceLeftContent;
-    double customAppearanceLeftFontSize = 20;
-    Ref imageResource = Ref::INVALID();
     std::unique_ptr<X509CertificateInfo> certificate_info;
 
     void print(int indent) override;
@@ -663,7 +642,7 @@ private:
 class POPPLER_PRIVATE_EXPORT Form
 {
 public:
-    explicit Form(PDFDoc *doc);
+    Form(PDFDoc *docA, Object *acroForm);
 
     ~Form();
 
@@ -678,30 +657,7 @@ public:
        Page::loadStandaloneFields */
     static FormField *createFieldFromDict(Object &&obj, PDFDoc *docA, const Ref aref, FormField *parent, std::set<int> *usedParents);
 
-    // Finds in the default resources dictionary a font named popplerfontXXX that
-    // has the given fontFamily and fontStyle. This makes us relatively sure that we added that font ourselves
-    std::string findFontInDefaultResources(const std::string &fontFamily, const std::string &fontStyle) const;
-
-    struct AddFontResult
-    {
-        std::string fontName;
-        Ref ref;
-    };
-
-    // Finds in the system a font name matching the given fontFamily and fontStyle
-    // And adds it to the default resources dictionary, font name there will be popplerfontXXX
-    AddFontResult addFontToDefaultResources(const std::string &fontFamily, const std::string &fontStyle);
-
-    // Finds in the default resources dictionary a font named popplerfontXXX that
-    // emulates fontToEmulate and can draw the given char
-    std::string getFallbackFontForChar(Unicode uChar, const GfxFont &fontToEmulate) const;
-
-    // Makes sure the default resources has fonts to draw all the given chars and as close as possible to the given pdfFontNameToEmulate
-    // If needed adds fonts to the default resources dictionary, font names will be popplerfontXXX
-    // If fieldResources is not nullptr, it is used instead of the to query the font to emulate instead of the default resources
-    // Returns a list of all the added fonts (if any)
-    std::vector<AddFontResult> ensureFontsForAllCharacters(const GooString *unicodeText, const std::string &pdfFontNameToEmulate, GfxResources *fieldResources = nullptr);
-
+    Object *getObj() const { return acroForm; }
     bool getNeedAppearances() const { return needAppearances; }
     int getNumFields() const { return numFields; }
     FormField *getRootField(int i) const { return rootFields[i]; }
@@ -721,16 +677,12 @@ public:
     void reset(const std::vector<std::string> &fields, bool excludeFields);
 
 private:
-    // Finds in the system a font name matching the given fontFamily and fontStyle
-    // And adds it to the default resources dictionary, font name there will be popplerfontXXX
-    AddFontResult addFontToDefaultResources(const std::string &filepath, int faceIndex, const std::string &fontFamily, const std::string &fontStyle);
-
-    AddFontResult doGetAddFontToDefaultResources(Unicode uChar, const GfxFont &fontToEmulate);
-
     FormField **rootFields;
     int numFields;
     int size;
-    PDFDoc *const doc;
+    PDFDoc *doc;
+    XRef *xref;
+    Object *acroForm;
     bool needAppearances;
     GfxResources *defaultResources;
     Object resDict;

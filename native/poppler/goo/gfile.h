@@ -16,7 +16,7 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2006 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2009, 2011, 2012, 2017, 2018, 2021, 2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009, 2011, 2012, 2017, 2018 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009 Kovid Goyal <kovid@kovidgoyal.net>
 // Copyright (C) 2013 Adam Reichold <adamreichold@myopera.com>
 // Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
@@ -25,7 +25,7 @@
 // Copyright (C) 2017 Christoph Cullmann <cullmann@kde.org>
 // Copyright (C) 2017 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2018 Mojca Miklavec <mojca@macports.org>
-// Copyright (C) 2019, 2021 Christian Persch <chpe@src.gnome.org>
+// Copyright (C) 2019 Christian Persch <chpe@src.gnome.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -41,7 +41,6 @@
 #include <cstdlib>
 #include <cstddef>
 #include <ctime>
-#include <string>
 extern "C" {
 #if defined(_WIN32)
 #    include <sys/stat.h>
@@ -74,8 +73,6 @@ extern "C" {
 #    endif
 #endif
 }
-
-#include <memory>
 
 class GooString;
 
@@ -124,18 +121,12 @@ public:
     int read(char *buf, int n, Goffset offset) const;
     Goffset size() const;
 
-    static std::unique_ptr<GooFile> open(const std::string &fileName);
-#ifndef _WIN32
-    static std::unique_ptr<GooFile> open(int fdA);
-#endif
+    static GooFile *open(const GooString *fileName);
 
 #ifdef _WIN32
-    static std::unique_ptr<GooFile> open(const wchar_t *fileName);
+    static GooFile *open(const wchar_t *fileName);
 
-    ~GooFile()
-    {
-        CloseHandle(handle);
-    }
+    ~GooFile() { CloseHandle(handle); }
 
     // Asuming than on windows you can't change files that are already open
     bool modificationTimeChangedSinceOpen() const;
@@ -145,15 +136,12 @@ private:
     HANDLE handle;
     struct _FILETIME modifiedTimeOnOpen;
 #else
-    ~GooFile()
-    {
-        close(fd);
-    }
+    ~GooFile() { close(fd); }
 
     bool modificationTimeChangedSinceOpen() const;
 
 private:
-    explicit GooFile(int fdA);
+    GooFile(int fdA);
     int fd;
     struct timespec modifiedTimeOnOpen;
 #endif // _WIN32

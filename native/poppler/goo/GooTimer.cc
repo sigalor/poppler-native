@@ -53,9 +53,8 @@ double GooTimer::getElapsed()
     double total;
     struct timeval elapsed;
 
-    if (active) {
+    if (active)
         gettimeofday(&end_time, nullptr);
-    }
 
     if (start_time.tv_usec > end_time.tv_usec) {
         end_time.tv_usec += USEC_PER_SEC;
@@ -66,9 +65,8 @@ double GooTimer::getElapsed()
     elapsed.tv_sec = end_time.tv_sec - start_time.tv_sec;
 
     total = elapsed.tv_sec + ((double)elapsed.tv_usec / 1e6);
-    if (total < 0) {
+    if (total < 0)
         total = 0;
-    }
 
     return total;
 }

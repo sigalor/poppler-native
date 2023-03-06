@@ -5,7 +5,6 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2020 sgerwk <sgerwk@aol.com>
-// Copyright 2022 Oliver Sander <oliver.sander@tu-dresden.de>
 //
 //========================================================================
 
@@ -94,23 +93,21 @@ void BBoxOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *st
 
 void BBoxOutputDev::drawChar(GfxState *state, double x, double y, double dx, double dy, double originX, double originY, CharCode code, int nBytes, const Unicode *u, int uLen)
 {
+    GfxFont *font;
     double leftent, rightent, ascent, descent;
     const double *fm, *fb;
     double fontSize, w, adjust;
     double fx, fy;
 
-    if (!text) {
+    if (!text)
         return;
-    }
 
-    const GfxFont *const font = state->getFont().get();
-    if (!font) {
+    font = state->getFont();
+    if (!font)
         return;
-    }
 
-    if (code == (CharCode)0x20) {
+    if (code == (CharCode)0x20)
         return;
-    }
 
     fontSize = state->getFontSize();
 
@@ -132,17 +129,16 @@ void BBoxOutputDev::drawChar(GfxState *state, double x, double y, double dx, dou
         descent = 0;
     }
 
-    if (font->getType() != fontType3) {
+    if (font->getType() != fontType3)
         adjust = 1;
-    } else {
+    else {
         // adjust font size for type3 fonts,
         // similar to TextPage::updateFont()
         w = ((Gfx8BitFont *)font)->getWidth(code);
         adjust = w / 0.5;
         fm = font->getFontMatrix();
-        if (fm[0] != 0) {
+        if (fm[0] != 0)
             adjust *= fabs(fm[3] / fm[0]);
-        }
     }
 
     ascent *= adjust * fontSize;
@@ -180,18 +176,14 @@ void BBoxOutputDev::updatePoint(PDFRectangle *bbA, double x, double y, const Gfx
     ty = ty < yMin ? yMin : ty > yMax ? yMax : ty;
     o.transform(tx, ty, &x, &y);
 
-    if (!hasGraphics || bbA->x1 > x) {
+    if (!hasGraphics || bbA->x1 > x)
         bbA->x1 = x;
-    }
-    if (!hasGraphics || bbA->y1 > y) {
+    if (!hasGraphics || bbA->y1 > y)
         bbA->y1 = y;
-    }
-    if (!hasGraphics || bbA->x2 < x) {
+    if (!hasGraphics || bbA->x2 < x)
         bbA->x2 = x;
-    }
-    if (!hasGraphics || bbA->y2 < y) {
+    if (!hasGraphics || bbA->y2 < y)
         bbA->y2 = y;
-    }
     hasGraphics = true;
 }
 
@@ -202,9 +194,8 @@ void BBoxOutputDev::updatePath(PDFRectangle *bbA, const GfxPath *path, const Gfx
     const GfxSubpath *subpath;
     double x, y;
     double w;
-    if (!vector) {
+    if (!vector)
         return;
-    }
     w = lwidth ? state->getLineWidth() : 0;
     for (i = 0; i < path->getNumSubpaths(); i++) {
         subpath = path->getSubpath(i);
@@ -220,9 +211,8 @@ void BBoxOutputDev::updatePath(PDFRectangle *bbA, const GfxPath *path, const Gfx
 /* update the bounding box with a new image */
 void BBoxOutputDev::updateImage(PDFRectangle *bbA, const GfxState *state)
 {
-    if (!raster) {
+    if (!raster)
         return;
-    }
     updatePoint(bbA, 0, 1, state);
     updatePoint(bbA, 1, 0, state);
 }

@@ -5,7 +5,7 @@
 //---------------------------------------------------------------------------------
 // Hugo Mercier <hmercier31[at]gmail.com> (c) 2008
 // Carlos Garcia Campos <carlosgc@gnome.org> (c) 2010
-// Albert Astals Cid <aacid@kde.org> (c) 2017-2019, 2021, 2022
+// Albert Astals Cid <aacid@kde.org> (c) 2017-2019
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -27,8 +27,6 @@
 
 #include "Object.h"
 #include "poppler_private_export.h"
-
-#include <memory>
 
 struct MovieActivationParameters
 {
@@ -78,7 +76,7 @@ class POPPLER_PRIVATE_EXPORT Movie
 {
 public:
     Movie(const Object *movieDict, const Object *aDict);
-    explicit Movie(const Object *movieDict);
+    Movie(const Object *movieDict);
     Movie(const Movie &other);
     ~Movie();
     Movie &operator=(const Movie &) = delete;
@@ -101,7 +99,7 @@ public:
     bool getUseFloatingWindow() const { return MA.floatingWindow; }
     void getFloatingWindowSize(int *width, int *height);
 
-    std::unique_ptr<Movie> copy() const;
+    Movie *copy() const;
 
 private:
     void parseMovie(const Object *movieDict);

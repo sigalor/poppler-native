@@ -11,7 +11,6 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright (C) 2018, 2019 Greg Knight <lyngvi@gmail.com>
-// Copyright (C) 2022 Albert Astals Cid <aacid@kde.org>
 //
 //========================================================================
 
@@ -30,11 +29,9 @@
 class InMemoryFile
 {
 private:
-#ifdef HAVE_IN_MEMORY_FILE_FOPENCOOKIE
-    size_t iohead = 0;
-    FILE *fptr = nullptr;
-#endif
+    size_t iohead;
     std::vector<char> data;
+    FILE *fptr;
 
 #ifdef HAVE_IN_MEMORY_FILE_FOPENCOOKIE
     ssize_t _read(char *buf, size_t sz);
@@ -50,10 +47,7 @@ public:
      * and must be fclosed() by the caller before destruction. */
     FILE *open(const char *mode);
 
-    const std::vector<char> &getBuffer() const
-    {
-        return data;
-    }
+    const std::vector<char> &getBuffer() const { return data; }
 };
 
 #endif // IN_MEMORY_FILE_H

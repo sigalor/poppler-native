@@ -16,7 +16,7 @@
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
-// Copyright (C) 2017-2019, 2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2017-2019 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018, 2019 Adam Reichold <adam.reichold@t-online.de>
 //
@@ -46,7 +46,7 @@ class POPPLER_PRIVATE_EXPORT Array
 {
 public:
     // Constructor.
-    explicit Array(XRef *xrefA);
+    Array(XRef *xrefA);
 
     // Destructor.
     ~Array();
@@ -59,8 +59,6 @@ public:
 
     // Copy array with new xref
     Array *copy(XRef *xrefA) const;
-
-    Array *deepCopy() const;
 
     // Add an element
     // elem becomes a dead object after this call

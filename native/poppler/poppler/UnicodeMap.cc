@@ -14,7 +14,7 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2010 Jakub Wilk <jwilk@jwilk.net>
-// Copyright (C) 2017-2020, 2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2017-2020 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2017 Jean Ghali <jghali@libertysurf.fr>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
@@ -51,9 +51,10 @@ struct UnicodeMapExt
 
 //------------------------------------------------------------------------
 
-std::unique_ptr<UnicodeMap> UnicodeMap::parse(const std::string &encodingNameA)
+UnicodeMap *UnicodeMap::parse(const std::string &encodingNameA)
 {
     FILE *f;
+    UnicodeMap *map;
     UnicodeMapRange *range;
     UnicodeMapExt *eMap;
     int size, eMapsSize;
@@ -64,10 +65,10 @@ std::unique_ptr<UnicodeMap> UnicodeMap::parse(const std::string &encodingNameA)
 
     if (!(f = globalParams->getUnicodeMapFile(encodingNameA))) {
         error(errSyntaxError, -1, "Couldn't find unicodeMap file for the '{0:s}' encoding", encodingNameA.c_str());
-        return {};
+        return nullptr;
     }
 
-    auto map = std::unique_ptr<UnicodeMap>(new UnicodeMap(encodingNameA));
+    map = new UnicodeMap(encodingNameA);
 
     size = 8;
     UnicodeMapRange *customRanges = (UnicodeMapRange *)gmallocn(size, sizeof(UnicodeMapRange));
@@ -180,9 +181,8 @@ UnicodeMap::UnicodeMap(UnicodeMap &&other) noexcept : encodingName { std::move(o
 
 UnicodeMap &UnicodeMap::operator=(UnicodeMap &&other) noexcept
 {
-    if (this != &other) {
+    if (this != &other)
         swap(other);
-    }
     return *this;
 }
 
@@ -285,18 +285,23 @@ int UnicodeMap::mapUnicode(Unicode u, char *buf, int bufSize) const
 
 UnicodeMapCache::UnicodeMapCache() { }
 
+UnicodeMapCache::~UnicodeMapCache()
+{
+    for (UnicodeMap *map : cache) {
+        delete map;
+    }
+}
+
 const UnicodeMap *UnicodeMapCache::getUnicodeMap(const std::string &encodingName)
 {
-    for (const std::unique_ptr<UnicodeMap> &map : cache) {
+    for (UnicodeMap *map : cache) {
         if (map->match(encodingName)) {
-            return map.get();
+            return map;
         }
     }
-    std::unique_ptr<UnicodeMap> map = UnicodeMap::parse(encodingName);
+    UnicodeMap *map = UnicodeMap::parse(encodingName);
     if (map) {
-        UnicodeMap *m = map.get();
-        cache.emplace_back(std::move(map));
-        return m;
+        cache.emplace_back(map);
     }
-    return nullptr;
+    return map;
 }

@@ -45,9 +45,8 @@ Linearization::~Linearization() { }
 
 unsigned int Linearization::getLength() const
 {
-    if (!linDict.isDict()) {
+    if (!linDict.isDict())
         return 0;
-    }
 
     int length;
     if (linDict.getDict()->lookupInt("L", nullptr, &length) && length > 0) {

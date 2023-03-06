@@ -21,12 +21,10 @@ void ProfileData::addElement(double elapsed)
         min = elapsed;
         max = elapsed;
     } else {
-        if (elapsed < min) {
+        if (elapsed < min)
             min = elapsed;
-        }
-        if (elapsed > max) {
+        if (elapsed > max)
             max = elapsed;
-        }
     }
     total += elapsed;
     count++;

@@ -13,7 +13,7 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2006, 2008-2010, 2012, 2018-2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006, 2008-2010, 2012, 2018-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2007 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright (C) 2007 Koji Otani <sho@bbr.jp>
 // Copyright (C) 2008 Michael Vrable <mvrable@cs.ucsd.edu>
@@ -162,7 +162,7 @@ CharCodeToUnicode *CharCodeToUnicode::parseCIDToUnicode(const char *fileName, co
     }
     fclose(f);
 
-    ctu = new CharCodeToUnicode(collection->toStr(), mapA, mapLenA, true, nullptr, 0, 0);
+    ctu = new CharCodeToUnicode(collection->copy(), mapA, mapLenA, true, nullptr, 0, 0);
     gfree(mapA);
     return ctu;
 }
@@ -248,7 +248,7 @@ CharCodeToUnicode *CharCodeToUnicode::parseUnicodeToUnicode(const GooString *fil
     }
     fclose(f);
 
-    ctu = new CharCodeToUnicode(fileName->toStr(), mapA, len, true, sMapA, sMapLenA, sMapSizeA);
+    ctu = new CharCodeToUnicode(fileName->copy(), mapA, len, true, sMapA, sMapLenA, sMapSizeA);
     gfree(mapA);
     gfree(uBuf);
     return ctu;
@@ -256,14 +256,14 @@ CharCodeToUnicode *CharCodeToUnicode::parseUnicodeToUnicode(const GooString *fil
 
 CharCodeToUnicode *CharCodeToUnicode::make8BitToUnicode(Unicode *toUnicode)
 {
-    return new CharCodeToUnicode({}, toUnicode, 256, true, nullptr, 0, 0);
+    return new CharCodeToUnicode(nullptr, toUnicode, 256, true, nullptr, 0, 0);
 }
 
 CharCodeToUnicode *CharCodeToUnicode::parseCMap(const GooString *buf, int nBits)
 {
     CharCodeToUnicode *ctu;
 
-    ctu = new CharCodeToUnicode(std::optional<std::string>());
+    ctu = new CharCodeToUnicode(nullptr);
     const char *p = buf->c_str();
     if (!ctu->parseCMap1(&getCharFromString, &p, nBits)) {
         delete ctu;
@@ -277,7 +277,7 @@ CharCodeToUnicode *CharCodeToUnicode::parseCMapFromFile(const GooString *fileNam
     CharCodeToUnicode *ctu;
     FILE *f;
 
-    ctu = new CharCodeToUnicode(std::optional<std::string>());
+    ctu = new CharCodeToUnicode(nullptr);
     if ((f = globalParams->findToUnicodeFile(fileName))) {
         if (!ctu->parseCMap1(&getCharFromFile, f, nBits)) {
             delete ctu;
@@ -559,6 +559,7 @@ void CharCodeToUnicode::addMappingInt(CharCode code, Unicode u)
 
 CharCodeToUnicode::CharCodeToUnicode()
 {
+    tag = nullptr;
     map = nullptr;
     mapLen = 0;
     sMap = nullptr;
@@ -567,10 +568,11 @@ CharCodeToUnicode::CharCodeToUnicode()
     isIdentity = false;
 }
 
-CharCodeToUnicode::CharCodeToUnicode(const std::optional<std::string> &tagA) : tag(tagA)
+CharCodeToUnicode::CharCodeToUnicode(GooString *tagA)
 {
     CharCode i;
 
+    tag = tagA;
     mapLen = 256;
     map = (Unicode *)gmallocn(mapLen, sizeof(Unicode));
     for (i = 0; i < mapLen; ++i) {
@@ -582,8 +584,9 @@ CharCodeToUnicode::CharCodeToUnicode(const std::optional<std::string> &tagA) : t
     isIdentity = false;
 }
 
-CharCodeToUnicode::CharCodeToUnicode(const std::optional<std::string> &tagA, Unicode *mapA, CharCode mapLenA, bool copyMap, CharCodeToUnicodeString *sMapA, int sMapLenA, int sMapSizeA) : tag(tagA)
+CharCodeToUnicode::CharCodeToUnicode(GooString *tagA, Unicode *mapA, CharCode mapLenA, bool copyMap, CharCodeToUnicodeString *sMapA, int sMapLenA, int sMapSizeA)
 {
+    tag = tagA;
     mapLen = mapLenA;
     if (copyMap) {
         map = (Unicode *)gmallocn(mapLen, sizeof(Unicode));
@@ -600,11 +603,13 @@ CharCodeToUnicode::CharCodeToUnicode(const std::optional<std::string> &tagA, Uni
 
 CharCodeToUnicode::~CharCodeToUnicode()
 {
+    if (tag) {
+        delete tag;
+    }
     gfree(map);
     if (sMap) {
-        for (int i = 0; i < sMapLen; ++i) {
+        for (int i = 0; i < sMapLen; ++i)
             gfree(sMap[i].u);
-        }
         gfree(sMap);
     }
 }
@@ -623,7 +628,7 @@ void CharCodeToUnicode::decRefCnt()
 
 bool CharCodeToUnicode::match(const GooString *tagA)
 {
-    return tag && tag == tagA->toStr();
+    return tag && !tag->cmp(tagA);
 }
 
 void CharCodeToUnicode::setMapping(CharCode c, Unicode *u, int len)
@@ -709,9 +714,8 @@ int CharCodeToUnicode::mapToCharCode(const Unicode *u, CharCode *c, int usize) c
         for (i = 0; i < sMapLen; i++) {
             // if the entry's unicode length isn't the same are usize, the strings
             // are obviously different
-            if (sMap[i].len != usize) {
+            if (sMap[i].len != usize)
                 continue;
-            }
             // compare the string char by char
             for (j = 0; j < sMap[i].len; j++) {
                 if (sMap[i].u[j] != u[j]) {

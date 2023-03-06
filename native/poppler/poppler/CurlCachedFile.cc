@@ -6,7 +6,7 @@
 //
 // Copyright 2009 Stefan Thomas <thomas@eload24.com>
 // Copyright 2010, 2011 Hib Eris <hib@hiberis.nl>
-// Copyright 2010, 2019, 2021, 2022 Albert Astals Cid <aacid@kde.org>
+// Copyright 2010, 2019, 2021 Albert Astals Cid <aacid@kde.org>
 //
 //========================================================================
 
@@ -18,8 +18,9 @@
 
 //------------------------------------------------------------------------
 
-CurlCachedFileLoader::CurlCachedFileLoader(const std::string &urlA) : url(urlA)
+CurlCachedFileLoader::CurlCachedFileLoader()
 {
+    url = nullptr;
     cachedFile = nullptr;
     curl = nullptr;
 }
@@ -34,26 +35,27 @@ static size_t noop_cb(char *ptr, size_t size, size_t nmemb, void *ptr2)
     return size * nmemb;
 }
 
-size_t CurlCachedFileLoader::init(CachedFile *cachedFileA)
+size_t CurlCachedFileLoader::init(GooString *urlA, CachedFile *cachedFileA)
 {
-    curl_off_t contentLength = -1;
+    double contentLength = -1;
     long code = 0;
     size_t size;
 
+    url = urlA;
     cachedFile = cachedFileA;
     curl = curl_easy_init();
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_URL, url->c_str());
     curl_easy_setopt(curl, CURLOPT_HEADER, 1);
     curl_easy_setopt(curl, CURLOPT_NOBODY, 1);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &noop_cb);
     curl_easy_perform(curl);
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
     if (code) {
-        curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T, &contentLength);
+        curl_easy_getinfo(curl, CURLINFO_CONTENT_LENGTH_DOWNLOAD, &contentLength);
         size = contentLength;
     } else {
-        error(errInternal, -1, "Failed to get size of '{0:s}'.", url.c_str());
+        error(errInternal, -1, "Failed to get size of '{0:t}'.", url);
         size = -1;
     }
     curl_easy_reset(curl);
@@ -75,18 +77,19 @@ int CurlCachedFileLoader::load(const std::vector<ByteRange> &ranges, CachedFileW
 
         fromByte = bRange.offset;
         toByte = fromByte + bRange.length - 1;
-        const std::unique_ptr<GooString> range = GooString::format("{0:ulld}-{1:ulld}", fromByte, toByte);
+        GooString *range = GooString::format("{0:ulld}-{1:ulld}", fromByte, toByte);
 
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_URL, url->c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, load_cb);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, writer);
         curl_easy_setopt(curl, CURLOPT_RANGE, range->c_str());
         r = curl_easy_perform(curl);
         curl_easy_reset(curl);
 
-        if (r != CURLE_OK) {
+        delete range;
+
+        if (r != CURLE_OK)
             break;
-        }
     }
     return r;
 }

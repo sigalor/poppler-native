@@ -21,7 +21,7 @@
 // Copyright (C) 2008 Hugo Mercier <hmercier31@gmail.com>
 // Copyright (C) 2008 Pino Toscano <pino@kde.org>
 // Copyright (C) 2008 Tomas Are Haavet <tomasare@gmail.com>
-// Copyright (C) 2009-2011, 2013, 2016-2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009-2011, 2013, 2016-2020 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2012, 2013 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2012, 2015 Tobias Koenig <tokoe@kdab.com>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
@@ -29,7 +29,7 @@
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Dileep Sankhla <sankhla.dileep96@gmail.com>
 // Copyright (C) 2018-2020 Tobias Deiminger <haxtibal@posteo.de>
-// Copyright (C) 2018, 2020, 2022 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2018, 2020 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2019 Umang Malik <umang99m@gmail.com>
 // Copyright (C) 2019 João Netto <joaonetto901@gmail.com>
@@ -38,10 +38,6 @@
 // Copyright (C) 2020 Katarina Behrens <Katarina.Behrens@cib.de>
 // Copyright (C) 2020 Thorsten Behrens <Thorsten.Behrens@CIB.de>
 // Copyright (C) 2021 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>.
-// Copyright (C) 2021 Zachary Travis <ztravis@everlaw.com>
-// Copyright (C) 2021 Mahmoud Ahmed Khalil <mahmoudkhalil11@gmail.com>
-// Copyright (C) 2021 Georgiy Sgibnev <georgiy@sgibnev.com>. Work sponsored by lab50.net.
-// Copyright (C) 2022 Martin <martinbts@gmx.net>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -56,7 +52,6 @@
 #include <mutex>
 #include <vector>
 
-#include "AnnotStampImageHelper.h"
 #include "Object.h"
 #include "poppler_private_export.h"
 
@@ -100,13 +95,6 @@ enum AnnotExternalDataType
     annotExternalDataMarkup3D // Markup3D
 };
 
-enum class VariableTextQuadding
-{
-    leftJustified,
-    centered,
-    rightJustified
-};
-
 //------------------------------------------------------------------------
 // AnnotCoord
 //------------------------------------------------------------------------
@@ -132,8 +120,8 @@ class POPPLER_PRIVATE_EXPORT AnnotPath
 {
 public:
     AnnotPath();
-    explicit AnnotPath(Array *array);
-    explicit AnnotPath(std::vector<AnnotCoord> &&coords);
+    AnnotPath(Array *array);
+    AnnotPath(std::vector<AnnotCoord> &&coords);
     ~AnnotPath();
 
     AnnotPath(const AnnotPath &) = delete;
@@ -202,7 +190,7 @@ public:
         borderEffectCloudy // C
     };
 
-    explicit AnnotBorderEffect(Dict *dict);
+    AnnotBorderEffect(Dict *dict);
 
     AnnotBorderEffectType getEffectType() const { return effectType; }
     double getIntensity() const { return intensity; }
@@ -254,7 +242,7 @@ protected:
 // AnnotBorder
 //------------------------------------------------------------------------
 
-class POPPLER_PRIVATE_EXPORT AnnotBorder
+class AnnotBorder
 {
 public:
     enum AnnotBorderType
@@ -281,11 +269,11 @@ public:
 
     virtual AnnotBorderType getType() const = 0;
     virtual double getWidth() const { return width; }
-    virtual const std::vector<double> &getDash() const { return dash; }
+    virtual int getDashLength() const { return dashLength; }
+    virtual double *getDash() const { return dash; }
     virtual AnnotBorderStyle getStyle() const { return style; }
 
     virtual Object writeToObject(XRef *xref) const = 0;
-    virtual std::unique_ptr<AnnotBorder> copy() const = 0;
 
 protected:
     AnnotBorder();
@@ -295,7 +283,8 @@ protected:
     AnnotBorderType type;
     double width;
     static const int DASH_LIMIT = 10; // implementation note 82 in Appendix H.
-    std::vector<double> dash;
+    int dashLength;
+    double *dash;
     AnnotBorderStyle style;
 };
 
@@ -307,15 +296,13 @@ class POPPLER_PRIVATE_EXPORT AnnotBorderArray : public AnnotBorder
 {
 public:
     AnnotBorderArray();
-    explicit AnnotBorderArray(Array *array);
+    AnnotBorderArray(Array *array);
 
     void setHorizontalCorner(double hc) { horizontalCorner = hc; }
     void setVerticalCorner(double vc) { verticalCorner = vc; }
 
     double getHorizontalCorner() const { return horizontalCorner; }
     double getVerticalCorner() const { return verticalCorner; }
-
-    std::unique_ptr<AnnotBorder> copy() const override;
 
 private:
     AnnotBorderType getType() const override { return typeArray; }
@@ -334,15 +321,13 @@ class AnnotBorderBS : public AnnotBorder
 {
 public:
     AnnotBorderBS();
-    explicit AnnotBorderBS(Dict *dict);
+    AnnotBorderBS(Dict *dict);
 
 private:
     AnnotBorderType getType() const override { return typeBS; }
     Object writeToObject(XRef *xref) const override;
 
     const char *getStyleName() const;
-
-    std::unique_ptr<AnnotBorder> copy() const override;
 
     // double width;           // W  (Default 1)   (inherited from AnnotBorder)
     // AnnotBorderStyle style; // S  (Default S)   (inherited from AnnotBorder)
@@ -365,10 +350,10 @@ public:
     };
 
     AnnotColor();
-    explicit AnnotColor(double gray);
+    AnnotColor(double gray);
     AnnotColor(double r, double g, double b);
     AnnotColor(double c, double m, double y, double k);
-    explicit AnnotColor(Array *array, int adjust = 0);
+    AnnotColor(Array *array, int adjust = 0);
 
     void adjustColor(int adjust);
 
@@ -389,15 +374,15 @@ private:
 class POPPLER_PRIVATE_EXPORT DefaultAppearance
 {
 public:
-    DefaultAppearance(Object &&fontNameA, double fontPtSizeA, std::unique_ptr<AnnotColor> &&fontColorA);
-    explicit DefaultAppearance(const GooString *da);
+    DefaultAppearance(Object &&fontNameA, double fontPtSizeA, std::unique_ptr<AnnotColor> fontColorA);
+    DefaultAppearance(const GooString *da);
     void setFontName(Object &&fontNameA);
     const Object &getFontName() const { return fontName; }
     void setFontPtSize(double fontPtSizeA);
     double getFontPtSize() const { return fontPtSize; }
     void setFontColor(std::unique_ptr<AnnotColor> fontColorA);
     const AnnotColor *getFontColor() const { return fontColor.get(); }
-    std::string toAppearanceString() const;
+    GooString *toAppearanceString() const;
 
     DefaultAppearance(const DefaultAppearance &) = delete;
     DefaultAppearance &operator=(const DefaultAppearance &) = delete;
@@ -429,7 +414,7 @@ public:
         scaleProportional // P
     };
 
-    explicit AnnotIconFit(Dict *dict);
+    AnnotIconFit(Dict *dict);
 
     AnnotIconFitScaleWhen getScaleWhen() { return scaleWhen; }
     AnnotIconFitScale getScale() { return scale; }
@@ -504,7 +489,7 @@ public:
         captionOverlaid // 6
     };
 
-    explicit AnnotAppearanceCharacs(Dict *dict);
+    AnnotAppearanceCharacs(Dict *dict);
     ~AnnotAppearanceCharacs();
 
     AnnotAppearanceCharacs(const AnnotAppearanceCharacs &) = delete;
@@ -520,8 +505,6 @@ public:
     const GooString *getAlternateCaption() { return alternateCaption.get(); }
     const AnnotIconFit *getIconFit() { return iconFit.get(); }
     AnnotAppearanceCharacsTextPos getPosition() const { return position; }
-
-    std::unique_ptr<AnnotAppearanceCharacs> copy() const;
 
 protected:
     int rotation; // R  (Default 0)
@@ -544,7 +527,7 @@ protected:
 class AnnotAppearanceBBox
 {
 public:
-    explicit AnnotAppearanceBBox(PDFRectangle *rect);
+    AnnotAppearanceBBox(PDFRectangle *rect);
 
     void setBorderWidth(double w) { borderWidth = w; }
 
@@ -567,7 +550,6 @@ private:
 // AnnotAppearanceBuilder
 //------------------------------------------------------------------------
 class Matrix;
-
 class AnnotAppearanceBuilder
 {
 public:
@@ -592,10 +574,10 @@ public:
     void drawLineEndSlash(double x, double y, double size, const Matrix &m);
     void drawFieldBorder(const FormField *field, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect);
     bool drawFormField(const FormField *field, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect,
-                       const GooString *appearState, XRef *xref, Dict *resourcesDict);
+                       const GooString *appearState, XRef *xref, bool *addedDingbatsResource, Dict *resourcesDict);
     static double lineEndingXShorten(AnnotLineEndingStyle endingStyle, double size);
     static double lineEndingXExtendBBox(AnnotLineEndingStyle endingStyle, double size);
-    void writeString(const std::string &str);
+    void writeString(const GooString &str);
 
     void append(const char *text);
     void appendf(const char *fmt, ...) GOOSTRING_FORMAT;
@@ -603,28 +585,16 @@ public:
     const GooString *buffer() const;
 
 private:
-    enum DrawTextFlags
-    {
-        NoDrawTextFlags = 0,
-        MultilineDrawTextFlag = 1,
-        EmitMarkedContentDrawTextFlag = 2,
-        ForceZapfDingbatsDrawTextFlag = 4,
-        TurnTextToStarsDrawTextFlag = 8
-    };
-
-    bool drawListBox(const FormFieldChoice *fieldChoice, const AnnotBorder *border, const PDFRectangle *rect, const GooString *da, const GfxResources *resources, VariableTextQuadding quadding, XRef *xref, Dict *resourcesDict);
-    bool drawFormFieldButton(const FormFieldButton *field, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect,
-                             const GooString *appearState, XRef *xref, Dict *resourcesDict);
-    bool drawFormFieldText(const FormFieldText *fieldText, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect, XRef *xref,
-                           Dict *resourcesDict);
-    bool drawFormFieldChoice(const FormFieldChoice *fieldChoice, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect,
-                             XRef *xref, Dict *resourcesDict);
+    bool drawListBox(const FormFieldChoice *fieldChoice, const AnnotBorder *border, const PDFRectangle *rect, const GooString *da, const GfxResources *resources, int quadding);
+    bool drawFormFieldButton(const FormFieldButton *field, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect, const GooString *appearState,
+                             XRef *xref, bool *addedDingbatsResource);
+    bool drawFormFieldText(const FormFieldText *fieldText, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect);
+    bool drawFormFieldChoice(const FormFieldChoice *fieldChoice, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect);
     bool drawSignatureFieldText(const FormFieldSignature *field, const Form *form, const GfxResources *resources, const GooString *da, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect,
                                 XRef *xref, Dict *resourcesDict);
-    void drawSignatureFieldText(const GooString &text, const Form *form, const DefaultAppearance &da, const AnnotBorder *border, const PDFRectangle *rect, XRef *xref, Dict *resourcesDict, double leftMargin, bool centerVertically,
-                                bool centerHorizontally);
-    bool drawText(const GooString *text, const Form *form, const GooString *da, const GfxResources *resources, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect,
-                  const VariableTextQuadding quadding, XRef *xref, Dict *resourcesDict, const int flags = NoDrawTextFlags, const int nCombs = 0);
+    bool drawText(const GooString *text, const GooString *da, const GfxResources *resources, const AnnotBorder *border, const AnnotAppearanceCharacs *appearCharacs, const PDFRectangle *rect, bool multiline, int comb, int quadding,
+                  bool txField, bool forceZapfDingbats, XRef *xref, bool *addedDingbatsResource, // xref and addedDingbatsResource both must not be null if forceZapfDingbats is passed
+                  bool password);
     void drawArrowPath(double x, double y, const Matrix &m, int orientation = 1);
 
     GooString *appearBuf;
@@ -735,7 +705,7 @@ public:
 
     // Sets the annot contents to new_content
     // new_content should never be NULL
-    virtual void setContents(std::unique_ptr<GooString> &&new_content);
+    virtual void setContents(GooString *new_content);
     void setName(GooString *new_name);
     void setModified(GooString *new_modified);
     void setFlags(unsigned int new_flags);
@@ -751,15 +721,13 @@ public:
     Ref getRef() const { return ref; }
     const Object &getAnnotObj() const { return annotObj; }
     AnnotSubtype getType() const { return type; }
-    const PDFRectangle &getRect() const { return *rect; }
+    PDFRectangle *getRect() const { return rect.get(); }
     void getRect(double *x1, double *y1, double *x2, double *y2) const;
     const GooString *getContents() const { return contents.get(); }
     int getPageNum() const { return page; }
     const GooString *getName() const { return name.get(); }
     const GooString *getModified() const { return modified.get(); }
     unsigned int getFlags() const { return flags; }
-    Object getAppearance() const;
-    void setNewAppearance(Object &&newAppearance);
     AnnotAppearance *getAppearStreams() const { return appearStreams.get(); }
     const GooString *getAppearState() const { return appearState.get(); }
     AnnotBorder *getBorder() const { return border.get(); }
@@ -771,8 +739,7 @@ public:
     // Check if point is inside the annot rectangle.
     bool inRect(double x, double y) const;
 
-    // If newFontNeeded is not null, it will contain whether the given font has glyphs to represent the needed text
-    static void layoutText(const GooString *text, GooString *outBuf, int *i, const GfxFont &font, double *width, double widthLimit, int *charCount, bool noReencode, bool *newFontNeeded = nullptr);
+    static void layoutText(const GooString *text, GooString *outBuf, int *i, const GfxFont *font, double *width, double widthLimit, int *charCount, bool noReencode);
 
 private:
     void readArrayNum(Object *pdfArray, int key, double *value);
@@ -784,8 +751,8 @@ private:
 protected:
     virtual ~Annot();
     virtual void removeReferencedObjects(); // Called by Page::removeAnnot
-    Object createForm(const GooString *appearBuf, const double *bbox, bool transparencyGroup, Dict *resDict);
-    Object createForm(const GooString *appearBuf, const double *bbox, bool transparencyGroup, Object &&resDictObject); // overload to support incRef/decRef
+    Object createForm(const GooString *appearBuf, double *bbox, bool transparencyGroup, Dict *resDict);
+    Object createForm(const GooString *appearBuf, double *bbox, bool transparencyGroup, Object &&resDictObject); // overload to support incRef/decRef
     Dict *createResourcesDict(const char *formName, Object &&formStream, const char *stateName, double opacity, const char *blendMode);
     bool isVisible(bool printing);
     int getRotation() const;
@@ -827,8 +794,6 @@ protected:
 
     bool hasRef;
     mutable std::recursive_mutex mutex;
-
-    bool hasBeenUpdated = false;
 };
 
 //------------------------------------------------------------------------
@@ -885,7 +850,7 @@ public:
 
     // The annotation takes the ownership of new_popup
     void setPopup(std::unique_ptr<AnnotPopup> &&new_popup);
-    void setLabel(std::unique_ptr<GooString> &&new_label);
+    void setLabel(GooString *new_label);
     void setOpacity(double opacityA);
     void setDate(GooString *new_date);
 
@@ -1048,6 +1013,13 @@ protected:
 class POPPLER_PRIVATE_EXPORT AnnotFreeText : public AnnotMarkup
 {
 public:
+    enum AnnotFreeTextQuadding
+    {
+        quaddingLeftJustified, // 0
+        quaddingCentered, // 1
+        quaddingRightJustified // 2
+    };
+
     enum AnnotFreeTextIntent
     {
         intentFreeText, // FreeText
@@ -1057,23 +1029,23 @@ public:
 
     static const double undefinedFontPtSize;
 
-    AnnotFreeText(PDFDoc *docA, PDFRectangle *rect);
+    AnnotFreeText(PDFDoc *docA, PDFRectangle *rect, const DefaultAppearance &da);
     AnnotFreeText(PDFDoc *docA, Object &&dictObject, const Object *obj);
     ~AnnotFreeText() override;
 
     void draw(Gfx *gfx, bool printing) override;
     Object getAppearanceResDict() override;
-    void setContents(std::unique_ptr<GooString> &&new_content) override;
+    void setContents(GooString *new_content) override;
 
     void setDefaultAppearance(const DefaultAppearance &da);
-    void setQuadding(VariableTextQuadding new_quadding);
+    void setQuadding(AnnotFreeTextQuadding new_quadding);
     void setStyleString(GooString *new_string);
     void setCalloutLine(AnnotCalloutLine *line);
     void setIntent(AnnotFreeTextIntent new_intent);
 
     // getters
     std::unique_ptr<DefaultAppearance> getDefaultAppearance() const;
-    VariableTextQuadding getQuadding() const { return quadding; }
+    AnnotFreeTextQuadding getQuadding() const { return quadding; }
     // return rc
     const GooString *getStyleString() const { return styleString.get(); }
     AnnotCalloutLine *getCalloutLine() const { return calloutLine.get(); }
@@ -1090,7 +1062,7 @@ protected:
     std::unique_ptr<GooString> appearanceString; // DA
 
     // optional
-    VariableTextQuadding quadding; // Q  (Default 0)
+    AnnotFreeTextQuadding quadding; // Q  (Default 0)
     // RC
     std::unique_ptr<GooString> styleString; // DS
     std::unique_ptr<AnnotCalloutLine> calloutLine; // CL
@@ -1127,7 +1099,7 @@ public:
 
     void draw(Gfx *gfx, bool printing) override;
     Object getAppearanceResDict() override;
-    void setContents(std::unique_ptr<GooString> &&new_content) override;
+    void setContents(GooString *new_content) override;
 
     void setVertices(double x1, double y1, double x2, double y2);
     void setStartEndStyle(AnnotLineEndingStyle start, AnnotLineEndingStyle end);
@@ -1220,25 +1192,15 @@ public:
     AnnotStamp(PDFDoc *docA, Object &&dictObject, const Object *obj);
     ~AnnotStamp() override;
 
-    void draw(Gfx *gfx, bool printing) override;
-
     void setIcon(GooString *new_icon);
-
-    void setCustomImage(AnnotStampImageHelper *stampImageHelperA);
-
-    void clearCustomImage();
 
     // getters
     const GooString *getIcon() const { return icon.get(); }
 
 private:
     void initialize(PDFDoc *docA, Dict *dict);
-    void generateStampDefaultAppearance();
-    void generateStampCustomAppearance();
 
     std::unique_ptr<GooString> icon; // Name       (Default Draft)
-    AnnotStampImageHelper *stampImageHelper;
-    Ref updatedAppearanceStream;
 };
 
 //------------------------------------------------------------------------
@@ -1461,7 +1423,7 @@ public:
     void draw(Gfx *gfx, bool printing) override;
     void invalidateAppearance() override;
 
-    void generateFieldAppearance();
+    void generateFieldAppearance(bool *addedDingbatsResource);
     void updateAppearanceStream();
 
     AnnotWidgetHighlightMode getMode() { return mode; }
@@ -1471,6 +1433,7 @@ public:
     std::unique_ptr<LinkAction> getAdditionalAction(AdditionalActionsType type);
     std::unique_ptr<LinkAction> getFormAdditionalAction(FormAdditionalActionsType type);
     Dict *getParent() { return parent; }
+    void setNewAppearance(Object &&newAppearance);
 
     bool setFormAdditionalAction(FormAdditionalActionsType type, const GooString &js);
 
@@ -1531,7 +1494,7 @@ class Annot3D : public Annot
             dStateLive // L
         };
 
-        explicit Activation(Dict *dict);
+        Activation(Dict *dict);
 
     private:
         ActivationATrigger aTrigger; // A   (Default XA)
@@ -1565,7 +1528,7 @@ public:
     class POPPLER_PRIVATE_EXPORT Params
     {
     public:
-        explicit Params(Dict *dict);
+        Params(Dict *dict);
         ~Params();
 
         Params(const Params &) = delete;
@@ -1589,7 +1552,7 @@ public:
             typeVideo // Video
         };
 
-        explicit Instance(Dict *dict);
+        Instance(Dict *dict);
         ~Instance();
 
         Instance(const Instance &) = delete;
@@ -1615,7 +1578,7 @@ public:
             typeVideo // Video
         };
 
-        explicit Configuration(Dict *dict);
+        Configuration(Dict *dict);
         ~Configuration();
 
         Configuration(const Configuration &) = delete;
@@ -1658,7 +1621,7 @@ public:
     class POPPLER_PRIVATE_EXPORT Content
     {
     public:
-        explicit Content(Dict *dict);
+        Content(Dict *dict);
         ~Content();
 
         Content(const Content &) = delete;
@@ -1689,7 +1652,7 @@ public:
             conditionUserAction // XA
         };
 
-        explicit Activation(Dict *dict);
+        Activation(Dict *dict);
 
         Condition getCondition() const;
 
@@ -1708,7 +1671,7 @@ public:
             conditionUserAction // XD
         };
 
-        explicit Deactivation(Dict *dict);
+        Deactivation(Dict *dict);
 
         Condition getCondition() const;
 
@@ -1720,7 +1683,7 @@ public:
     class POPPLER_PRIVATE_EXPORT Settings
     {
     public:
-        explicit Settings(Dict *dict);
+        Settings(Dict *dict);
         ~Settings();
 
         Settings(const Settings &) = delete;
@@ -1768,8 +1731,9 @@ public:
     Annots(const Annots &) = delete;
     Annots &operator=(const Annots &) = delete;
 
-    const std::vector<Annot *> &getAnnots() { return annots; }
-
+    // Iterate through list of annotations.
+    int getNumAnnots() const { return annots.size(); }
+    Annot *getAnnot(int i) { return annots[i]; }
     void appendAnnot(Annot *annot);
     bool removeAnnot(Annot *annot);
 

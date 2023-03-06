@@ -17,13 +17,13 @@
 // Copyright (C) 2006, 2007 Jeff Muizelaar <jeff@infidigm.net>
 // Copyright (C) 2006 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2009 Koji Otani <sho@bbr.jp>
-// Copyright (C) 2009-2011, 2013, 2016-2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009-2011, 2013, 2016-2021 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2010 Christian Feuersänger <cfeuersaenger@googlemail.com>
 // Copyright (C) 2011 Andrea Canciani <ranma42@gmail.com>
 // Copyright (C) 2011-2014, 2016, 2020 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2013 Lu Wang <coolwanglu@gmail.com>
-// Copyright (C) 2015, 2017, 2020, 2022 Adrian Johnson <ajohnson@redneon.com>
-// Copyright (C) 2017, 2019, 2022 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2015, 2017, 2020 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2017, 2019 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020, 2021 Philipp Knechtges <philipp-dev@knechtges.com>
 //
@@ -44,7 +44,6 @@
 #include <cassert>
 #include <map>
 #include <memory>
-#include <vector>
 
 class Array;
 class Gfx;
@@ -123,7 +122,7 @@ static inline double colToDbl(GfxColorComp x)
 
 static inline unsigned char dblToByte(double x)
 {
-    return static_cast<unsigned char>(x * 255.0);
+    return (x * 255.0);
 }
 
 static inline double byteToDbl(unsigned char x)
@@ -180,8 +179,6 @@ typedef GfxColorComp GfxGray;
 struct GfxRGB
 {
     GfxColorComp r, g, b;
-
-    bool operator==(GfxRGB other) const { return r == other.r && g == other.g && b == other.b; }
 };
 
 //------------------------------------------------------------------------
@@ -587,14 +584,8 @@ public:
 #ifdef USE_CMS
     char *getPostScriptCSA();
     void buildTransforms(GfxState *state);
-    void setProfile(GfxLCMSProfilePtr &profileA)
-    {
-        profile = profileA;
-    }
-    GfxLCMSProfilePtr getProfile()
-    {
-        return profile;
-    }
+    void setProfile(GfxLCMSProfilePtr &profileA) { profile = profileA; }
+    GfxLCMSProfilePtr getProfile() { return profile; }
 #endif
 
 private:
@@ -606,10 +597,7 @@ private:
 #ifdef USE_CMS
     GfxLCMSProfilePtr profile;
     char *psCSA;
-    int getIntent()
-    {
-        return (transform != nullptr) ? transform->getIntent() : 0;
-    }
+    int getIntent() { return (transform != nullptr) ? transform->getIntent() : 0; }
     std::shared_ptr<GfxColorTransform> transform;
     std::shared_ptr<GfxColorTransform> lineTransform; // color transform for line
     mutable std::map<unsigned int, unsigned int> cmsCache;
@@ -754,7 +742,7 @@ private:
 class GfxPatternColorSpace : public GfxColorSpace
 {
 public:
-    explicit GfxPatternColorSpace(GfxColorSpace *underA);
+    GfxPatternColorSpace(GfxColorSpace *underA);
     ~GfxPatternColorSpace() override;
     GfxColorSpace *copy() const override;
     GfxColorSpaceMode getMode() const override { return csPattern; }
@@ -863,11 +851,11 @@ private:
 // GfxShading
 //------------------------------------------------------------------------
 
-class POPPLER_PRIVATE_EXPORT GfxShading
+class GfxShading
 {
 public:
-    explicit GfxShading(int typeA);
-    explicit GfxShading(const GfxShading *shading);
+    GfxShading(int typeA);
+    GfxShading(const GfxShading *shading);
     virtual ~GfxShading();
 
     GfxShading(const GfxShading &) = delete;
@@ -916,7 +904,7 @@ class POPPLER_PRIVATE_EXPORT GfxUnivariateShading : public GfxShading
 {
 public:
     GfxUnivariateShading(int typeA, double t0A, double t1A, std::vector<std::unique_ptr<Function>> &&funcsA, bool extend0A, bool extend1A);
-    explicit GfxUnivariateShading(const GfxUnivariateShading *shading);
+    GfxUnivariateShading(const GfxUnivariateShading *shading);
     ~GfxUnivariateShading() override;
 
     double getDomain0() const { return t0; }
@@ -957,7 +945,7 @@ class POPPLER_PRIVATE_EXPORT GfxFunctionShading : public GfxShading
 {
 public:
     GfxFunctionShading(double x0A, double y0A, double x1A, double y1A, const double *matrixA, std::vector<std::unique_ptr<Function>> &&funcsA);
-    explicit GfxFunctionShading(const GfxFunctionShading *shading);
+    GfxFunctionShading(const GfxFunctionShading *shading);
     ~GfxFunctionShading() override;
 
     static GfxFunctionShading *parse(GfxResources *res, Dict *dict, OutputDev *out, GfxState *state);
@@ -993,7 +981,7 @@ class GfxAxialShading : public GfxUnivariateShading
 {
 public:
     GfxAxialShading(double x0A, double y0A, double x1A, double y1A, double t0A, double t1A, std::vector<std::unique_ptr<Function>> &&funcsA, bool extend0A, bool extend1A);
-    explicit GfxAxialShading(const GfxAxialShading *shading);
+    GfxAxialShading(const GfxAxialShading *shading);
     ~GfxAxialShading() override;
 
     static GfxAxialShading *parse(GfxResources *res, Dict *dict, OutputDev *out, GfxState *state);
@@ -1024,7 +1012,7 @@ class GfxRadialShading : public GfxUnivariateShading
 {
 public:
     GfxRadialShading(double x0A, double y0A, double r0A, double x1A, double y1A, double r1A, double t0A, double t1A, std::vector<std::unique_ptr<Function>> &&funcsA, bool extend0A, bool extend1A);
-    explicit GfxRadialShading(const GfxRadialShading *shading);
+    GfxRadialShading(const GfxRadialShading *shading);
     ~GfxRadialShading() override;
 
     static GfxRadialShading *parse(GfxResources *res, Dict *dict, OutputDev *out, GfxState *state);
@@ -1063,7 +1051,7 @@ class POPPLER_PRIVATE_EXPORT GfxGouraudTriangleShading : public GfxShading
 {
 public:
     GfxGouraudTriangleShading(int typeA, GfxGouraudVertex *verticesA, int nVerticesA, int (*trianglesA)[3], int nTrianglesA, std::vector<std::unique_ptr<Function>> &&funcsA);
-    explicit GfxGouraudTriangleShading(const GfxGouraudTriangleShading *shading);
+    GfxGouraudTriangleShading(const GfxGouraudTriangleShading *shading);
     ~GfxGouraudTriangleShading() override;
 
     static GfxGouraudTriangleShading *parse(GfxResources *res, int typeA, Dict *dict, Stream *str, OutputDev *out, GfxState *state);
@@ -1155,7 +1143,7 @@ class POPPLER_PRIVATE_EXPORT GfxPatchMeshShading : public GfxShading
 {
 public:
     GfxPatchMeshShading(int typeA, GfxPatch *patchesA, int nPatchesA, std::vector<std::unique_ptr<Function>> &&funcsA);
-    explicit GfxPatchMeshShading(const GfxPatchMeshShading *shading);
+    GfxPatchMeshShading(const GfxPatchMeshShading *shading);
     ~GfxPatchMeshShading() override;
 
     static GfxPatchMeshShading *parse(GfxResources *res, int typeA, Dict *dict, Stream *str, OutputDev *out, GfxState *state);
@@ -1255,7 +1243,7 @@ public:
     const GfxColor *getMatteColor() const { return (useMatte) ? &matteColor : nullptr; }
 
 private:
-    explicit GfxImageColorMap(const GfxImageColorMap *colorMap);
+    GfxImageColorMap(const GfxImageColorMap *colorMap);
 
     GfxColorSpace *colorSpace; // the image color space
     int bits; // bits per component
@@ -1329,7 +1317,7 @@ private:
     int size; // size of x/y arrays
     bool closed; // set if path is closed
 
-    explicit GfxSubpath(const GfxSubpath *subpath);
+    GfxSubpath(const GfxSubpath *subpath);
 };
 
 class POPPLER_PRIVATE_EXPORT GfxPath
@@ -1419,7 +1407,7 @@ public:
          * sure the path's memory structure is not changed during the
          * lifetime of the ReusablePathIterator.
          */
-        explicit ReusablePathIterator(GfxPath *path);
+        ReusablePathIterator(GfxPath *path);
 
         /**
          * Returns true if and only if the current iterator position is
@@ -1503,10 +1491,11 @@ public:
     int getOverprintMode() const { return overprintMode; }
     Function **getTransfer() { return transfer; }
     double getLineWidth() const { return lineWidth; }
-    const std::vector<double> &getLineDash(double *start)
+    void getLineDash(double **dash, int *length, double *start)
     {
+        *dash = lineDash;
+        *length = lineDashLength;
         *start = lineDashStart;
-        return lineDash;
     }
     int getFlatness() const { return flatness; }
     int getLineJoin() const { return lineJoin; }
@@ -1515,7 +1504,7 @@ public:
     bool getStrokeAdjust() const { return strokeAdjust; }
     bool getAlphaIsShape() const { return alphaIsShape; }
     bool getTextKnockout() const { return textKnockout; }
-    const std::shared_ptr<GfxFont> &getFont() const { return font; }
+    GfxFont *getFont() const { return font; }
     double getFontSize() const { return fontSize; }
     const double *getTextMat() const { return textMat; }
     double getCharSpace() const { return charSpace; }
@@ -1588,7 +1577,7 @@ public:
     void setOverprintMode(int op) { overprintMode = op; }
     void setTransfer(Function **funcs);
     void setLineWidth(double width) { lineWidth = width; }
-    void setLineDash(std::vector<double> &&dash, double start);
+    void setLineDash(double *dash, int length, double start);
     void setFlatness(int flatness1) { flatness = flatness1; }
     void setLineJoin(int lineJoin1) { lineJoin = lineJoin1; }
     void setLineCap(int lineCap1) { lineCap = lineCap1; }
@@ -1596,7 +1585,7 @@ public:
     void setStrokeAdjust(bool sa) { strokeAdjust = sa; }
     void setAlphaIsShape(bool ais) { alphaIsShape = ais; }
     void setTextKnockout(bool tk) { textKnockout = tk; }
-    void setFont(std::shared_ptr<GfxFont> fontA, double fontSizeA);
+    void setFont(GfxFont *fontA, double fontSizeA);
     void setTextMat(double a, double b, double c, double d, double e, double f)
     {
         textMat[0] = a;
@@ -1616,29 +1605,17 @@ public:
 
 #ifdef USE_CMS
     void setDisplayProfile(const GfxLCMSProfilePtr &localDisplayProfileA);
-    GfxLCMSProfilePtr getDisplayProfile()
-    {
-        return localDisplayProfile;
-    }
+    GfxLCMSProfilePtr getDisplayProfile() { return localDisplayProfile; }
     std::shared_ptr<GfxColorTransform> getXYZ2DisplayTransform();
     int getCmsRenderingIntent();
     static GfxLCMSProfilePtr sRGBProfile;
 #endif
 
-    void setDefaultGrayColorSpace(GfxColorSpace *cs)
-    {
-        defaultGrayColorSpace = cs;
-    }
+    void setDefaultGrayColorSpace(GfxColorSpace *cs) { defaultGrayColorSpace = cs; }
 
-    void setDefaultRGBColorSpace(GfxColorSpace *cs)
-    {
-        defaultRGBColorSpace = cs;
-    }
+    void setDefaultRGBColorSpace(GfxColorSpace *cs) { defaultRGBColorSpace = cs; }
 
-    void setDefaultCMYKColorSpace(GfxColorSpace *cs)
-    {
-        defaultCMYKColorSpace = cs;
-    }
+    void setDefaultCMYKColorSpace(GfxColorSpace *cs) { defaultCMYKColorSpace = cs; }
 
     GfxColorSpace *copyDefaultGrayColorSpace()
     {
@@ -1665,18 +1642,9 @@ public:
     }
 
     // Add to path.
-    void moveTo(double x, double y)
-    {
-        path->moveTo(curX = x, curY = y);
-    }
-    void lineTo(double x, double y)
-    {
-        path->lineTo(curX = x, curY = y);
-    }
-    void curveTo(double x1, double y1, double x2, double y2, double x3, double y3)
-    {
-        path->curveTo(x1, y1, x2, y2, curX = x3, curY = y3);
-    }
+    void moveTo(double x, double y) { path->moveTo(curX = x, curY = y); }
+    void lineTo(double x, double y) { path->lineTo(curX = x, curY = y); }
+    void curveTo(double x1, double y1, double x2, double y2, double x3, double y3) { path->curveTo(x1, y1, x2, y2, curX = x3, curY = y3); }
     void closePath()
     {
         path->close();
@@ -1708,22 +1676,13 @@ public:
     // Push/pop GfxState on/off stack.
     GfxState *save();
     GfxState *restore();
-    bool hasSaves() const
-    {
-        return saved != nullptr;
-    }
-    bool isParentState(GfxState *state)
-    {
-        return saved == state || (saved && saved->isParentState(state));
-    }
+    bool hasSaves() const { return saved != nullptr; }
+    bool isParentState(GfxState *state) { return saved == state || (saved && saved->isParentState(state)); }
 
     // Misc
     bool parseBlendMode(Object *obj, GfxBlendMode *mode);
 
-    ReusablePathIterator *getReusablePath()
-    {
-        return new ReusablePathIterator(path);
-    }
+    ReusablePathIterator *getReusablePath() { return new ReusablePathIterator(path); }
 
 private:
     double hDPI, vDPI; // resolution
@@ -1750,7 +1709,8 @@ private:
                            //   R,G,B,gray functions)
 
     double lineWidth; // line width
-    std::vector<double> lineDash; // line dash
+    double *lineDash; // line dash
+    int lineDashLength;
     double lineDashStart;
     int flatness; // curve flatness
     int lineJoin; // line join style
@@ -1760,7 +1720,7 @@ private:
     bool alphaIsShape; // alpha is shape
     bool textKnockout; // text knockout
 
-    std::shared_ptr<GfxFont> font; // font
+    GfxFont *font; // font
     double fontSize; // font size
     double textMat[6]; // text matrix
     double charSpace; // character spacing

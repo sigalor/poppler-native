@@ -6,7 +6,6 @@
 //
 // Copyright 2011 Pino Toscano <pino@kde.org>
 // Copyright 2019 Marek Kasik <mkasik@redhat.com>
-// Copyright 2021, 2022 Albert Astals Cid <aacid@kde.org>
 //
 //========================================================================
 
@@ -49,7 +48,7 @@ public:
         duplexDuplexFlipLongEdge
     };
 
-    explicit ViewerPreferences(Dict *prefDict);
+    ViewerPreferences(Dict *prefDict);
     ~ViewerPreferences();
 
     bool getHideToolbar() const { return hideToolbar; }
@@ -75,12 +74,12 @@ private:
     bool fitWindow;
     bool centerWindow;
     bool displayDocTitle;
-    NonFullScreenPageMode nonFullScreenPageMode = nfpmUseNone;
-    Direction direction = directionL2R;
-    PrintScaling printScaling = printScalingAppDefault;
-    Duplex duplex = duplexNone;
+    NonFullScreenPageMode nonFullScreenPageMode;
+    Direction direction;
+    PrintScaling printScaling;
+    Duplex duplex;
     bool pickTrayByPDFSize;
-    int numCopies = 1;
+    int numCopies;
     std::vector<std::pair<int, int>> printPageRange;
 };
 

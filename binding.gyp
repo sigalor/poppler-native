@@ -33,7 +33,7 @@
         "-fno-rtti"
       ],
       "cflags_cc": [
-        "-std=c++17"
+        "-std=c++14"
       ],
       "defines": [
         "NAPI_CPP_EXCEPTIONS"
@@ -47,17 +47,14 @@
     {
       "target_name": "libpoppler",
       "type": "static_library",
-      "cflags_cc!": [
-        "-fno-rtti"
-      ],
-      "cflags_cc": [
-        "-std=c++17"
-      ],
-       "include_dirs": [
+      "cflags_cc": [],
+      "include_dirs": [
         "native/poppler",
         "native/poppler/goo",
-        "native/poppler/poppler",
-        "/usr/include/freetype2"
+        "native/poppler/poppler"
+      ],
+      "cflags_cc!": [
+        "-fno-rtti"
       ],
       "sources": [
         "native/poppler/fofi/FoFiBase.cc",
@@ -66,7 +63,6 @@
         "native/poppler/fofi/FoFiTrueType.cc",
         "native/poppler/fofi/FoFiType1.cc",
         "native/poppler/fofi/FoFiType1C.cc",
-        "native/poppler/goo/ft_utils.cc",
         "native/poppler/goo/gbase64.cc",
         "native/poppler/goo/gbasename.cc",
         "native/poppler/goo/gfile.cc",
@@ -82,7 +78,6 @@
         "native/poppler/goo/PNGWriter.cc",
         "native/poppler/goo/TiffWriter.cc",
         "native/poppler/poppler/Annot.cc",
-        "native/poppler/poppler/AnnotStampImageHelper.cc",
         "native/poppler/poppler/Array.cc",
         "native/poppler/poppler/BBoxOutputDev.cc",
         "native/poppler/poppler/CachedFile.cc",
@@ -97,8 +92,6 @@
         "native/poppler/poppler/Decrypt.cc",
         "native/poppler/poppler/Dict.cc",
         "native/poppler/poppler/Error.cc",
-        "native/poppler/poppler/FDPDFDocBuilder.cc",
-        "native/poppler/poppler/FILECacheLoader.cc",
         "native/poppler/poppler/FileSpec.cc",
         "native/poppler/poppler/FlateEncoder.cc",
         "native/poppler/poppler/FlateStream.cc",
@@ -111,7 +104,6 @@
         "native/poppler/poppler/GfxState.cc",
         "native/poppler/poppler/GlobalParams.cc",
         "native/poppler/poppler/Hints.cc",
-        "native/poppler/poppler/ImageEmbeddingUtils.cc",
         "native/poppler/poppler/JArithmeticDecoder.cc",
         "native/poppler/poppler/JBIG2Stream.cc",
         "native/poppler/poppler/JPXStream.cc",
@@ -143,6 +135,8 @@
         "native/poppler/poppler/SecurityHandler.cc",
         "native/poppler/poppler/SignatureInfo.cc",
         "native/poppler/poppler/Sound.cc",
+        "native/poppler/poppler/StdinCachedFile.cc",
+        "native/poppler/poppler/StdinPDFDocBuilder.cc",
         "native/poppler/poppler/Stream.cc",
         "native/poppler/poppler/StructElement.cc",
         "native/poppler/poppler/StructTreeRoot.cc",

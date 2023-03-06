@@ -6,9 +6,9 @@
 //
 // Copyright 2013, 2014 Igalia S.L.
 // Copyright 2014 Luigi Scarso <luigi.scarso@gmail.com>
-// Copyright 2014, 2017-2019, 2021 Albert Astals Cid <aacid@kde.org>
+// Copyright 2014, 2017-2019 Albert Astals Cid <aacid@kde.org>
 // Copyright 2015 Dmytro Morgun <lztoad@gmail.com>
-// Copyright 2018, 2021 Adrian Johnson <ajohnson@redneon.com>
+// Copyright 2018 Adrian Johnson <ajohnson@redneon.com>
 // Copyright 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright 2018 Adam Reichold <adam.reichold@t-online.de>
 //
@@ -109,9 +109,8 @@ static bool isTableScopeName(Object *value)
 
 static bool isRGBColor(Object *value)
 {
-    if (!(value->isArray() && value->arrayGetLength() == 3)) {
+    if (!(value->isArray() && value->arrayGetLength() == 3))
         return false;
-    }
 
     bool okay = true;
     for (int i = 0; i < 3; i++) {
@@ -354,12 +353,10 @@ static bool ownerHasMorePriority(Attribute::Owner a, Attribute::Owner b)
     size_t aIndex, bIndex, i;
 
     for (i = aIndex = bIndex = 0; i < sizeof(ownerMap) / sizeof(ownerMap[0]); i++) {
-        if (ownerMap[i].owner == a) {
+        if (ownerMap[i].owner == a)
             aIndex = i;
-        }
-        if (ownerMap[i].owner == b) {
+        if (ownerMap[i].owner == b)
             bIndex = i;
-        }
     }
 
     return aIndex < bIndex;
@@ -445,9 +442,8 @@ static inline const AttributeMapEntry *getAttributeMapEntry(const AttributeMapEn
         const AttributeMapEntry *entry = *entryList;
         while (entry->type != Attribute::Unknown) {
             assert(entry->name);
-            if (type == entry->type) {
+            if (type == entry->type)
                 return entry;
-            }
             entry++;
         }
         entryList++;
@@ -462,9 +458,8 @@ static inline const AttributeMapEntry *getAttributeMapEntry(const AttributeMapEn
         const AttributeMapEntry *entry = *entryList;
         while (entry->type != Attribute::Unknown) {
             assert(entry->name);
-            if (strcmp(name, entry->name) == 0) {
+            if (strcmp(name, entry->name) == 0)
                 return entry;
-            }
             entry++;
         }
         entryList++;
@@ -475,9 +470,8 @@ static inline const AttributeMapEntry *getAttributeMapEntry(const AttributeMapEn
 static inline const OwnerMapEntry *getOwnerMapEntry(Attribute::Owner owner)
 {
     for (const OwnerMapEntry &entry : ownerMap) {
-        if (owner == entry.owner) {
+        if (owner == entry.owner)
             return &entry;
-        }
     }
     return nullptr;
 }
@@ -485,9 +479,8 @@ static inline const OwnerMapEntry *getOwnerMapEntry(Attribute::Owner owner)
 static inline const OwnerMapEntry *getOwnerMapEntry(const char *name)
 {
     for (const OwnerMapEntry &entry : ownerMap) {
-        if (strcmp(name, entry.name) == 0) {
+        if (strcmp(name, entry.name) == 0)
             return &entry;
-        }
     }
     return nullptr;
 }
@@ -507,9 +500,8 @@ static Attribute::Owner nameToOwner(const char *name)
 static inline const TypeMapEntry *getTypeMapEntry(StructElement::Type type)
 {
     for (const TypeMapEntry &entry : typeMap) {
-        if (type == entry.type) {
+        if (type == entry.type)
             return &entry;
-        }
     }
     return nullptr;
 }
@@ -517,21 +509,18 @@ static inline const TypeMapEntry *getTypeMapEntry(StructElement::Type type)
 static inline const TypeMapEntry *getTypeMapEntry(const char *name)
 {
     for (const TypeMapEntry &entry : typeMap) {
-        if (strcmp(name, entry.name) == 0) {
+        if (strcmp(name, entry.name) == 0)
             return &entry;
-        }
     }
     return nullptr;
 }
 
 static const char *typeToName(StructElement::Type type)
 {
-    if (type == StructElement::MCID) {
+    if (type == StructElement::MCID)
         return "MarkedContent";
-    }
-    if (type == StructElement::OBJR) {
+    if (type == StructElement::OBJR)
         return "ObjectReference";
-    }
 
     const TypeMapEntry *entry = getTypeMapEntry(type);
     return entry ? entry->name : "Unknown";
@@ -566,9 +555,8 @@ Attribute::Attribute(Type typeA, Object *valueA)
 
     value = valueA->copy();
 
-    if (!checkType()) {
+    if (!checkType())
         type = Unknown;
-    }
 }
 
 Attribute::~Attribute()
@@ -578,14 +566,12 @@ Attribute::~Attribute()
 
 const char *Attribute::getTypeName() const
 {
-    if (type == UserProperty) {
+    if (type == UserProperty)
         return name.c_str();
-    }
 
     const AttributeMapEntry *entry = getAttributeMapEntry(attributeMapAll, type);
-    if (entry) {
+    if (entry)
         return entry->name;
-    }
 
     return "Unknown";
 }
@@ -604,11 +590,10 @@ Object *Attribute::getDefaultValue(Attribute::Type type)
 void Attribute::setFormattedValue(const char *formattedA)
 {
     if (formattedA) {
-        if (formatted) {
+        if (formatted)
             formatted->Set(formattedA);
-        } else {
+        else
             formatted = new GooString(formattedA);
-        }
     } else {
         delete formatted;
         formatted = nullptr;
@@ -618,9 +603,8 @@ void Attribute::setFormattedValue(const char *formattedA)
 bool Attribute::checkType(StructElement *element)
 {
     // If an element is passed, tighter type-checking can be done.
-    if (!element) {
+    if (!element)
         return true;
-    }
 
     const TypeMapEntry *elementTypeEntry = getTypeMapEntry(element->getType());
     if (elementTypeEntry && elementTypeEntry->attributes) {
@@ -660,9 +644,9 @@ Attribute *Attribute::parseUserProperty(Dict *property)
     obj = property->lookup("N");
     if (obj.isString()) {
         name.Set(obj.getString());
-    } else if (obj.isName()) {
+    } else if (obj.isName())
         name.Set(obj.getName());
-    } else {
+    else {
         error(errSyntaxError, -1, "N object is wrong type ({0:s})", obj.getTypeName());
         return nullptr;
     }
@@ -704,12 +688,10 @@ StructElement::StructData::~StructData()
     delete id;
     delete title;
     delete language;
-    for (StructElement *element : elements) {
+    for (StructElement *element : elements)
         delete element;
-    }
-    for (Attribute *attribute : attributes) {
+    for (Attribute *attribute : attributes)
         delete attribute;
-    }
 }
 
 StructElement::StructElement(Dict *element, StructTreeRoot *treeRootA, StructElement *parentA, std::set<int> &seen) : type(Unknown), treeRoot(treeRootA), parent(parentA), s(new StructData())
@@ -735,11 +717,10 @@ StructElement::StructElement(const Ref ref, StructTreeRoot *treeRootA, StructEle
 
 StructElement::~StructElement()
 {
-    if (isContent()) {
+    if (isContent())
         delete c;
-    } else {
+    else
         delete s;
-    }
 }
 
 bool StructElement::isBlock() const
@@ -772,9 +753,8 @@ bool StructElement::getPageRef(Ref &ref) const
         return true;
     }
 
-    if (parent) {
+    if (parent)
         return parent->getPageRef(ref);
-    }
 
     return false;
 }
@@ -786,13 +766,11 @@ const char *StructElement::getTypeName() const
 
 const Attribute *StructElement::findAttribute(Attribute::Type attributeType, bool inherit, Attribute::Owner attributeOwner) const
 {
-    if (isContent()) {
+    if (isContent())
         return parent->findAttribute(attributeType, inherit, attributeOwner);
-    }
 
-    if (attributeType == Attribute::Unknown || attributeType == Attribute::UserProperty) {
+    if (attributeType == Attribute::Unknown || attributeType == Attribute::UserProperty)
         return nullptr;
-    }
 
     const Attribute *result = nullptr;
 
@@ -801,9 +779,8 @@ const Attribute *StructElement::findAttribute(Attribute::Type attributeType, boo
         for (unsigned i = 0; i < getNumAttributes(); i++) {
             const Attribute *attr = getAttribute(i);
             if (attributeType == attr->getType()) {
-                if (!result || ownerHasMorePriority(attr->getOwner(), result->getOwner())) {
+                if (!result || ownerHasMorePriority(attr->getOwner(), result->getOwner()))
                     result = attr;
-                }
             }
         }
     } else {
@@ -817,9 +794,8 @@ const Attribute *StructElement::findAttribute(Attribute::Type attributeType, boo
         }
     }
 
-    if (result) {
+    if (result)
         return result;
-    }
 
     if (inherit && parent) {
         const AttributeMapEntry *entry = getAttributeMapEntry(attributeMapAll, attributeType);
@@ -827,9 +803,8 @@ const Attribute *StructElement::findAttribute(Attribute::Type attributeType, boo
         // TODO: Take into account special inheritance cases, for example:
         //       inline elements which have been changed to be block using
         //       "/Placement/Block" have slightly different rules.
-        if (entry->inherit) {
+        if (entry->inherit)
             return parent->findAttribute(attributeType, inherit, attributeOwner);
-        }
     }
 
     return nullptr;
@@ -838,32 +813,27 @@ const Attribute *StructElement::findAttribute(Attribute::Type attributeType, boo
 GooString *StructElement::appendSubTreeText(GooString *string, bool recursive) const
 {
     if (isContent() && !isObjectRef()) {
-        MarkedContentOutputDev mcdev(getMCID(), stmRef);
+        MarkedContentOutputDev mcdev(getMCID());
         const TextSpanArray &spans(getTextSpansInternal(mcdev));
 
-        if (!string) {
+        if (!string)
             string = new GooString();
-        }
 
-        for (const TextSpan &span : spans) {
+        for (const TextSpan &span : spans)
             string->append(span.getText());
-        }
 
         return string;
     }
 
-    if (!recursive) {
+    if (!recursive)
         return nullptr;
-    }
 
     // Do a depth-first traversal, to get elements in logical order
-    if (!string) {
+    if (!string)
         string = new GooString();
-    }
 
-    for (unsigned i = 0; i < getNumChildren(); i++) {
+    for (unsigned i = 0; i < getNumChildren(); i++)
         getChild(i)->appendSubTreeText(string, recursive);
-    }
 
     return string;
 }
@@ -891,9 +861,8 @@ const TextSpanArray &StructElement::getTextSpansInternal(MarkedContentOutputDev 
 static StructElement::Type roleMapResolve(Dict *roleMap, const char *name, const char *curName)
 {
     // Circular reference
-    if (curName && !strcmp(name, curName)) {
+    if (curName && !strcmp(name, curName))
         return StructElement::Unknown;
-    }
 
     Object resolved = roleMap->lookup(curName ? curName : name);
     if (resolved.isName()) {
@@ -901,9 +870,8 @@ static StructElement::Type roleMapResolve(Dict *roleMap, const char *name, const
         return type == StructElement::Unknown ? roleMapResolve(roleMap, name, resolved.getName()) : type;
     }
 
-    if (!resolved.isNull()) {
+    if (!resolved.isNull())
         error(errSyntaxWarning, -1, "RoleMap entry is wrong type ({0:s})", resolved.getTypeName());
-    }
     return StructElement::Unknown;
 }
 
@@ -941,9 +909,8 @@ void StructElement::parse(Dict *element)
 
     // Resolving through RoleMap may leave type as Unknown, e.g. for types
     // which are not present in it, yet they are standard element types.
-    if (type == Unknown) {
+    if (type == Unknown)
         type = nameToType(obj.getName());
-    }
 
     // At this point either the type name must have been resolved.
     if (type == Unknown) {
@@ -954,7 +921,7 @@ void StructElement::parse(Dict *element)
     // Object ID (optional), to be looked at the IDTree in the tree root.
     obj = element->lookup("ID");
     if (obj.isString()) {
-        s->id = obj.getString()->copy();
+        s->id = obj.takeString();
     }
 
     // Page reference (optional) in which at least one of the child items
@@ -972,31 +939,31 @@ void StructElement::parse(Dict *element)
     // Element title (optional).
     obj = element->lookup("T");
     if (obj.isString()) {
-        s->title = obj.getString()->copy();
+        s->title = obj.takeString();
     }
 
     // Language (optional).
     obj = element->lookup("Lang");
     if (obj.isString()) {
-        s->language = obj.getString()->copy();
+        s->language = obj.takeString();
     }
 
     // Alternative text (optional).
     obj = element->lookup("Alt");
     if (obj.isString()) {
-        s->altText = obj.getString()->copy();
+        s->altText = obj.takeString();
     }
 
     // Expanded form of an abbreviation (optional).
     obj = element->lookup("E");
     if (obj.isString()) {
-        s->expandedAbbr = obj.getString()->copy();
+        s->expandedAbbr = obj.takeString();
     }
 
     // Actual text (optional).
     obj = element->lookup("ActualText");
     if (obj.isString()) {
-        s->actualText = obj.getString()->copy();
+        s->actualText = obj.takeString();
     }
 
     // Attributes directly attached to the element (optional).
@@ -1013,9 +980,8 @@ void StructElement::parse(Dict *element)
             } else if (iobj.isInt()) {
                 const int revision = iobj.getInt();
                 // Set revision numbers for the elements previously created.
-                for (unsigned j = attrIndex; j < getNumAttributes(); j++) {
+                for (unsigned j = attrIndex; j < getNumAttributes(); j++)
                     getAttribute(j)->setRevision(revision);
-                }
             } else {
                 error(errSyntaxWarning, -1, "A item is wrong type ({0:s})", iobj.getTypeName());
             }
@@ -1041,9 +1007,8 @@ void StructElement::parse(Dict *element)
                     } else if (iobj.isInt()) {
                         // Set revision numbers for the elements previously created.
                         const int revision = iobj.getInt();
-                        for (unsigned j = attrIndex; j < getNumAttributes(); j++) {
+                        for (unsigned j = attrIndex; j < getNumAttributes(); j++)
                             getAttribute(j)->setRevision(revision);
-                        }
                     } else {
                         error(errSyntaxWarning, -1, "C item is wrong type ({0:s})", iobj.getTypeName());
                     }
@@ -1066,9 +1031,9 @@ StructElement *StructElement::parseChild(const Object *ref, Object *childObj, st
         child = new StructElement(childObj->getInt(), treeRoot, this);
     } else if (childObj->isDict("MCR")) {
         /*
-         * TODO: The optional StmOwn attribute is not handled.
+         * TODO: The optional Stm/StwOwn attributes are not handled, so all the
+         *      page will be always scanned when calling StructElement::getText().
          */
-
         Object mcidObj = childObj->dictLookup("MCID");
         if (!mcidObj.isInt()) {
             error(errSyntaxError, -1, "MCID object is wrong type ({0:s})", mcidObj.getTypeName());
@@ -1081,16 +1046,6 @@ StructElement *StructElement::parseChild(const Object *ref, Object *childObj, st
         if (pageRefObj.isRef()) {
             child->pageRef = std::move(pageRefObj);
         }
-
-        const Object &stmObj = childObj->dictLookupNF("Stm");
-        if (stmObj.isRef()) {
-            child->stmRef = stmObj.copy();
-        } else if (!stmObj.isNull()) {
-            error(errSyntaxError, -1, "Stm object is wrong type ({0:s})", stmObj.getTypeName());
-            delete child;
-            return nullptr;
-        }
-
     } else if (childObj->isDict("OBJR")) {
         const Object &refObj = childObj->dictLookupNF("Obj");
         if (refObj.isRef()) {
@@ -1120,9 +1075,8 @@ StructElement *StructElement::parseChild(const Object *ref, Object *childObj, st
     if (child) {
         if (child->isOk()) {
             appendChild(child);
-            if (ref->isRef()) {
+            if (ref->isRef())
                 treeRoot->parentTreeAdd(ref->getRef(), child);
-            }
         } else {
             delete child;
             child = nullptr;
@@ -1190,9 +1144,8 @@ void StructElement::parseAttributes(Dict *attributes, bool keepExisting)
                                 break;
                             }
                         }
-                        if (exists) {
+                        if (exists)
                             continue;
-                        }
                     }
 
                     if (t != Attribute::Unknown) {

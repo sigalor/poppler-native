@@ -30,7 +30,7 @@
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Steven Boswell <ulatekh@yahoo.com>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
-// Copyright (C) 2019, 2022 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2020 Eddie Kohler <ekohler@gmail.com>
 //
 // To see a description of the changes please see the Changelog file that
@@ -69,10 +69,6 @@ void removeStyleSuffix(std::string &familyName)
 
 }
 
-#define xoutRound(x) ((int)(x + 0.5))
-extern bool xml;
-extern bool fontFullName;
-
 HtmlFontColor::HtmlFontColor(GfxRGB rgb, double opacity_)
 {
     r = static_cast<int>(rgb.r / 65535.0 * 255.0);
@@ -80,9 +76,8 @@ HtmlFontColor::HtmlFontColor(GfxRGB rgb, double opacity_)
     b = static_cast<int>(rgb.b / 65535.0 * 255.0);
     opacity = static_cast<int>(opacity_ * 255.999);
     if (!(Ok(r) && Ok(b) && Ok(g) && Ok(opacity))) {
-        if (!globalParams->getErrQuiet()) {
+        if (!globalParams->getErrQuiet())
             fprintf(stderr, "Error : Bad color (%d,%d,%d,%d) reset to (0,0,0,255)\n", r, g, b, opacity);
-        }
         r = 0;
         g = 0;
         b = 0;
@@ -96,18 +91,16 @@ GooString *HtmlFontColor::convtoX(unsigned int xcol) const
     char tmp;
     unsigned int k;
     k = (xcol / 16);
-    if (k < 10) {
+    if (k < 10)
         tmp = (char)('0' + k);
-    } else {
+    else
         tmp = (char)('a' + k - 10);
-    }
     xret->append(tmp);
     k = (xcol % 16);
-    if (k < 10) {
+    if (k < 10)
         tmp = (char)('0' + k);
-    } else {
+    else
         tmp = (char)('a' + k - 10);
-    }
     xret->append(tmp);
     return xret;
 }
@@ -127,7 +120,7 @@ GooString *HtmlFontColor::toString() const
     return tmp;
 }
 
-HtmlFont::HtmlFont(const GfxFont &font, int _size, GfxRGB rgb, double opacity)
+HtmlFont::HtmlFont(GfxFont *font, int _size, GfxRGB rgb, double opacity)
 {
     color = HtmlFontColor(rgb, opacity);
 
@@ -138,17 +131,15 @@ HtmlFont::HtmlFont(const GfxFont &font, int _size, GfxRGB rgb, double opacity)
     bold = false;
     rotOrSkewed = false;
 
-    if (font.isBold() || font.getWeight() >= GfxFont::W700) {
+    if (font->isBold() || font->getWeight() >= GfxFont::W700)
         bold = true;
-    }
-    if (font.isItalic()) {
+    if (font->isItalic())
         italic = true;
-    }
 
-    if (const std::optional<std::string> &fontname = font.getName()) {
-        FontName = new GooString(*fontname);
+    if (const GooString *fontname = font->getName()) {
+        FontName = new GooString(fontname);
 
-        GooString fontnameLower(*fontname);
+        GooString fontnameLower(fontname);
         fontnameLower.lowerCase();
 
         if (!bold && strstr(fontnameLower.c_str(), "bold")) {
@@ -170,7 +161,7 @@ HtmlFont::HtmlFont(const GfxFont &font, int _size, GfxRGB rgb, double opacity)
 
     rotSkewMat[0] = rotSkewMat[1] = rotSkewMat[2] = rotSkewMat[3] = 0;
 
-    hasToUnicodeCMap = font.hasToUnicodeCMap();
+    hasToUnicodeCMap = font->hasToUnicodeCMap();
 }
 
 HtmlFont::HtmlFont(const HtmlFont &x)
@@ -195,9 +186,8 @@ HtmlFont::~HtmlFont()
 
 HtmlFont &HtmlFont::operator=(const HtmlFont &x)
 {
-    if (this == &x) {
+    if (this == &x)
         return *this;
-    }
     size = x.size;
     lineSize = x.lineSize;
     italic = x.italic;
@@ -240,55 +230,6 @@ GooString *HtmlFont::getFullName()
     return new GooString(FontName);
 }
 
-// this method if plain wrong todo
-GooString *HtmlFont::HtmlFilter(const Unicode *u, int uLen)
-{
-    GooString *tmp = new GooString();
-    const UnicodeMap *uMap;
-    char buf[8];
-    int n;
-
-    // get the output encoding
-    if (!(uMap = globalParams->getTextEncoding())) {
-        return tmp;
-    }
-
-    for (int i = 0; i < uLen; ++i) {
-        // skip control characters.  W3C disallows them and they cause a warning
-        // with PHP.
-        if (u[i] <= 31 && u[i] != '\t') {
-            continue;
-        }
-
-        switch (u[i]) {
-        case '"':
-            tmp->append("&#34;");
-            break;
-        case '&':
-            tmp->append("&amp;");
-            break;
-        case '<':
-            tmp->append("&lt;");
-            break;
-        case '>':
-            tmp->append("&gt;");
-            break;
-        case ' ':
-        case '\t':
-            tmp->append(!xml && (i + 1 >= uLen || !tmp->getLength() || tmp->getChar(tmp->getLength() - 1) == ' ') ? "&#160;" : " ");
-            break;
-        default: {
-            // convert unicode to string
-            if ((n = uMap->mapUnicode(u[i], buf, sizeof(buf))) > 0) {
-                tmp->append(buf, n);
-            }
-        }
-        }
-    }
-
-    return tmp;
-}
-
 std::string HtmlFont::codepointsEncode(const Unicode *u, int uLen)
 {
     std::string tmp;
@@ -310,7 +251,10 @@ std::string HtmlFont::codepointsEncode(const Unicode *u, int uLen)
     return tmp;
 }
 
-HtmlFontAccu::HtmlFontAccu() { }
+HtmlFontAccu::HtmlFontAccu()
+{
+    accu = std::vector<HtmlFont>();
+}
 
 HtmlFontAccu::~HtmlFontAccu() { }
 
@@ -343,79 +287,4 @@ ReadPDFOutputs::Font HtmlFontAccu::serialize(int i) {
 
   delete colorStr;
   return ret;
-}
-
-
-// get CSS font definition for font #i
-GooString *HtmlFontAccu::CSStyle(int i, int j)
-{
-    GooString *tmp = new GooString();
-
-    std::vector<HtmlFont>::iterator g = accu.begin();
-    g += i;
-    HtmlFont font = *g;
-    GooString *colorStr = font.getColor().toString();
-    GooString *fontName = (fontFullName ? font.getFullName() : font.getFontName());
-
-    if (!xml) {
-        tmp->append(".ft");
-        tmp->append(std::to_string(j));
-        tmp->append(std::to_string(i));
-        tmp->append("{font-size:");
-        tmp->append(std::to_string(font.getSize()));
-        if (font.getLineSize() != -1 && font.getLineSize() != 0) {
-            tmp->append("px;line-height:");
-            tmp->append(std::to_string(font.getLineSize()));
-        }
-        tmp->append("px;font-family:");
-        tmp->append(fontName); // font.getFontName());
-        tmp->append(";color:");
-        tmp->append(colorStr);
-        if (font.getColor().getOpacity() != 1.0) {
-            tmp->append(";opacity:");
-            tmp->append(std::to_string(font.getColor().getOpacity()));
-        }
-        // if there is rotation or skew, include the matrix
-        if (font.isRotOrSkewed()) {
-            const double *const text_mat = font.getRotMat();
-            GooString matrix_str(" matrix(");
-            matrix_str.appendf("{0:10.10g}, {1:10.10g}, {2:10.10g}, {3:10.10g}, 0, 0)", text_mat[0], text_mat[1], text_mat[2], text_mat[3]);
-            tmp->append(";-moz-transform:");
-            tmp->append(&matrix_str);
-            tmp->append(";-webkit-transform:");
-            tmp->append(&matrix_str);
-            tmp->append(";-o-transform:");
-            tmp->append(&matrix_str);
-            tmp->append(";-ms-transform:");
-            tmp->append(&matrix_str);
-            // Todo: 75% is a wild guess that seems to work pretty well;
-            // We probably need to calculate the real percentage
-            // Based on the characteristic baseline and bounding box of current font
-            // PDF origin is at baseline
-            tmp->append(";-moz-transform-origin: left 75%");
-            tmp->append(";-webkit-transform-origin: left 75%");
-            tmp->append(";-o-transform-origin: left 75%");
-            tmp->append(";-ms-transform-origin: left 75%");
-        }
-        tmp->append(";}");
-    }
-    if (xml) {
-        tmp->append("<fontspec id=\"");
-        tmp->append(std::to_string(i));
-        tmp->append("\" size=\"");
-        tmp->append(std::to_string(font.getSize()));
-        tmp->append("\" family=\"");
-        tmp->append(fontName);
-        tmp->append("\" color=\"");
-        tmp->append(colorStr);
-        if (font.getColor().getOpacity() != 1.0) {
-            tmp->append("\" opacity=\"");
-            tmp->append(std::to_string(font.getColor().getOpacity()));
-        }
-        tmp->append("\"/>");
-    }
-
-    delete fontName;
-    delete colorStr;
-    return tmp;
 }

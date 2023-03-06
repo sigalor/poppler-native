@@ -3,7 +3,7 @@
 // This file is under the GPLv2 or later license
 //
 // Copyright (C) 2005-2006 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2005, 2009, 2013, 2017, 2018, 2020, 2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005, 2009, 2013, 2017, 2018, 2020 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2011 Simon Kellner <kellner@kit.edu>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
@@ -49,11 +49,10 @@ PageLabelInfo::Interval::Interval(Object *dict, int baseA)
     }
 
     obj = dict->dictLookup("St");
-    if (obj.isInt()) {
+    if (obj.isInt())
         first = obj.getInt();
-    } else {
+    else
         first = 1;
-    }
 
     base = baseA;
 }
@@ -63,9 +62,8 @@ PageLabelInfo::PageLabelInfo(Object *tree, int numPages)
     std::set<int> alreadyParsedRefs;
     parse(tree, alreadyParsedRefs);
 
-    if (intervals.empty()) {
+    if (intervals.empty())
         return;
-    }
 
     auto curr = intervals.begin();
     for (auto next = curr + 1; next != intervals.end(); ++next, ++curr) {
@@ -84,10 +82,7 @@ void PageLabelInfo::parse(const Object *tree, std::set<int> &alreadyParsedRefs)
             if (!obj.isInt()) {
                 continue;
             }
-            const int base = obj.getInt();
-            if (base < 0) {
-                continue;
-            }
+            int base = obj.getInt();
             obj = nums.arrayGet(i + 1);
             if (!obj.isDict()) {
                 continue;
@@ -128,9 +123,8 @@ bool PageLabelInfo::labelToIndex(GooString *label, int *index) const
 
     for (const auto &interval : intervals) {
         const std::size_t prefixLen = interval.prefix.size();
-        if (strLen < prefixLen || interval.prefix.compare(0, prefixLen, str, prefixLen) != 0) {
+        if (strLen < prefixLen || interval.prefix.compare(0, prefixLen, str, prefixLen) != 0)
             continue;
-        }
 
         switch (interval.style) {
         case Interval::Arabic:
@@ -157,12 +151,6 @@ bool PageLabelInfo::labelToIndex(GooString *label, int *index) const
             }
             break;
         case Interval::None:
-            if (interval.length == 1 && label->toStr() == interval.prefix) {
-                *index = interval.base;
-                return true;
-            } else {
-                error(errSyntaxError, -1, "asking to convert label to page index in an unknown scenario, report a bug");
-            }
             break;
         }
     }
@@ -187,9 +175,8 @@ bool PageLabelInfo::indexToLabel(int index, GooString *label) const
         base += interval.length;
     }
 
-    if (!matching_interval) {
+    if (!matching_interval)
         return false;
-    }
 
     number = index - base + matching_interval->first;
     switch (matching_interval->style) {

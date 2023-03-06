@@ -2,11 +2,11 @@
 //
 // DateInfo.cc
 //
-// Copyright (C) 2008, 2018, 2019, 2021, 2022 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2008, 2018, 2019 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2015 André Guerreiro <aguerreiro1985@gmail.com>
 // Copyright (C) 2015 André Esser <bepandre@hotmail.com>
-// Copyright (C) 2016, 2018, 2021 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2016, 2018 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
 // Copyright (C) 2021 Albert Astals Cid <aacid@kde.org>
 //
@@ -26,35 +26,21 @@
 #include <config.h>
 
 #include "glibc.h"
-#include "gmem.h"
 #include "DateInfo.h"
-#include "UTF.h"
 
 #include <cstdio>
 #include <cstring>
 
 /* See PDF Reference 1.3, Section 3.8.2 for PDF Date representation */
-bool parseDateString(const GooString *date, int *year, int *month, int *day, int *hour, int *minute, int *second, char *tz, int *tzHour, int *tzMinute)
+bool parseDateString(const char *dateString, int *year, int *month, int *day, int *hour, int *minute, int *second, char *tz, int *tzHour, int *tzMinute)
 {
-    Unicode *u;
-    int len = TextStringToUCS4(date->toStr(), &u);
-    GooString s;
-    for (int i = 0; i < len; i++) {
-        // Ignore any non ASCII characters
-        if (u[i] < 128) {
-            s.append(u[i]);
-        }
-    }
-    gfree(u);
-    const char *dateString = s.c_str();
-
-    if (strlen(dateString) < 2) {
+    if (dateString == nullptr)
         return false;
-    }
+    if (strlen(dateString) < 2)
+        return false;
 
-    if (dateString[0] == 'D' && dateString[1] == ':') {
+    if (dateString[0] == 'D' && dateString[1] == ':')
         dateString += 2;
-    }
 
     *month = 1;
     *day = 1;
@@ -77,9 +63,8 @@ bool parseDateString(const GooString *date, int *year, int *month, int *day, int
             }
         }
 
-        if (*year <= 0) {
+        if (*year <= 0)
             return false;
-        }
 
         return true;
     }
@@ -102,7 +87,7 @@ GooString *timeToDateString(const time_t *timeA)
     // calculate time zone offset by comparing local and gmtime time_t value for same
     // time.
     const time_t timeg = timegm(&localtime_tm);
-    const int offset = static_cast<int>(difftime(timeg, timet)); // find time zone offset in seconds
+    const int offset = difftime(timeg, timet); // find time zone offset in seconds
     if (offset > 0) {
         dateString->appendf("+{0:02d}'{1:02d}'", offset / 3600, (offset % 3600) / 60);
     } else if (offset < 0) {
@@ -122,9 +107,8 @@ time_t dateStringToTime(const GooString *dateString)
     struct tm tm;
     time_t time;
 
-    if (!parseDateString(dateString, &year, &mon, &day, &hour, &min, &sec, &tz, &tz_hour, &tz_minute)) {
+    if (!parseDateString(dateString->c_str(), &year, &mon, &day, &hour, &min, &sec, &tz, &tz_hour, &tz_minute))
         return -1;
-    }
 
     tm.tm_year = year - 1900;
     tm.tm_mon = mon - 1;
@@ -138,14 +122,12 @@ time_t dateStringToTime(const GooString *dateString)
 
     /* compute tm_wday and tm_yday and check date */
     time = timegm(&tm);
-    if (time == (time_t)-1) {
+    if (time == (time_t)-1)
         return time;
-    }
 
     time_t offset = (tz_hour * 60 + tz_minute) * 60;
-    if (tz == '-') {
+    if (tz == '-')
         offset *= -1;
-    }
     time -= offset;
 
     return time;

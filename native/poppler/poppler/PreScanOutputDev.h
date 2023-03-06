@@ -40,7 +40,7 @@ class PreScanOutputDev : public OutputDev
 {
 public:
     // Constructor.
-    explicit PreScanOutputDev(PSLevel levelA);
+    PreScanOutputDev(PSLevel levelA);
 
     // Destructor.
     ~PreScanOutputDev() override;

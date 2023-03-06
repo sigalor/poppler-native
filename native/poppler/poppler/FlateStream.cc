@@ -3,7 +3,7 @@
 // FlateStream.cc
 //
 // Copyright (C) 2005, Jeff Muizelaar <jeff@infidigm.net>
-// Copyright (C) 2010, 2021, Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2010, Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2016, William Bader <williambader@hotmail.com>
 // Copyright (C) 2017, Adrian Johnson <ajohnson@redneon.com>
 //
@@ -23,10 +23,6 @@ FlateStream::FlateStream(Stream *strA, int predictor, int columns, int colors, i
 {
     if (predictor != 1) {
         pred = new StreamPredictor(this, predictor, columns, colors, bits);
-        if (!pred->isOk()) {
-            delete pred;
-            pred = nullptr;
-        }
     } else {
         pred = NULL;
     }
@@ -144,7 +140,7 @@ GooString *FlateStream::getPSFilter(int psLevel, const char *indent)
     return s;
 }
 
-bool FlateStream::isBinary(bool last) const
+bool FlateStream::isBinary(bool last)
 {
     return str->isBinary(true);
 }
