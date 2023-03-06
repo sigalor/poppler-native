@@ -1,3 +1,7 @@
+# 2.2.2 (2023-03-06)
+
+- revert to Poppler 21.05.0
+
 # 2.2.1 (2023-03-06)
 
 - fix: do not output page numbers on stdout
