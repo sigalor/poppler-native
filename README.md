@@ -19,6 +19,9 @@ const fs = require('fs-extra');
 fs.readFile('test.pdf')
   .then(f => pdf.info(f))
   .then(res => console.log(res));
+
+// you also have the option to convert the PDF to a PS and then reconvert it to PDF again via GhostScript before extracting data from it, which can sometimes help when wrong characters are extracted with the default method:
+pdf.info('test.pdf', { reconvertThroughPS: true });
 ```
 
 In order to visualize the parsed text boxes and images, you can also write the entire output from the `pdf.info` function into a JSON file, then open the file `misc/pdf-json-viewer.html` in any web browser and drag-and-drop the JSON file there.

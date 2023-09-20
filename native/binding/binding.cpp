@@ -53,7 +53,7 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     }
     if (info.Length() == 2) {
       if (!info[1].IsObject()) {
-        argError = "argument at position 2 has wrong type: expected Object, got " +
+        argError = "argument at position 2 has wrong type: expected object, got " +
                    NodeUtilities::typeToString(info[1].Type());
         return;
       }

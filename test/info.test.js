@@ -4,8 +4,8 @@ const path = require('path');
 const fs = require('fs-extra');
 
 test('wrong number of parameters throws an error', () => {
-  expect(pdf.info()).rejects.toThrow('wrong number of arguments: expected 1, got 0');
-  expect(pdf.info('a', 'b')).rejects.toThrow('wrong number of arguments: expected 1, got 2');
+  expect(pdf.info()).rejects.toThrow('wrong number of arguments: expected 1-2, got 0');
+  expect(pdf.info('a', 'b', 'c')).rejects.toThrow('wrong number of arguments: expected 1-2, got 3');
 });
 
 test('parameters of wrong type throws an error', () => {
@@ -13,6 +13,7 @@ test('parameters of wrong type throws an error', () => {
   expect(pdf.info({ a: 1 })).rejects.toThrow(
     'argument at position 1 has wrong type: expected string or Buffer, got object',
   );
+  expect(pdf.info('a', 'b')).rejects.toThrow('argument at position 2 has wrong type: expected object, got string');
 });
 
 test('missing input filename throws an error', () => {
@@ -25,6 +26,7 @@ test('invalid PDF file throws an error', () => {
   expect(pdf.info(path.join(__dirname, 'pdfs/not-a-pdf.pdf'))).rejects.toThrow(
     "PDF file was damaged and couldn't be repaired",
   );
+  expect(pdf.info(path.join(__dirname, 'pdfs/not-a-pdf.pdf'), { reconvertThroughPS: true })).rejects.toThrow();
 });
 
 test('reading PDF from buffer works', async () => {
