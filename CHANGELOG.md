@@ -1,3 +1,7 @@
+# 2.3.0 (2023-09-21)
+
+- add `reconvertThroughPS` parameter (Chris031196) [#11](https://github.com/sigalor/poppler-native/pull/11)
+
 # 2.2.2 (2023-03-06)
 
 - revert to Poppler 21.05.0
