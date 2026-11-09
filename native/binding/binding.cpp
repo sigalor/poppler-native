@@ -24,6 +24,7 @@
 #include "build-charmap/StringMapper.hpp"
 #include "html/HtmlOutputDev.h"
 #include "standard-pdf-fonts/common.hpp"
+#include "text-repair/GlyphFingerprint.hpp"
 
 FT_Library freeTypeLibrary;
 
@@ -288,11 +289,46 @@ Napi::Object GetPDFInfo(const Napi::CallbackInfo &info) {
   return deferred.Promise();
 }
 
+// Maintainer tool behind scripts/generate-reference-fingerprints.mjs: the outline fingerprints of a reference font,
+// as [[fingerprint as 16 hex digits, [codepoints...]], ...]. Not part of the public API.
+Napi::Value ReferenceFingerprints(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsBuffer()) {
+    throw Napi::TypeError::New(env, "_referenceFingerprints expects one Buffer holding a TrueType font");
+  }
+  Napi::Buffer<uint8_t> font = info[0].As<Napi::Buffer<uint8_t>>();
+
+  FT_Library library;
+  if (FT_Init_FreeType(&library) != 0) throw Napi::Error::New(env, "FT_Init_FreeType failed");
+  std::vector<TextRepair::ReferenceEntry> entries;
+  try {
+    entries = TextRepair::referenceFingerprints(library, font.Data(), font.Length());
+  } catch (const std::exception &e) {
+    FT_Done_FreeType(library);
+    throw Napi::Error::New(env, e.what());
+  }
+  FT_Done_FreeType(library);
+
+  Napi::Array result = Napi::Array::New(env, entries.size());
+  for (size_t i = 0; i < entries.size(); ++i) {
+    char hex[17];
+    snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(entries[i].fingerprint));
+    Napi::Array codepoints = Napi::Array::New(env, entries[i].codepoints.size());
+    for (size_t j = 0; j < entries[i].codepoints.size(); ++j) codepoints.Set(j, entries[i].codepoints[j]);
+    Napi::Array entry = Napi::Array::New(env, 2);
+    entry.Set(0u, Napi::String::New(env, hex));
+    entry.Set(1u, codepoints);
+    result.Set(i, entry);
+  }
+  return result;
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   FT_Init_FreeType(&freeTypeLibrary);
   StandardPDFFonts::initializeReferenceFontStorage(freeTypeLibrary);
 
   exports.Set("info", Napi::Function::New(env, GetPDFInfo));
+  exports.Set("_referenceFingerprints", Napi::Function::New(env, ReferenceFingerprints));
   return exports;
 }
 

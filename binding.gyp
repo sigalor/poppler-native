@@ -19,6 +19,8 @@
         'native/binding/NodeUtilities.cpp',
         'native/binding/PDFUtilities.cpp',
         'native/binding/ReadPDFOutputs.cpp',
+        'native/binding/text-repair/GlyphFingerprint.cpp',
+        'native/binding/text-repair/ReferenceFonts.cpp',
       ],
       'include_dirs': [
         "<!@(node -p \"require('node-addon-api').include\")",

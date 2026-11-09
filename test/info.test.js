@@ -23,14 +23,14 @@ test('missing input filename throws an error', () => {
 });
 
 test('invalid PDF file throws an error', () => {
-  expect(pdf.info(path.join(__dirname, 'pdfs/not-a-pdf.pdf'))).rejects.toThrow(
+  expect(pdf.info(path.join(__dirname, 'fixtures/not-a-pdf.pdf'))).rejects.toThrow(
     "PDF file was damaged and couldn't be repaired",
   );
-  expect(pdf.info(path.join(__dirname, 'pdfs/not-a-pdf.pdf'), { reconvertThroughPS: true })).rejects.toThrow();
+  expect(pdf.info(path.join(__dirname, 'fixtures/not-a-pdf.pdf'), { reconvertThroughPS: true })).rejects.toThrow();
 });
 
 test('reading PDF from buffer works', async () => {
-  const data = await fs.readFile(path.join(__dirname, 'pdfs/minimal-text.pdf'));
+  const data = await fs.readFile(path.join(__dirname, 'fixtures/minimal-text.pdf'));
   const info = await pdf.info(data);
   expect(info.meta).toBeType('object');
   expect(info.pages).toBeType('array');
@@ -42,7 +42,7 @@ test('empty input buffer throws an error', () => {
 
 describe('for minimal-text.pdf', () => {
   let info;
-  beforeAll(async () => (info = await pdf.info(path.join(__dirname, 'pdfs/minimal-text.pdf'))));
+  beforeAll(async () => (info = await pdf.info(path.join(__dirname, 'fixtures/minimal-text.pdf'))));
 
   test('correctly reads metadata', () => {
     expect(info.meta).toMatchObject({
