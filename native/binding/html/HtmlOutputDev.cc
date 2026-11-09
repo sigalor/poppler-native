@@ -581,8 +581,8 @@ void HtmlPage::addImage(std::string &&fname, GfxState *state)
 
 HtmlOutputDev::HtmlOutputDev(Catalog *catalogA, const char *fileName, int numPages, bool newIgnoreImages,
                              bool newShowHiddenCharacters, bool mergeLines, double wordBreakThreshold,
-                             std::vector<ReadPDFOutputs::Page> &allPagesDest)
-    : ignoreImages(newIgnoreImages), showHiddenCharacters(newShowHiddenCharacters), allPages(allPagesDest)
+                             std::vector<ReadPDFOutputs::Page> &allPagesDest, TextRepair::TextRepair *textRepairA)
+    : ignoreImages(newIgnoreImages), showHiddenCharacters(newShowHiddenCharacters), textRepair(textRepairA), allPages(allPagesDest)
 {
     catalog = catalogA;
     docPage = nullptr;
@@ -641,9 +641,13 @@ void HtmlOutputDev::endString(GfxState * /*state*/)
     pages->endString();
 }
 
-void HtmlOutputDev::drawChar(GfxState *state, double x, double y, double dx, double dy, double originX, double originY, CharCode /*code*/, int /*nBytes*/, const Unicode *u, int uLen)
+void HtmlOutputDev::drawChar(GfxState *state, double x, double y, double dx, double dy, double originX, double originY, CharCode code, int /*nBytes*/, const Unicode *u, int uLen)
 {
     if (!showHiddenCharacters && (state->getRender() & 3) == 3) {
+        return;
+    }
+    if (textRepair && textRepair->repair(state, code, u, uLen, repairedText)) {
+        pages->addChar(state, x, y, dx, dy, originX, originY, repairedText.data(), static_cast<int>(repairedText.size()));
         return;
     }
     pages->addChar(state, x, y, dx, dy, originX, originY, u, uLen);

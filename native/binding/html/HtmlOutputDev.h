@@ -47,6 +47,7 @@
 #include <poppler/UnicodeMap.h>
 
 #include "../ReadPDFOutputs.hpp"
+#include "../text-repair/TextRepair.hpp"
 #include "HtmlFonts.h"
 #include "HtmlLinks.h"
 
@@ -190,9 +191,10 @@ public:
     // 8-bit ISO Latin-1.  <useASCII7> should also be set for Japanese
     // (EUC-JP) text.  Because <rawOrder> is always true, the text is kept in
     // content stream order.
+    // <textRepair> (may be nullptr) reads text whose decoding contradicts the glyph drawn, see TextRepair.hpp.
     HtmlOutputDev(Catalog *catalogA, const char *fileName, int numPages, bool newIgnoreImages,
                 bool newShowHiddenCharacters, bool mergeLines, double wordBreakThreshold,
-                std::vector<ReadPDFOutputs::Page> &allPagesDest);
+                std::vector<ReadPDFOutputs::Page> &allPagesDest, TextRepair::TextRepair *textRepairA);
 
     // Destructor.
     ~HtmlOutputDev() override;
@@ -264,6 +266,8 @@ private:
     Page *docPage;
     bool ignoreImages;
     bool showHiddenCharacters;
+    TextRepair::TextRepair *textRepair;
+    std::vector<Unicode> repairedText;
 
     friend class HtmlPage;
 
