@@ -155,12 +155,11 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     }
 
     // load PDF document from memory
-    MemStream *memStream = new MemStream((const char *)inputBytes.data(), 0, inputBytes.size(), Object(objNull));
-    PDFDoc *doc = new PDFDoc(memStream);
+    auto doc = std::make_unique<PDFDoc>(
+        std::make_unique<MemStream>((const char *)inputBytes.data(), 0, inputBytes.size(), Object::null()));
 
     if (!doc->isOk()) {
       int errCode = doc->getErrorCode(), fopenErrno = doc->getFopenErrno();
-      delete doc;
 
       std::string msg(PDFUtilities::popplerErrorCodeToString(errCode));
       if (errCode == errOpenFile) msg += ": " + std::string(std::strerror(fopenErrno));
@@ -175,12 +174,12 @@ class ReadPDFWorker : public Napi::AsyncWorker {
     }
 
     // parse entire document and generate outline
-    HtmlOutputDev *outputDev =
-        new HtmlOutputDev(doc->getCatalog(), "this", doc->getNumPages(), false, false, false, 0.1, pages);
-    doc->displayPages(outputDev, 1, doc->getNumPages(), 108.0, 108.0, 0, true, false, false);
-    outputDev->generateOutline(doc, outline);
-    delete outputDev;
-    delete doc;
+    {
+      HtmlOutputDev outputDev(doc->getCatalog(), "this", doc->getNumPages(), false, false, false, 0.1, pages);
+      doc->displayPages(&outputDev, 1, doc->getNumPages(), 108.0, 108.0, 0, true, false, false);
+      outputDev.generateOutline(doc.get(), outline);
+    }
+    doc.reset();
 
     // fix fonts where hasToUnicodeCMap is false by reconstructing the character map
     char tempDirPath[256];
@@ -281,8 +280,7 @@ Napi::Object GetPDFInfo(const Napi::CallbackInfo &info) {
   // globalParams (from Poppler) is so not thread-safe, so hopefully this works
   if (!globalParams) {
     globalParams = std::make_unique<GlobalParams>();
-    char textEncoding[] = "UTF-8";
-    globalParams->setTextEncoding(textEncoding);
+    globalParams->setTextEncoding("UTF-8");
   }
 
   ReadPDFWorker *readPDFWorker = new ReadPDFWorker(env, info, deferred);

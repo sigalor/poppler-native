@@ -34,9 +34,12 @@
 
 #pragma once
 
+#include <array>
 #include <cstdio>
+#include <memory>
+#include <string>
+#include <vector>
 
-#include <goo/gbasename.h>
 #include <poppler/Catalog.h>
 #include <poppler/GfxFont.h>
 #include <poppler/Link.h>
@@ -48,7 +51,6 @@
 #include "HtmlLinks.h"
 
 class GfxState;
-class GooString;
 class HtmlImage;
 class PDFDoc;
 class OutlineItem;
@@ -79,13 +81,13 @@ public:
 
     // Add a character to the string.
     void addChar(GfxState *state, double x, double y, double dx, double dy, Unicode u);
-    HtmlLink *getLink() { return link; }
+    const HtmlLink *getLink() const { return link; }
     const HtmlFont &getFont() const { return *fonts->Get(fontpos); }
     void endString(); // postprocessing
 
 private:
     // aender die text variable
-    HtmlLink *link;
+    const HtmlLink *link;
     double xMin, xMax; // bounding box x coordinates
     double yMin, yMax; // bounding box y coordinates
     int col; // starting column
@@ -94,7 +96,7 @@ private:
     HtmlString *yxNext; // next string in y-major order
     HtmlString *xyNext; // next string in x-major order
     int fontpos;
-    GooString *htext;
+    std::string htext;
     int len; // length of text and xRight
     int size; // size of text and xRight arrays
     UnicodeTextDirection dir; // direction (left to right/right to left)
@@ -120,7 +122,7 @@ public:
     HtmlPage &operator=(const HtmlPage &) = delete;
 
     // Begin a new string.
-    void beginString(GfxState *state, const GooString *s);
+    void beginString(GfxState *state, const std::string &s);
 
     // Add a character to the current string.
     void addChar(GfxState *state, double x, double y, double dx, double dy, double ox, double oy, const Unicode *u, int uLen); // unsigned char c);
@@ -133,20 +135,14 @@ public:
     // Coalesce strings that look like parts of the same line.
     void coalesce();
 
-    // Find a string.  If <top> is true, starts looking at top of page;
-    // otherwise starts looking at <xMin>,<yMin>.  If <bottom> is true,
-    // stops looking at bottom of page; otherwise stops looking at
-    // <xMax>,<yMax>.  If found, sets the text bounding rectangle and
-    // returns true; otherwise returns false.
-
     // new functions
     void AddLink(const HtmlLink &x) { links->AddLink(x); }
 
     // add an image to the current page
-    void addImage(GooString *fname, GfxState *state);
+    void addImage(std::string &&fname, GfxState *state);
 
     // number of images on the current page
-    int getNumImages() { return imgList->size(); }
+    int getNumImages() { return imgList.size(); }
 
     void serialize(int pageNumber, ReadPDFOutputs::Page &dest);
 
@@ -166,15 +162,12 @@ private:
     HtmlString *xyStrings; // strings in x-major order
     HtmlString *yxCur1, *yxCur2; // cursors for yxStrings list
 
-    void setDocName(const char *fname);
-
     // marks the position of the fonts that belong to current page (for noframes)
     int fontsPageMarker;
-    HtmlFontAccu *fonts;
-    HtmlLinks *links;
-    std::vector<HtmlImage *> *imgList;
+    std::unique_ptr<HtmlFontAccu> fonts;
+    std::unique_ptr<HtmlLinks> links;
+    std::vector<std::unique_ptr<HtmlImage>> imgList;
 
-    GooString *DocName;
     int pageWidth;
     int pageHeight;
     int firstPage; // used to begin the numeration of pages
@@ -196,13 +189,13 @@ public:
     // text is converted to 7-bit ASCII; otherwise, text is converted to
     // 8-bit ISO Latin-1.  <useASCII7> should also be set for Japanese
     // (EUC-JP) text.  Because <rawOrder> is always true, the text is kept in
-  // content stream order.
+    // content stream order.
     HtmlOutputDev(Catalog *catalogA, const char *fileName, int numPages, bool newIgnoreImages,
                 bool newShowHiddenCharacters, bool mergeLines, double wordBreakThreshold,
                 std::vector<ReadPDFOutputs::Page> &allPagesDest);
 
     // Destructor.
-    virtual ~HtmlOutputDev();
+    ~HtmlOutputDev() override;
 
     //---- get info about output device
 
@@ -222,8 +215,9 @@ public:
 
     //----- initialization and control
 
-    bool checkPageSlice(Page *p, double hDPI, double vDPI, int rotate, bool useMediaBox, bool crop, int sliceX, int sliceY, int sliceW, int sliceH, bool printing, bool (*abortCheckCbk)(void *data) = nullptr,
-                        void *abortCheckCbkData = nullptr, bool (*annotDisplayDecideCbk)(Annot *annot, void *user_data) = nullptr, void *annotDisplayDecideCbkData = nullptr) override
+    bool checkPageSlice(Page *p, double /*hDPI*/, double /*vDPI*/, int /*rotate*/, bool /*useMediaBox*/, bool /*crop*/, int /*sliceX*/, int /*sliceY*/, int /*sliceW*/, int /*sliceH*/, bool /*printing*/,
+                        bool (* /*abortCheckCbk*/)(void *data) = nullptr, void * /*abortCheckCbkData*/ = nullptr, bool (* /*annotDisplayDecideCbk*/)(Annot *annot, void *user_data) = nullptr,
+                        void * /*annotDisplayDecideCbkData*/ = nullptr) override
     {
         docPage = p;
         return true;
@@ -239,7 +233,7 @@ public:
     void updateFont(GfxState *state) override;
 
     //----- text drawing
-    void beginString(GfxState *state, const GooString *s) override;
+    void beginString(GfxState *state, const std::string &s) override;
     void endString(GfxState *state) override;
     void drawChar(GfxState *state, double x, double y, double dx, double dy, double originX, double originY, CharCode code, int nBytes, const Unicode *u, int uLen) override;
 
@@ -253,26 +247,26 @@ public:
 
 private:
     void doProcessLink(AnnotLink *link);
-    GooString *getLinkDest(AnnotLink *link);
+    std::string getLinkDest(AnnotLink *link);
     void generateOutlineLevel(const std::vector<OutlineItem *> *outlines, std::vector<ReadPDFOutputs::OutlineItem> &dest);
     int getOutlinePageNum(OutlineItem *item);
     void drawJpegImage(GfxState *state, Stream *str);
     void drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask = false);
 
-    HtmlPage *pages; // text for the current page
+    std::unique_ptr<HtmlPage> pages; // text for the current page
     bool dumpJPEG;
     int pageNum;
     int currPageIndex = 0;
     int maxPageWidth;
     int maxPageHeight;
-    GooString *Docname;
+    std::string Docname;
     Catalog *catalog;
     Page *docPage;
     bool ignoreImages;
     bool showHiddenCharacters;
 
     friend class HtmlPage;
-  
+
 public:
     std::vector<ReadPDFOutputs::Page> &allPages;
 };

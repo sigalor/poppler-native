@@ -6,6 +6,7 @@
 #include <poppler/PDFDocEncoding.h>
 #include <poppler/UnicodeMap.h>
 #include <poppler/UnicodeMapFuncs.h>
+#include <poppler/UTF.h>
 
 namespace PDFUtilities {
 
@@ -28,26 +29,26 @@ std::vector<Unicode> getDictString(Dict* d, const char* key) {
   // Get raw value as read from PDF (may be in pdfDocEncoding or UCS2)
   Object obj = d->lookup(key);
   if (!obj.isString()) return {};
-  const GooString* rawString = obj.getString();
+  const std::string& rawString = obj.getString();
 
   // Convert rawString to unicode, store if rawString is UCS2 (as opposed to pdfDocEncoding)
   bool isUnicode;
   int unicodeLength;
-  if (rawString->hasUnicodeMarker()) {
+  if (hasUnicodeByteOrderMark(rawString)) {
     isUnicode = true;
-    unicodeLength = (obj.getString()->getLength() - 2) / 2;
+    unicodeLength = (rawString.size() - 2) / 2;
   } else {
     isUnicode = false;
-    unicodeLength = obj.getString()->getLength();
+    unicodeLength = rawString.size();
   }
 
   // Read all Unicode characters one-by-one and encode them to UTF-8
   std::vector<Unicode> ret;
   for (int i = 0; i < unicodeLength; i++) {
     if (isUnicode) {
-      ret.push_back(((rawString->getChar((i + 1) * 2) & 0xff) << 8) | (rawString->getChar(((i + 1) * 2) + 1) & 0xff));
+      ret.push_back(((rawString[(i + 1) * 2] & 0xff) << 8) | (rawString[((i + 1) * 2) + 1] & 0xff));
     } else {
-      ret.push_back(pdfDocEncoding[rawString->getChar(i) & 0xff]);
+      ret.push_back(pdfDocEncoding[rawString[i] & 0xff]);
     }
   }
 

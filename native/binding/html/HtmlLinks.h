@@ -26,11 +26,8 @@
 
 #pragma once
 
-#include <cstdlib>
-#include <cstring>
+#include <string>
 #include <vector>
-
-#include <goo/GooString.h>
 
 class HtmlLink
 {
@@ -40,15 +37,12 @@ private:
     double Ymin;
     double Xmax;
     double Ymax;
-    GooString *dest;
+    std::string dest;
 
 public:
-    HtmlLink(const HtmlLink &x);
-    HtmlLink(double xmin, double ymin, double xmax, double ymax, GooString *_dest);
-    ~HtmlLink();
-    HtmlLink &operator=(const HtmlLink &) = delete;
+    HtmlLink(double xmin, double ymin, double xmax, double ymax, std::string _dest);
     bool isEqualDest(const HtmlLink &x) const;
-    GooString *getDest() { return new GooString(dest); }
+    const std::string &getDest() const { return dest; }
     double getX1() const { return Xmin; }
     double getX2() const { return Xmax; }
     double getY1() const { return Ymin; }
@@ -59,14 +53,13 @@ public:
 class HtmlLinks
 {
 private:
-    std::vector<HtmlLink> *accu;
+    std::vector<HtmlLink> accu;
 
 public:
-    HtmlLinks();
-    ~HtmlLinks();
+    HtmlLinks() = default;
     HtmlLinks(const HtmlLinks &) = delete;
     HtmlLinks &operator=(const HtmlLinks &) = delete;
-    void AddLink(const HtmlLink &x) { accu->push_back(x); }
+    void AddLink(const HtmlLink &x) { accu.push_back(x); }
     bool inLink(double xmin, double ymin, double xmax, double ymax, int &p) const;
-    HtmlLink *getLink(int i) const;
+    const HtmlLink *getLink(int i) const;
 };
