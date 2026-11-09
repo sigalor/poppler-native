@@ -6,7 +6,7 @@
     {
       'target_name': 'libpoppler',
       'type': 'static_library',
-      'includes': ['sources.gypi'],
+      'includes': ['sources.gypi', '../no-node-headers.gypi'],
       'include_dirs': ['.', 'poppler'],
       'direct_dependent_settings': {
         'include_dirs': ['.', 'poppler'],
@@ -15,11 +15,14 @@
       'cflags': ['-w'],
       'xcode_settings': { 'WARNING_CFLAGS': ['-w'] },
       'msvs_settings': { 'VCCLCompilerTool': { 'WarningLevel': '0' } },
-      'conditions': [
-        ['OS=="linux"', {
-          'include_dirs': ['/usr/include/freetype2', '/usr/include/openjpeg-2.5'],
-        }],
+      'dependencies': [
+        '../deps/deps.gyp:freetype',
+        '../deps/deps.gyp:libjpeg',
+        '../deps/deps.gyp:libpng',
+        '../deps/deps.gyp:openjpeg',
+        '../deps/deps.gyp:zlib',
       ],
+      'export_dependent_settings': ['../deps/deps.gyp:freetype'],
     },
   ],
 }

@@ -18,14 +18,19 @@
       ],
       'include_dirs': [
         "<!@(node -p \"require('node-addon-api').include\")",
-        '/usr/include/freetype2',
       ],
       'dependencies': [
         "<!(node -p \"require('node-addon-api').gyp\")",
         'native/poppler/poppler.gyp:libpoppler',
       ],
       'defines': ['NAPI_CPP_EXCEPTIONS'],
-      'libraries': ['-ljpeg', '-lpng', '-lfreetype', '-lopenjp2', '-lz'],
+      'conditions': [
+        ['OS=="linux"', {
+          # Poppler and the vendored libraries are linked statically; nothing but Node-API's entry points leaves
+          # the addon, so no symbol can clash with another copy of the same library elsewhere in the process.
+          'ldflags': ['-Wl,--exclude-libs,ALL', '-Wl,--version-script=<(module_root_dir)/native/exports.map'],
+        }],
+      ],
     },
   ],
 }
