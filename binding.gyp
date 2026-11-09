@@ -27,7 +27,9 @@
         'native/poppler/poppler.gyp:libpoppler',
         'native/deps/deps.gyp:libpng',
       ],
-      'defines': ['NAPI_CPP_EXCEPTIONS'],
+      # NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS: when a worker thread is terminated while a parse runs, its result
+      # can't be delivered any more; node-addon-api then drops the error instead of aborting the process.
+      'defines': ['NAPI_CPP_EXCEPTIONS', 'NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS'],
       'conditions': [
         ['OS=="linux"', {
           # Poppler and the vendored libraries are linked statically; nothing but Node-API's entry points leaves

@@ -84,6 +84,31 @@ describe('concurrency', () => {
   }, 120000);
 });
 
+describe('worker threads', () => {
+  // A worker terminated while a parse is running: when the parse finishes, the worker's environment is gone and the
+  // result can't be delivered, which must be dropped quietly instead of aborting the whole process.
+  test('terminating a worker in the middle of a parse leaves the process running', () => {
+    const script = `
+      const { Worker } = require('worker_threads');
+      const code = \`
+        const pdf = require(\${JSON.stringify(${JSON.stringify(root)})});
+        (async () => { for (;;) await pdf.info(\${JSON.stringify(${JSON.stringify(fixture('images.pdf'))})}); })();\`;
+      (async () => {
+        for (let i = 0; i < 20; i++) {
+          const worker = new Worker(code, { eval: true });
+          await new Promise(resolve => setTimeout(resolve, 20 + ((i * 7) % 40)));
+          await worker.terminate();
+        }
+        const d = await require(${JSON.stringify(root)}).info(${JSON.stringify(fixture('images.pdf'))});
+        process.stdout.write('ok ' + d.pages[0].images.length);
+      })();`;
+    const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000 });
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('ok 5');
+  }, 70000);
+});
+
 describe('damaged streams', () => {
   // A stream with an unknown filter makes Poppler dynamic_cast it, which crashed the process on Windows while the
   // build had RTTI turned off. In a child process, so that a crash fails this test instead of taking Jest down.
