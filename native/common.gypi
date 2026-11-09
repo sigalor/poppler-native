@@ -14,6 +14,17 @@
       'Release': {
         # Poppler's own release builds define NDEBUG; without it an assert() on a malformed PDF would abort Node.
         'defines': ['NDEBUG'],
+        # Node's release settings for MSVC take precedence over a target's own, so these two go here:
+        'msvs_settings': {
+          'VCCLCompilerTool': {
+            # Node turns RTTI off; Poppler needs it (dynamic_cast).
+            'RuntimeTypeInfo': 'true',
+            # Node builds with /fp:strict on Windows arm64, where MSVC then rejects floating-point constant
+            # expressions in C initializers (OpenJPEG has some). /fp:precise is MSVC's default, as on x64. Node sets
+            # its value in a condition, so ours is one too: conditions are applied in order, after plain settings.
+            'conditions': [['target_arch=="arm64"', {'FloatingPointModel': 0}]],
+          },
+        },
       },
     },
     'conditions': [

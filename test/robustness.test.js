@@ -61,3 +61,17 @@ describe('concurrency', () => {
     expect(JSON.parse(out)).toEqual([]);
   }, 120000);
 });
+
+describe('damaged streams', () => {
+  // A stream with an unknown filter makes Poppler dynamic_cast it, which crashed the process on Windows while the
+  // build had RTTI turned off. In a child process, so that a crash fails this test instead of taking Jest down.
+  test('an image with an unknown filter still parses', () => {
+    const script = `
+      const bytes = require('fs').readFileSync(${JSON.stringify(fixture('images.pdf'))}, 'latin1');
+      const damaged = Buffer.from(bytes.replace('/DCTDecode', '/DCTDe\\x08ode'), 'latin1');
+      require(${JSON.stringify(root)}).info(damaged).then(d => process.stdout.write(String(d.pages[0].images.length)));`;
+    const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('5');
+  });
+});
