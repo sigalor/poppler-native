@@ -16,12 +16,18 @@
       },
     },
     'conditions': [
+      # The addon uses a fraction of Poppler (no forms, annotations, signing or saving): every function and variable
+      # goes into its own section and the linker drops the ones nothing calls, a quarter of the binary. On Windows,
+      # Node's release settings already do this (/Gy, /OPT:REF).
       ['OS=="linux"', {
         'defines': ['_DEFAULT_SOURCE'],
+        'cflags': ['-ffunction-sections', '-fdata-sections'],
+        'ldflags': ['-Wl,--gc-sections'],
       }],
       ['OS=="mac"', {
         'xcode_settings': {
           'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++23',
+          'DEAD_CODE_STRIPPING': 'YES',
           'GCC_ENABLE_CPP_EXCEPTIONS': 'YES',
           'GCC_ENABLE_CPP_RTTI': 'YES',
           'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',
