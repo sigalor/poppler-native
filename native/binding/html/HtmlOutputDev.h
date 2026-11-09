@@ -250,7 +250,7 @@ public:
 private:
     void doProcessLink(AnnotLink *link);
     std::string getLinkDest(AnnotLink *link);
-    void generateOutlineLevel(const std::vector<OutlineItem *> *outlines, std::vector<ReadPDFOutputs::OutlineItem> &dest);
+    void generateOutlineLevel(const std::vector<OutlineItem *> *outlines, std::vector<ReadPDFOutputs::OutlineItem> &dest, int depth);
     int getOutlinePageNum(OutlineItem *item);
     void drawJpegImage(GfxState *state, Stream *str);
     void drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask = false);

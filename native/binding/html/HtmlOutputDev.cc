@@ -877,11 +877,16 @@ void HtmlOutputDev::generateOutline(PDFDoc *doc, std::vector<ReadPDFOutputs::Out
   if (!outline) return;
   const std::vector<OutlineItem *> *outlines = outline->getItems();
   if (!outlines) return;
-  generateOutlineLevel(outlines, dest);
+  generateOutlineLevel(outlines, dest, 0);
 }
 
+// Real outlines are a few levels deep. A hostile one can nest thousands, and each level costs a walk up its parents
+// (Poppler's loop check) and a level of recursion here and when the result is built: deeper levels are left out.
+static constexpr int maxOutlineDepth = 256;
+
 void HtmlOutputDev::generateOutlineLevel(const std::vector<OutlineItem *> *outlines,
-                                         std::vector<ReadPDFOutputs::OutlineItem> &dest) {
+                                         std::vector<ReadPDFOutputs::OutlineItem> &dest, int depth) {
+  if (depth >= maxOutlineDepth) return;
   for (OutlineItem *item : *outlines) {
     const std::vector<Unicode> &title = item->getTitle();
     std::string titleStr = HtmlFont::codepointsEncode(title.data(), title.size());
@@ -892,8 +897,10 @@ void HtmlOutputDev::generateOutlineLevel(const std::vector<OutlineItem *> *outli
     if (itemPage > 0) serItem.page = itemPage;
     serItem.title = titleStr;
 
-    item->open();
-    if (item->hasKids() && item->getKids()) generateOutlineLevel(item->getKids(), serItem.children);
+    if (depth + 1 < maxOutlineDepth && item->hasKids()) {
+      item->open();
+      if (item->getKids()) generateOutlineLevel(item->getKids(), serItem.children, depth + 1);
+    }
   }
 }
 

@@ -36,6 +36,8 @@ Poppler 26.11.0, prebuilt binaries, and everything a new user would expect from 
 - Poppler no longer prints warnings to stderr; errors reject the promise.
 - An unknown option or an invalid option value rejects with a `TypeError` that names it, instead of being ignored.
 - An outline entry whose destination can't be resolved has no `page` (it was an uninitialized number).
+- The outline is read up to 256 levels deep: a crafted PDF nesting thousands of levels took quadratic time and then
+  crashed the process.
 - A directory passed as the file rejects the promise; 2.3.0 aborted the Node process.
 - Files are read off the JavaScript thread, and `info()` can be called concurrently from many places at once.
 - `reconvertThroughPS` runs Ghostscript without a shell and cleans up after itself; it still needs Ghostscript (`gs`).

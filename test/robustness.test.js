@@ -1,6 +1,9 @@
 const { execFileSync, spawnSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const pdf = require('../');
+const { deepOutlinePdf } = require('./helpers/pdf');
 
 const root = path.join(__dirname, '..');
 const fixture = name => path.join(__dirname, 'fixtures', name);
@@ -23,6 +26,25 @@ describe('quiet', () => {
 });
 
 describe('outline', () => {
+  // Every level used to cost a walk up to the top (quadratic time) and a level of recursion, here and when the result
+  // is built on the JavaScript thread, where 20,000 levels exhausted the stack and V8 aborted the process.
+  test('a deeply nested outline is cut at 256 levels', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'poppler-native-outline-')), 'deep.pdf');
+    try {
+      fs.writeFileSync(file, deepOutlinePdf(20000));
+      const script = `require(${JSON.stringify(root)}).info(${JSON.stringify(file)}).then(d => {
+        let depth = 0;
+        for (let items = d.outline; items && items.length; items = items[0].children) depth++;
+        process.stdout.write(String(depth));
+      })`;
+      const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000 });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe('256');
+    } finally {
+      fs.rmSync(path.dirname(file), { recursive: true, force: true });
+    }
+  }, 70000);
+
   test('an item whose destination cannot be resolved has no page', async () => {
     expect((await pdf.info(fixture('outline-unresolved.pdf'))).outline).toEqual([
       { title: 'Missing' },

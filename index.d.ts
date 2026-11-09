@@ -62,6 +62,7 @@ export interface PdfOutlineItem {
   title: string;
   /** The page the item points to, counting from 1; missing when its destination can't be resolved. */
   page?: number;
+  /** The items one level down. The outline is read up to 256 levels deep. */
   children?: PdfOutlineItem[];
 }
 
