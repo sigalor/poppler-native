@@ -17,9 +17,12 @@
 // Copyright (C) 2006 Thorkild Stray <thorkild@ifi.uio.no>
 // Copyright (C) 2007, 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2009 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright (C) 2009, 2012, 2013, 2018, 2019 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009, 2012, 2013, 2018, 2019, 2025, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2012 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -28,7 +31,6 @@
 
 #include <config.h>
 
-#include <cstddef>
 #include "Object.h"
 #include "Stream.h"
 #include "GfxState.h"
@@ -39,7 +41,7 @@
 //------------------------------------------------------------------------
 
 OutputDev::OutputDev()
-#ifdef USE_CMS
+#if USE_CMS
     : iccColorSpaceCache(5)
 #endif
 {
@@ -47,33 +49,15 @@ OutputDev::OutputDev()
 
 OutputDev::~OutputDev() = default;
 
-void OutputDev::setDefaultCTM(const double *ctm)
+void OutputDev::setDefaultCTM(const std::array<double, 6> &ctm)
 {
-    int i;
-    double det;
-
-    for (i = 0; i < 6; ++i) {
-        defCTM[i] = ctm[i];
-    }
-    det = 1 / (defCTM[0] * defCTM[3] - defCTM[1] * defCTM[2]);
-    defICTM[0] = defCTM[3] * det;
-    defICTM[1] = -defCTM[1] * det;
-    defICTM[2] = -defCTM[2] * det;
-    defICTM[3] = defCTM[0] * det;
-    defICTM[4] = (defCTM[2] * defCTM[5] - defCTM[3] * defCTM[4]) * det;
-    defICTM[5] = (defCTM[1] * defCTM[4] - defCTM[0] * defCTM[5]) * det;
-}
-
-void OutputDev::cvtDevToUser(double dx, double dy, double *ux, double *uy)
-{
-    *ux = defICTM[0] * dx + defICTM[2] * dy + defICTM[4];
-    *uy = defICTM[1] * dx + defICTM[3] * dy + defICTM[5];
+    defCTM = ctm;
 }
 
 void OutputDev::cvtUserToDev(double ux, double uy, int *dx, int *dy)
 {
-    *dx = (int)(defCTM[0] * ux + defCTM[2] * uy + defCTM[4] + 0.5);
-    *dy = (int)(defCTM[1] * ux + defCTM[3] * uy + defCTM[5] + 0.5);
+    *dx = static_cast<int>(defCTM[0] * ux + defCTM[2] * uy + defCTM[4] + 0.5);
+    *dy = static_cast<int>(defCTM[1] * ux + defCTM[3] * uy + defCTM[5] + 0.5);
 }
 
 void OutputDev::updateAll(GfxState *state)
@@ -98,71 +82,74 @@ void OutputDev::updateAll(GfxState *state)
     updateFont(state);
 }
 
-bool OutputDev::beginType3Char(GfxState *state, double x, double y, double dx, double dy, CharCode code, const Unicode *u, int uLen)
+bool OutputDev::beginType3Char(GfxState * /*state*/, double /*x*/, double /*y*/, double /*dx*/, double /*dy*/, CharCode /*code*/, const Unicode * /*u*/, int /*uLen*/)
 {
     return false;
 }
 
-void OutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool interpolate, bool inlineImg)
+void OutputDev::drawImageMask(GfxState * /*state*/, Object * /*ref*/, Stream *str, int width, int height, bool /*invert*/, bool /*interpolate*/, bool inlineImg)
 {
     int i, j;
 
     if (inlineImg) {
-        str->reset();
+        if (!str->rewind()) {
+            return;
+        }
         j = height * ((width + 7) / 8);
-        for (i = 0; i < j; ++i)
+        for (i = 0; i < j; ++i) {
             str->getChar();
+        }
         str->close();
     }
 }
 
-void OutputDev::setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool inlineImg, double *baseMatrix)
+bool OutputDev::setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool inlineImg, std::array<double, 6> & /*baseMatrix*/)
 {
     drawImageMask(state, ref, str, width, height, invert, false, inlineImg);
+    return true;
 }
 
-void OutputDev::unsetSoftMaskFromImageMask(GfxState *state, double *baseMatrix)
-{
-    return;
-}
+void OutputDev::unsetSoftMaskFromImageMask(GfxState * /*state*/, std::array<double, 6> & /*baseMatrix*/) { }
 
-void OutputDev::drawImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, const int *maskColors, bool inlineImg)
+void OutputDev::drawImage(GfxState * /*state*/, Object * /*ref*/, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool /*interpolate*/, const int * /*maskColors*/, bool inlineImg)
 {
     int i, j;
 
     if (inlineImg) {
-        str->reset();
+        if (!str->rewind()) {
+            return;
+        }
         j = height * ((width * colorMap->getNumPixelComps() * colorMap->getBits() + 7) / 8);
-        for (i = 0; i < j; ++i)
+        for (i = 0; i < j; ++i) {
             str->getChar();
+        }
         str->close();
     }
 }
 
-void OutputDev::drawMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert, bool maskInterpolate)
+void OutputDev::drawMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream * /*maskStr*/, int /*maskWidth*/, int /*maskHeight*/, bool /*maskInvert*/,
+                                bool /*maskInterpolate*/)
 {
     drawImage(state, ref, str, width, height, colorMap, interpolate, nullptr, false);
 }
 
-void OutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream *maskStr, int maskWidth, int maskHeight, GfxImageColorMap *maskColorMap,
-                                    bool maskInterpolate)
+void OutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream * /*maskStr*/, int /*maskWidth*/, int /*maskHeight*/,
+                                    GfxImageColorMap * /*maskColorMap*/, bool /*maskInterpolate*/)
 {
     drawImage(state, ref, str, width, height, colorMap, interpolate, nullptr, false);
 }
 
-void OutputDev::endMarkedContent(GfxState *state) { }
+void OutputDev::endMarkedContent(GfxState * /*state*/) { }
 
-void OutputDev::beginMarkedContent(const char *name, Dict *properties) { }
+void OutputDev::beginMarkedContent(const std::string & /*name*/, Dict * /*properties*/) { }
 
-void OutputDev::markPoint(const char *name) { }
+void OutputDev::markPoint(const std::string & /*name*/) { }
 
-void OutputDev::markPoint(const char *name, Dict *properties) { }
+void OutputDev::markPoint(const std::string & /*name*/, Dict * /*properties*/) { }
 
-#ifdef OPI_SUPPORT
-void OutputDev::opiBegin(GfxState *state, Dict *opiDict) { }
+void OutputDev::opiBegin(GfxState * /*state*/, const Dict & /*opiDict*/) { }
 
-void OutputDev::opiEnd(GfxState *state, Dict *opiDict) { }
-#endif
+void OutputDev::opiEnd(GfxState * /*state*/, const Dict & /*opiDict*/) { }
 
 void OutputDev::startProfile()
 {

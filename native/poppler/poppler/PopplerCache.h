@@ -5,7 +5,7 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright (C) 2009 Koji Otani <sho@bbr.jp>
-// Copyright (C) 2009, 2010, 2017, 2018 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009, 2010, 2017, 2018, 2021, 2024 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2010 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 //
@@ -26,7 +26,7 @@ public:
     PopplerCache(const PopplerCache &) = delete;
     PopplerCache &operator=(const PopplerCache &other) = delete;
 
-    PopplerCache(std::size_t cacheSizeA) { entries.reserve(cacheSizeA); }
+    explicit PopplerCache(std::size_t cacheSizeA) { entries.reserve(cacheSizeA); }
 
     /* The item returned is owned by the cache */
     Item *lookup(const Key &key)
@@ -56,6 +56,16 @@ public:
         }
 
         entries.emplace(entries.begin(), key, std::unique_ptr<Item> { item });
+    }
+
+    /* The key and item pointers ownership is taken by the cache */
+    void put(const Key &key, std::unique_ptr<Item> &&item)
+    {
+        if (entries.size() == entries.capacity()) {
+            entries.pop_back();
+        }
+
+        entries.emplace(entries.begin(), key, std::move(item));
     }
 
 private:

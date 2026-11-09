@@ -5,7 +5,7 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2010 Hib Eris <hib@hiberis.nl>
-// Copyright 2010, 2013, 2016, 2018 Albert Astals Cid <aacid@kde.org>
+// Copyright 2010, 2013, 2016, 2018, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright 2013 Adrian Johnson <ajohnson@redneon.com>
 //
 //========================================================================
@@ -13,8 +13,6 @@
 #ifndef HINTS_H
 #define HINTS_H
 
-#include <cstring>
-#include <vector>
 #include "PDFDoc.h"
 
 class Stream;
@@ -39,7 +37,6 @@ public:
 
     int getPageObjectNum(int page);
     Goffset getPageOffset(int page);
-    std::vector<ByteRange> *getPageRanges(int page);
 
 private:
     void readTables(BaseStream *str, Linearization *linearization, XRef *xref, SecurityHandler *secHdlr);

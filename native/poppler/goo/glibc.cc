@@ -7,12 +7,13 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright (C) 2016 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2022, 2025 Albert Astals Cid <aacid@kde.org>
 //
 //========================================================================
 
 #include "glibc.h"
 
-#ifndef HAVE_GMTIME_R
+#if !HAVE_GMTIME_R
 struct tm *gmtime_r(const time_t *timep, struct tm *result)
 {
     struct tm *gt;
@@ -23,7 +24,7 @@ struct tm *gmtime_r(const time_t *timep, struct tm *result)
 }
 #endif
 
-#ifndef HAVE_LOCALTIME_R
+#if !HAVE_LOCALTIME_R
 struct tm *localtime_r(const time_t *timep, struct tm *result)
 {
     struct tm *lt;
@@ -33,7 +34,7 @@ struct tm *localtime_r(const time_t *timep, struct tm *result)
 }
 #endif
 
-#ifndef HAVE_TIMEGM
+#if !HAVE_TIMEGM
 // Get offset of local time from UTC in seconds. DST is ignored.
 static time_t getLocalTimeZoneOffset()
 {
@@ -42,7 +43,7 @@ static time_t getLocalTimeZoneOffset()
     time(&utc);
     gmtime_r(&utc, &tm_utc);
     local = mktime(&tm_utc);
-    return difftime(utc, local);
+    return static_cast<time_t>(difftime(utc, local));
 }
 
 time_t timegm(struct tm *tm)

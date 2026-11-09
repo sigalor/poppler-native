@@ -6,15 +6,18 @@
 //
 // Copyright 2010, 2012 Hib Eris <hib@hiberis.nl>
 // Copyright 2015 Jason Crain <jason@aquaticape.us>
-// Copyright 2017, 2019 Albert Astals Cid <aacid@kde.org>
+// Copyright 2017, 2019, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright 2019 Adam Reichold <adam.reichold@t-online.de>
 // Copyright 2019 Even Rouault <even.rouault@spatialys.com>
+// Copyright 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Jonathan Hähne <jonathan.haehne@hotmail.com>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
+// Copyright (C) 2026 Adam Sampson <ats@offog.org>
 //
 //========================================================================
 
 #include "Linearization.h"
 #include "Parser.h"
-#include "Lexer.h"
 
 //------------------------------------------------------------------------
 // Linearization
@@ -24,15 +27,15 @@ Linearization::Linearization(BaseStream *str)
 {
     Parser *parser;
 
-    str->reset();
-    parser = new Parser(nullptr, str->makeSubStream(str->getStart(), false, 0, Object(objNull)), false);
+    (void)str->rewind();
+    parser = new Parser(nullptr, str->makeSubStream(str->getStart(), false, 0, Object::null()), false);
     Object obj1 = parser->getObj();
     Object obj2 = parser->getObj();
     Object obj3 = parser->getObj();
     linDict = parser->getObj();
     if (obj1.isInt() && obj2.isInt() && obj3.isCmd("obj") && linDict.isDict()) {
         Object obj5 = linDict.dictLookup("Linearized");
-        if (!(obj5.isNum() && obj5.getNum() > 0)) {
+        if (!obj5.isNum() || obj5.getNum() <= 0) {
             linDict.setToNull();
         }
     } else {
@@ -41,20 +44,20 @@ Linearization::Linearization(BaseStream *str)
     delete parser;
 }
 
-Linearization::~Linearization() { }
+Linearization::~Linearization() = default;
 
 unsigned int Linearization::getLength() const
 {
-    if (!linDict.isDict())
-        return 0;
-
-    int length;
-    if (linDict.getDict()->lookupInt("L", nullptr, &length) && length > 0) {
-        return length;
-    } else {
-        error(errSyntaxWarning, -1, "Length in linearization table is invalid");
+    if (!linDict.isDict()) {
         return 0;
     }
+
+    int length;
+    if (linDict.getDict()->lookupInt("L", {}, &length) && length > 0) {
+        return length;
+    }
+    error(errSyntaxWarning, -1, "Length in linearization table is invalid");
+    return 0;
 }
 
 unsigned int Linearization::getHintsOffset() const
@@ -62,7 +65,7 @@ unsigned int Linearization::getHintsOffset() const
     int hintsOffset;
 
     Object obj1, obj2;
-    if (linDict.isDict() && (obj1 = linDict.dictLookup("H"), obj1.isArray()) && obj1.arrayGetLength() >= 2 && (obj2 = obj1.arrayGet(0), obj2.isInt()) && obj2.getInt() > 0) {
+    if (linDict.isDict() && (obj1 = linDict.dictLookup("H"), obj1.isArrayOfLengthAtLeast(2)) && (obj2 = obj1.arrayGet(0), obj2.isInt()) && obj2.getInt() > 0) {
         hintsOffset = obj2.getInt();
     } else {
         error(errSyntaxWarning, -1, "Hints table offset in linearization table is invalid");
@@ -77,7 +80,7 @@ unsigned int Linearization::getHintsLength() const
     int hintsLength;
 
     Object obj1, obj2;
-    if (linDict.isDict() && (obj1 = linDict.dictLookup("H"), obj1.isArray()) && obj1.arrayGetLength() >= 2 && (obj2 = obj1.arrayGet(1), obj2.isInt()) && obj2.getInt() > 0) {
+    if (linDict.isDict() && (obj1 = linDict.dictLookup("H"), obj1.isArrayOfLengthAtLeast(2)) && (obj2 = obj1.arrayGet(1), obj2.isInt()) && obj2.getInt() > 0) {
         hintsLength = obj2.getInt();
     } else {
         error(errSyntaxWarning, -1, "Hints table length in linearization table is invalid");
@@ -92,7 +95,7 @@ unsigned int Linearization::getHintsOffset2() const
     int hintsOffset2 = 0; // default to 0
 
     Object obj1;
-    if (linDict.isDict() && (obj1 = linDict.dictLookup("H"), obj1.isArray()) && obj1.arrayGetLength() >= 4) {
+    if (linDict.isDict() && (obj1 = linDict.dictLookup("H"), obj1.isArrayOfLengthAtLeast(4))) {
         Object obj2 = obj1.arrayGet(2);
         if (obj2.isInt() && obj2.getInt() > 0) {
             hintsOffset2 = obj2.getInt();
@@ -110,7 +113,7 @@ unsigned int Linearization::getHintsLength2() const
     int hintsLength2 = 0; // default to 0
 
     Object obj1;
-    if (linDict.isDict() && (obj1 = linDict.dictLookup("H"), obj1.isArray()) && obj1.arrayGetLength() >= 4) {
+    if (linDict.isDict() && (obj1 = linDict.dictLookup("H"), obj1.isArrayOfLengthAtLeast(4))) {
         Object obj2 = obj1.arrayGet(3);
         if (obj2.isInt() && obj2.getInt() > 0) {
             hintsLength2 = obj2.getInt();
@@ -126,45 +129,41 @@ unsigned int Linearization::getHintsLength2() const
 int Linearization::getObjectNumberFirst() const
 {
     int objectNumberFirst = 0;
-    if (linDict.isDict() && linDict.getDict()->lookupInt("O", nullptr, &objectNumberFirst) && objectNumberFirst > 0) {
+    if (linDict.isDict() && linDict.getDict()->lookupInt("O", {}, &objectNumberFirst) && objectNumberFirst > 0) {
         return objectNumberFirst;
-    } else {
-        error(errSyntaxWarning, -1, "Object number of first page in linearization table is invalid");
-        return 0;
     }
+    error(errSyntaxWarning, -1, "Object number of first page in linearization table is invalid");
+    return 0;
 }
 
 unsigned int Linearization::getEndFirst() const
 {
     int pageEndFirst = 0;
-    if (linDict.isDict() && linDict.getDict()->lookupInt("E", nullptr, &pageEndFirst) && pageEndFirst > 0) {
+    if (linDict.isDict() && linDict.getDict()->lookupInt("E", {}, &pageEndFirst) && pageEndFirst > 0) {
         return pageEndFirst;
-    } else {
-        error(errSyntaxWarning, -1, "First page end offset in linearization table is invalid");
-        return 0;
     }
+    error(errSyntaxWarning, -1, "First page end offset in linearization table is invalid");
+    return 0;
 }
 
 int Linearization::getNumPages() const
 {
     int numPages = 0;
-    if (linDict.isDict() && linDict.getDict()->lookupInt("N", nullptr, &numPages) && numPages > 0) {
+    if (linDict.isDict() && linDict.getDict()->lookupInt("N", {}, &numPages) && numPages > 0) {
         return numPages;
-    } else {
-        error(errSyntaxWarning, -1, "Page count in linearization table is invalid");
-        return 0;
     }
+    error(errSyntaxWarning, -1, "Page count in linearization table is invalid");
+    return 0;
 }
 
 unsigned int Linearization::getMainXRefEntriesOffset() const
 {
     int mainXRefEntriesOffset = 0;
-    if (linDict.isDict() && linDict.getDict()->lookupInt("T", nullptr, &mainXRefEntriesOffset) && mainXRefEntriesOffset > 0) {
+    if (linDict.isDict() && linDict.getDict()->lookupInt("T", {}, &mainXRefEntriesOffset) && mainXRefEntriesOffset > 0) {
         return mainXRefEntriesOffset;
-    } else {
-        error(errSyntaxWarning, -1, "Main Xref offset in linearization table is invalid");
-        return 0;
     }
+    error(errSyntaxWarning, -1, "Main Xref offset in linearization table is invalid");
+    return 0;
 }
 
 int Linearization::getPageFirst() const
@@ -172,7 +171,7 @@ int Linearization::getPageFirst() const
     int pageFirst = 0; // Optional, defaults to 0.
 
     if (linDict.isDict()) {
-        linDict.getDict()->lookupInt("P", nullptr, &pageFirst);
+        linDict.getDict()->lookupInt("P", {}, &pageFirst);
     }
 
     if ((pageFirst < 0) || (pageFirst >= getNumPages())) {

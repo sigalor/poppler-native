@@ -17,12 +17,15 @@
 // Copyright (C) 2008 Hugo Mercier <hmercier31@gmail.com>
 // Copyright (C) 2010, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2012 Tobias Koening <tobias.koenig@kdab.com>
-// Copyright (C) 2018-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2018-2023, 2025, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Intevation GmbH <intevation@intevation.de>
 // Copyright (C) 2019, 2020 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2020 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020 Marek Kasik <mkasik@redhat.com>
+// Copyright (C) 2024 Pratham Gandhi <ppg.1382@gmail.com>
+// Copyright (C) 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2026 Aditya Tiwari <adityatiwari342005@gmail.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -35,6 +38,7 @@
 #include "Object.h"
 #include "poppler_private_export.h"
 #include <memory>
+#include <optional>
 #include <set>
 
 class GooString;
@@ -63,6 +67,7 @@ enum LinkActionKind
     actionOCGState, // Set-OCG-State action
     actionHide, // Hide action
     actionResetForm, // ResetForm action
+    actionSubmitForm, // SubmitForm action
     actionUnknown // anything else
 };
 
@@ -86,13 +91,13 @@ public:
     static std::unique_ptr<LinkAction> parseDest(const Object *obj);
 
     // Parse an action dictionary.
-    static std::unique_ptr<LinkAction> parseAction(const Object *obj, const GooString *baseURI = nullptr);
+    static std::unique_ptr<LinkAction> parseAction(const Object *obj, const std::optional<std::string> &baseURI = {});
 
     // A List of the next actions to execute in order.
     const std::vector<std::unique_ptr<LinkAction>> &nextActions() const;
 
 private:
-    static std::unique_ptr<LinkAction> parseAction(const Object *obj, const GooString *baseURI, std::set<int> *seenNextActions);
+    static std::unique_ptr<LinkAction> parseAction(const Object *obj, const std::optional<std::string> &baseURI, std::set<int> *seenNextActions, int depth);
 
     std::vector<std::unique_ptr<LinkAction>> nextActionList;
 };
@@ -117,10 +122,7 @@ class POPPLER_PRIVATE_EXPORT LinkDest
 {
 public:
     // Build a LinkDest from the array.
-    LinkDest(const Array *a);
-
-    // Copy a LinkDest.
-    LinkDest *copy() const { return new LinkDest(this); }
+    explicit LinkDest(const Array &a);
 
     // Was the LinkDest created successfully?
     bool isOk() const { return ok; }
@@ -154,8 +156,6 @@ private:
                      //   destFitH/BH use changeTop;
                      //   destFitV/BV use changeLeft
     bool ok; // set if created successfully
-
-    LinkDest(const LinkDest *dest);
 };
 
 //------------------------------------------------------------------------
@@ -166,7 +166,7 @@ class POPPLER_PRIVATE_EXPORT LinkGoTo : public LinkAction
 {
 public:
     // Build a LinkGoTo from a destination (dictionary, name, or string).
-    LinkGoTo(const Object *destObj);
+    explicit LinkGoTo(const Object *destObj);
 
     ~LinkGoTo() override;
 
@@ -223,7 +223,7 @@ class LinkLaunch : public LinkAction
 {
 public:
     // Build a LinkLaunch from an action dictionary.
-    LinkLaunch(const Object *actionObj);
+    explicit LinkLaunch(const Object *actionObj);
     ~LinkLaunch() override;
 
     // Was the LinkLaunch created successfully?
@@ -247,7 +247,7 @@ class POPPLER_PRIVATE_EXPORT LinkURI : public LinkAction
 {
 public:
     // Build a LinkURI given the URI (string) and base URI.
-    LinkURI(const Object *uriObj, const GooString *baseURI);
+    LinkURI(const Object *uriObj, const std::optional<std::string> &baseURI);
 
     ~LinkURI() override;
 
@@ -271,7 +271,7 @@ class LinkNamed : public LinkAction
 {
 public:
     // Build a LinkNamed given the action name.
-    LinkNamed(const Object *nameObj);
+    explicit LinkNamed(const Object *nameObj);
 
     ~LinkNamed() override;
 
@@ -300,7 +300,7 @@ public:
         operationTypeStop
     };
 
-    LinkMovie(const Object *obj);
+    explicit LinkMovie(const Object *obj);
 
     ~LinkMovie() override;
 
@@ -344,7 +344,7 @@ public:
         ResumeRendition
     };
 
-    LinkRendition(const Object *Obj);
+    explicit LinkRendition(const Object *Obj);
 
     ~LinkRendition() override;
 
@@ -357,7 +357,7 @@ public:
 
     RenditionOperation getOperation() const { return operation; }
 
-    const MediaRendition *getMedia() const { return media; }
+    const MediaRendition *getMedia() const { return media.get(); }
 
     const std::string &getScript() const { return js; }
 
@@ -365,7 +365,7 @@ private:
     Ref screenRef;
     RenditionOperation operation;
 
-    MediaRendition *media;
+    std::unique_ptr<MediaRendition> media;
 
     std::string js;
 };
@@ -377,7 +377,7 @@ private:
 class LinkSound : public LinkAction
 {
 public:
-    LinkSound(const Object *soundObj);
+    explicit LinkSound(const Object *soundObj);
 
     ~LinkSound() override;
 
@@ -407,7 +407,7 @@ class LinkJavaScript : public LinkAction
 {
 public:
     // Build a LinkJavaScript given the action name.
-    LinkJavaScript(Object *jsObj);
+    explicit LinkJavaScript(Object *jsObj);
 
     ~LinkJavaScript() override;
 
@@ -416,7 +416,7 @@ public:
     LinkActionKind getKind() const override { return actionJavaScript; }
     const std::string &getScript() const { return js; }
 
-    static Object createObject(XRef *xref, const GooString &js);
+    static Object createObject(XRef *xref, const std::string &js);
 
 private:
     std::string js;
@@ -429,7 +429,7 @@ private:
 class LinkOCGState : public LinkAction
 {
 public:
-    LinkOCGState(const Object *obj);
+    explicit LinkOCGState(const Object *obj);
 
     ~LinkOCGState() override;
 
@@ -456,7 +456,7 @@ public:
 
 private:
     std::vector<StateList> stateList;
-    bool isValid;
+    bool isValid = true;
     bool preserveRB;
 };
 
@@ -467,7 +467,7 @@ private:
 class LinkHide : public LinkAction
 {
 public:
-    LinkHide(const Object *hideObj);
+    explicit LinkHide(const Object *hideObj);
 
     ~LinkHide() override;
 
@@ -503,7 +503,7 @@ class POPPLER_PRIVATE_EXPORT LinkResetForm : public LinkAction
 {
 public:
     // Build a LinkResetForm.
-    LinkResetForm(const Object *nameObj);
+    explicit LinkResetForm(const Object *nameObj);
 
     ~LinkResetForm() override;
 
@@ -520,6 +520,50 @@ private:
 };
 
 //------------------------------------------------------------------------
+// LinkSubmitForm
+//------------------------------------------------------------------------
+
+class POPPLER_PRIVATE_EXPORT LinkSubmitForm : public LinkAction
+{
+public:
+    enum SubmitFormFlag
+    {
+        NoOpFlag = 0,
+        ExcludeFlag = 1,
+        IncludeNoValueFieldsFlag = 1 << 1,
+        ExportFormatFlag = 1 << 2,
+        GetMethodFlag = 1 << 3,
+        SubmitCoordinatesFlag = 1 << 4,
+        XFDFFlag = 1 << 5,
+        IncludeAppendSavesFlag = 1 << 6,
+        IncludeAnnotationsFlag = 1 << 7,
+        SubmitPDFFlag = 1 << 8,
+        CanonicalFormatFlag = 1 << 9,
+        ExclNonUserAnnotsFlag = 1 << 10,
+        ExclFKeyFlag = 1 << 11,
+        // 13th high bit flag is undefined
+        EmbedFormFlag = 1 << 13,
+    };
+
+    // Build a LinkSubmitForm
+    explicit LinkSubmitForm(const Object *submitObj);
+
+    ~LinkSubmitForm() override;
+
+    bool isOk() const override { return !url.empty(); }
+
+    LinkActionKind getKind() const override { return actionSubmitForm; }
+    const std::vector<std::string> &getFields() const { return fields; };
+    const std::string &getUrl() const { return url; };
+    uint32_t getFlags() const { return flags; };
+
+private:
+    std::vector<std::string> fields;
+    std::string url;
+    uint32_t flags = 0;
+};
+
+//------------------------------------------------------------------------
 // LinkUnknown
 //------------------------------------------------------------------------
 
@@ -527,7 +571,7 @@ class LinkUnknown : public LinkAction
 {
 public:
     // Build a LinkUnknown with the specified action type.
-    LinkUnknown(const char *actionA);
+    explicit LinkUnknown(std::string &&actionA);
 
     ~LinkUnknown() override;
 
@@ -551,7 +595,7 @@ class POPPLER_PRIVATE_EXPORT Links
 {
 public:
     // Extract links from array of annotations.
-    Links(Annots *annots);
+    explicit Links(Annots *annots);
 
     // Destructor.
     ~Links();
@@ -559,12 +603,10 @@ public:
     Links(const Links &) = delete;
     Links &operator=(const Links &) = delete;
 
-    // Iterate through list of links.
-    int getNumLinks() const { return links.size(); }
-    AnnotLink *getLink(int i) const { return links[i]; }
+    const std::vector<std::shared_ptr<AnnotLink>> &getLinks() const { return links; }
 
 private:
-    std::vector<AnnotLink *> links;
+    std::vector<std::shared_ptr<AnnotLink>> links;
 };
 
 #endif

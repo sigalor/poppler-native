@@ -5,7 +5,7 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2013, 2014 Igalia S.L.
-// Copyright 2018, 2019 Albert Astals Cid <aacid@kde.org>
+// Copyright 2018, 2019, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright 2018 Adrian Johnson <ajohnson@redneon.com>
 // Copyright 2018 Adam Reichold <adam.reichold@t-online.de>
 //
@@ -22,10 +22,10 @@
 class Dict;
 class PDFDoc;
 
-class StructTreeRoot
+class POPPLER_PRIVATE_EXPORT StructTreeRoot
 {
 public:
-    StructTreeRoot(PDFDoc *docA, Dict *rootDict);
+    StructTreeRoot(PDFDoc *docA, const Dict &rootDict);
     ~StructTreeRoot();
 
     StructTreeRoot &operator=(const StructTreeRoot &) = delete;
@@ -57,19 +57,14 @@ public:
     }
 
 private:
-    typedef std::vector<StructElement *> ElemPtrArray;
+    using ElemPtrArray = std::vector<StructElement *>;
 
     // Structure for items in /ParentTree, it keeps a mapping of
     // object references and pointers to StructElement objects.
     struct Parent
     {
-        Ref ref;
-        StructElement *element;
-
-        Parent() : element(nullptr) { ref = Ref::INVALID(); }
-        Parent(const Parent &p) = default;
-        Parent &operator=(const Parent &) = default;
-        ~Parent() { }
+        Ref ref = Ref::INVALID();
+        StructElement *element = nullptr;
     };
 
     PDFDoc *doc;
@@ -79,9 +74,9 @@ private:
     std::map<int, std::vector<Parent>> parentTree;
     std::multimap<Ref, Parent *> refToParentMap;
 
-    void parse(Dict *rootDict);
-    void parseNumberTreeNode(Dict *node);
-    void parentTreeAdd(const Ref objectRef, StructElement *element);
+    void parse(const Dict &rootDict);
+    void parseNumberTreeNode(const Dict &node, RefRecursionChecker &usedParents);
+    void parentTreeAdd(Ref objectRef, StructElement *element);
 
     friend class StructElement;
 };

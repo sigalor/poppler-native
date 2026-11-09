@@ -5,7 +5,8 @@
 //---------------------------------------------------------------------------------
 // Hugo Mercier <hmercier31[at]gmail.com> (c) 2008
 // Carlos Garcia Campos <carlosgc@gnome.org> (c) 2010
-// Albert Astals Cid <aacid@kde.org> (C) 2017, 2018
+// Albert Astals Cid <aacid@kde.org> (C) 2017, 2018, 2021, 2024, 2025
+// g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk> (C) 2026
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -31,10 +32,10 @@ struct MediaWindowParameters
 {
 
     MediaWindowParameters();
-    ~MediaWindowParameters();
+    ~MediaWindowParameters() = default;
 
     // parse from a floating window parameters dictionary
-    void parseFWParams(Object *obj);
+    void parseFWParams(const Dict &params);
 
     enum MediaWindowType
     {
@@ -72,12 +73,12 @@ struct MediaParameters
 {
 
     MediaParameters();
-    ~MediaParameters();
+    ~MediaParameters() = default;
 
     // parse from a "Media Play Parameters" dictionary
-    void parseMediaPlayParameters(Object *playObj);
+    void parseMediaPlayParameters(const Dict &playDict);
     // parse from a "Media Screen Parameters" dictionary
-    void parseMediaScreenParameters(Object *screenObj);
+    void parseMediaScreenParameters(const Dict &screenDict);
 
     enum MediaFittingPolicy
     {
@@ -121,44 +122,44 @@ struct MediaParameters
 class POPPLER_PRIVATE_EXPORT MediaRendition
 {
 public:
-    MediaRendition(Object *obj);
+    explicit MediaRendition(const Dict &dict);
     MediaRendition(const MediaRendition &other);
     ~MediaRendition();
     MediaRendition &operator=(const MediaRendition &) = delete;
 
     bool isOk() const { return ok; }
 
-    const MediaParameters *getMHParameters() const { return &MH; }
-    const MediaParameters *getBEParameters() const { return &BE; }
+    const std::optional<MediaParameters> &getMHParameters() const { return MH; }
+    const std::optional<MediaParameters> &getBEParameters() const { return BE; }
 
-    const GooString *getContentType() const { return contentType; }
-    const GooString *getFileName() const { return fileName; }
+    const GooString *getContentType() const { return contentType.get(); }
+    const GooString *getFileName() const { return fileName.get(); }
 
     bool getIsEmbedded() const { return isEmbedded; }
     Stream *getEmbbededStream() const { return isEmbedded ? embeddedStreamObject.getStream() : nullptr; }
     const Object *getEmbbededStreamObject() const { return isEmbedded ? &embeddedStreamObject : nullptr; }
     // write embedded stream to file
-    void outputToFile(FILE *);
+    void outputToFile(FILE *fp);
 
-    MediaRendition *copy() const;
+    std::unique_ptr<MediaRendition> copy() const;
 
 private:
     bool ok;
 
     // "Must Honor" parameters
-    MediaParameters MH;
+    std::optional<MediaParameters> MH;
     // "Best Effort" parameters
-    MediaParameters BE;
+    std::optional<MediaParameters> BE;
 
     bool isEmbedded;
 
-    GooString *contentType;
+    std::unique_ptr<GooString> contentType;
 
     // if it's embedded
     Object embeddedStreamObject;
 
     // if it's not embedded
-    GooString *fileName;
+    std::unique_ptr<GooString> fileName;
 };
 
 #endif /* _RENDITION_H_ */

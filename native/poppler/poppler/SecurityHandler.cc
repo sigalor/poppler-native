@@ -13,10 +13,12 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2010, 2012, 2015, 2017, 2018, 2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2010, 2012, 2015, 2017, 2018, 2020-2022, 2024, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2013 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2014 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2016 Alok Anand <alok4nand@gmail.com>
+// Copyright (C) 2024-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -25,7 +27,7 @@
 
 #include <config.h>
 
-#include "GooString.h"
+#include "goo/GooString.h"
 #include "PDFDoc.h"
 #include "Decrypt.h"
 #include "Error.h"
@@ -46,7 +48,8 @@ SecurityHandler *SecurityHandler::make(PDFDoc *docA, Object *encryptDictA)
     if (filterObj.isName("Standard")) {
         secHdlr = new StandardSecurityHandler(docA, encryptDictA);
     } else if (filterObj.isName()) {
-        error(errSyntaxError, -1, "Couldn't find the '{0:s}' security handler", filterObj.getName());
+        const std::string &filterName = filterObj.getNameString();
+        error(errSyntaxError, -1, "Couldn't find the '{0:r}' security handler", &filterName);
         secHdlr = nullptr;
     } else {
         error(errSyntaxError, -1, "Missing or invalid 'Filter' entry in encryption dictionary");
@@ -60,9 +63,9 @@ SecurityHandler::SecurityHandler(PDFDoc *docA)
     doc = docA;
 }
 
-SecurityHandler::~SecurityHandler() { }
+SecurityHandler::~SecurityHandler() = default;
 
-bool SecurityHandler::checkEncryption(const GooString *ownerPassword, const GooString *userPassword)
+bool SecurityHandler::checkEncryption(const std::optional<GooString> &ownerPassword, const std::optional<GooString> &userPassword)
 {
     void *authData;
 
@@ -77,11 +80,9 @@ bool SecurityHandler::checkEncryption(const GooString *ownerPassword, const GooS
     }
     if (!ok) {
         if (!ownerPassword && !userPassword) {
-            GooString dummy;
-            return checkEncryption(&dummy, &dummy);
-        } else {
-            error(errCommandLine, -1, "Incorrect password");
+            return checkEncryption(GooString(), GooString());
         }
+        error(errCommandLine, -1, "Incorrect password");
     }
     return ok;
 }
@@ -93,37 +94,20 @@ bool SecurityHandler::checkEncryption(const GooString *ownerPassword, const GooS
 class StandardAuthData
 {
 public:
-    StandardAuthData(GooString *ownerPasswordA, GooString *userPasswordA)
-    {
-        ownerPassword = ownerPasswordA;
-        userPassword = userPasswordA;
-    }
+    StandardAuthData(std::unique_ptr<GooString> &&ownerPasswordA, std::unique_ptr<GooString> &&userPasswordA) : ownerPassword(std::move(ownerPasswordA)), userPassword(std::move(userPasswordA)) { }
 
-    ~StandardAuthData()
-    {
-        if (ownerPassword) {
-            delete ownerPassword;
-        }
-        if (userPassword) {
-            delete userPassword;
-        }
-    }
+    ~StandardAuthData() = default;
 
     StandardAuthData(const StandardAuthData &) = delete;
     StandardAuthData &operator=(const StandardAuthData &) = delete;
 
-    GooString *ownerPassword;
-    GooString *userPassword;
+    const std::unique_ptr<GooString> ownerPassword;
+    const std::unique_ptr<GooString> userPassword;
 };
 
 StandardSecurityHandler::StandardSecurityHandler(PDFDoc *docA, Object *encryptDictA) : SecurityHandler(docA)
 {
     ok = false;
-    fileID = nullptr;
-    ownerKey = nullptr;
-    userKey = nullptr;
-    ownerEnc = nullptr;
-    userEnc = nullptr;
     fileKeyLength = 0;
     encAlgorithm = cryptNone;
 
@@ -136,7 +120,7 @@ StandardSecurityHandler::StandardSecurityHandler(PDFDoc *docA, Object *encryptDi
     Object userEncObj = encryptDictA->dictLookup("UE");
     Object permObj = encryptDictA->dictLookup("P");
     if (permObj.isInt64()) {
-        unsigned int permUint = permObj.getInt64();
+        auto permUint = static_cast<unsigned int>(permObj.getInt64());
         int perms = permUint - UINT_MAX - 1;
         permObj = Object(perms);
     }
@@ -144,11 +128,10 @@ StandardSecurityHandler::StandardSecurityHandler(PDFDoc *docA, Object *encryptDi
     if (versionObj.isInt() && revisionObj.isInt() && permObj.isInt() && ownerKeyObj.isString() && userKeyObj.isString()) {
         encVersion = versionObj.getInt();
         encRevision = revisionObj.getInt();
-        if ((encRevision <= 4 && ownerKeyObj.getString()->getLength() == 32 && userKeyObj.getString()->getLength() == 32)
+        if ((encRevision <= 4 && !ownerKeyObj.getString().empty() && !userKeyObj.getString().empty())
             || ((encRevision == 5 || encRevision == 6) &&
                 // the spec says 48 bytes, but Acrobat pads them out longer
-                ownerKeyObj.getString()->getLength() >= 48 && userKeyObj.getString()->getLength() >= 48 && ownerEncObj.isString() && ownerEncObj.getString()->getLength() == 32 && userEncObj.isString()
-                && userEncObj.getString()->getLength() == 32)) {
+                ownerKeyObj.getString().size() >= 48 && userKeyObj.getString().size() >= 48 && ownerEncObj.isString() && ownerEncObj.getString().size() == 32 && userEncObj.isString() && userEncObj.getString().size() == 32)) {
             encAlgorithm = cryptRC4;
             // revision 2 forces a 40-bit key - some buggy PDF generators
             // set the Length value incorrectly
@@ -166,12 +149,12 @@ StandardSecurityHandler::StandardSecurityHandler(PDFDoc *docA, Object *encryptDi
                 Object cryptFiltersObj = encryptDictA->dictLookup("CF");
                 Object streamFilterObj = encryptDictA->dictLookup("StmF");
                 Object stringFilterObj = encryptDictA->dictLookup("StrF");
-                if (cryptFiltersObj.isDict() && streamFilterObj.isName() && stringFilterObj.isName() && !strcmp(streamFilterObj.getName(), stringFilterObj.getName())) {
-                    if (!strcmp(streamFilterObj.getName(), "Identity")) {
+                if (cryptFiltersObj.isDict() && streamFilterObj.isName() && stringFilterObj.isName() && (streamFilterObj.getNameString() == stringFilterObj.getNameString())) {
+                    if (streamFilterObj.getNameString() == "Identity") {
                         // no encryption on streams or strings
                         encVersion = encRevision = -1;
                     } else {
-                        Object cryptFilterObj = cryptFiltersObj.dictLookup(streamFilterObj.getName());
+                        Object cryptFilterObj = cryptFiltersObj.dictLookup(streamFilterObj.getNameString());
                         if (cryptFilterObj.isDict()) {
                             Object cfmObj = cryptFilterObj.dictLookup("CFM");
                             if (cfmObj.isName("V2")) {
@@ -210,28 +193,28 @@ StandardSecurityHandler::StandardSecurityHandler(PDFDoc *docA, Object *encryptDi
                 }
             }
             permFlags = permObj.getInt();
-            ownerKey = ownerKeyObj.getString()->copy();
-            userKey = userKeyObj.getString()->copy();
+            ownerKey = std::make_unique<GooString>(ownerKeyObj.getString());
+            userKey = std::make_unique<GooString>(userKeyObj.getString());
             if (encVersion >= 1 && encVersion <= 2 && encRevision >= 2 && encRevision <= 3) {
                 if (fileIDObj.isArray()) {
                     Object fileIDObj1 = fileIDObj.arrayGet(0);
                     if (fileIDObj1.isString()) {
-                        fileID = fileIDObj1.getString()->copy();
+                        fileID = std::make_unique<GooString>(fileIDObj1.getString());
                     } else {
-                        fileID = new GooString();
+                        fileID = std::make_unique<GooString>();
                     }
                 } else {
-                    fileID = new GooString();
+                    fileID = std::make_unique<GooString>();
                 }
                 if (fileKeyLength > 16 || fileKeyLength < 0) {
                     fileKeyLength = 16;
                 }
                 ok = true;
             } else if (encVersion == 5 && (encRevision == 5 || encRevision == 6)) {
-                fileID = new GooString(); // unused for V=R=5
+                fileID = std::make_unique<GooString>(); // unused for V=R=5
                 if (ownerEncObj.isString() && userEncObj.isString()) {
-                    ownerEnc = ownerEncObj.getString()->copy();
-                    userEnc = userEncObj.getString()->copy();
+                    ownerEnc = std::make_unique<GooString>(ownerEncObj.getString());
+                    userEnc = std::make_unique<GooString>(userEncObj.getString());
                     if (fileKeyLength > 32 || fileKeyLength < 0) {
                         fileKeyLength = 32;
                     }
@@ -239,35 +222,32 @@ StandardSecurityHandler::StandardSecurityHandler(PDFDoc *docA, Object *encryptDi
                 } else {
                     error(errSyntaxError, -1, "Weird encryption owner/user info");
                 }
-            } else if (!(encVersion == -1 && encRevision == -1)) {
+            } else if (encVersion != -1 || encRevision != -1) {
                 error(errUnimplemented, -1, "Unsupported version/revision ({0:d}/{1:d}) of Standard security handler", encVersion, encRevision);
             }
+
+            if (encRevision <= 4) {
+                // Adobe apparently zero-pads the U value (and maybe the O value?)
+                // if it's short
+                while (ownerKey->size() < 32) {
+                    ownerKey->push_back(static_cast<char>(0x00));
+                }
+                while (userKey->size() < 32) {
+                    userKey->push_back(static_cast<char>(0x00));
+                }
+            }
         } else {
-            error(errSyntaxError, -1, "Invalid encryption key length");
+            error(errSyntaxError, -1,
+                  "Invalid encryption key length. version: {0:d} - revision: {1:d} - ownerKeyLength: {2:uld} - userKeyLength: {3:uld} - ownerEncIsString: {4:d} - ownerEncLength: {5:uld} - userEncIsString: {6:d} - userEncLength: {7:uld}",
+                  encVersion, encRevision, ownerKeyObj.getString().size(), userKeyObj.getString().size(), ownerEncObj.isString(), ownerEncObj.isString() ? ownerEncObj.getString().size() : -1, userEncObj.isString(),
+                  userEncObj.isString() ? userEncObj.getString().size() : -1);
         }
     } else {
         error(errSyntaxError, -1, "Weird encryption info");
     }
 }
 
-StandardSecurityHandler::~StandardSecurityHandler()
-{
-    if (fileID) {
-        delete fileID;
-    }
-    if (ownerKey) {
-        delete ownerKey;
-    }
-    if (userKey) {
-        delete userKey;
-    }
-    if (ownerEnc) {
-        delete ownerEnc;
-    }
-    if (userEnc) {
-        delete userEnc;
-    }
-}
+StandardSecurityHandler::~StandardSecurityHandler() = default;
 
 bool StandardSecurityHandler::isUnencrypted() const
 {
@@ -277,14 +257,14 @@ bool StandardSecurityHandler::isUnencrypted() const
     return encVersion == -1 && encRevision == -1;
 }
 
-void *StandardSecurityHandler::makeAuthData(const GooString *ownerPassword, const GooString *userPassword)
+void *StandardSecurityHandler::makeAuthData(const std::optional<GooString> &ownerPassword, const std::optional<GooString> &userPassword)
 {
-    return new StandardAuthData(ownerPassword ? ownerPassword->copy() : nullptr, userPassword ? userPassword->copy() : nullptr);
+    return new StandardAuthData(ownerPassword ? ownerPassword->copy() : std::make_unique<GooString>(), userPassword ? userPassword->copy() : std::make_unique<GooString>());
 }
 
 void StandardSecurityHandler::freeAuthData(void *authData)
 {
-    delete (StandardAuthData *)authData;
+    delete static_cast<StandardAuthData *>(authData);
 }
 
 bool StandardSecurityHandler::authorize(void *authData)
@@ -295,13 +275,13 @@ bool StandardSecurityHandler::authorize(void *authData)
         return false;
     }
     if (authData) {
-        ownerPassword = ((StandardAuthData *)authData)->ownerPassword;
-        userPassword = ((StandardAuthData *)authData)->userPassword;
+        ownerPassword = (static_cast<StandardAuthData *>(authData))->ownerPassword.get();
+        userPassword = (static_cast<StandardAuthData *>(authData))->userPassword.get();
     } else {
         ownerPassword = nullptr;
         userPassword = nullptr;
     }
-    if (!Decrypt::makeFileKey(encVersion, encRevision, fileKeyLength, ownerKey, userKey, ownerEnc, userEnc, permFlags, fileID, ownerPassword, userPassword, fileKey, encryptMetadata, &ownerPasswordOk)) {
+    if (!Decrypt::makeFileKey(encRevision, fileKeyLength, ownerKey.get(), userKey.get(), ownerEnc.get(), userEnc.get(), permFlags, fileID.get(), ownerPassword, userPassword, fileKey, encryptMetadata, &ownerPasswordOk)) {
         return false;
     }
     return true;

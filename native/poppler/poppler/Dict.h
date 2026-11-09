@@ -16,11 +16,13 @@
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2006 Krzysztof Kowalczyk <kkowalczyk@gmail.com>
 // Copyright (C) 2007-2008 Julien Rebetez <julienr@svn.gnome.org>
-// Copyright (C) 2010, 2017-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2010, 2017-2022, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2010 Paweł Wiejacha <pawel.wiejacha@gmail.com>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2025 Jonathan Hähne <jonathan.haehne@hotmail.com>
+// Copyright (C) 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -32,11 +34,11 @@
 
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 #include <utility>
 
-#include "poppler-config.h"
 #include "poppler_private_export.h"
 #include "Object.h"
 
@@ -46,11 +48,17 @@
 
 class POPPLER_PRIVATE_EXPORT Dict
 {
+    class PrivateTag
+    {
+    };
+
 public:
     // Constructor.
-    Dict(XRef *xrefA);
-    Dict(const Dict *dictA);
-    Dict *copy(XRef *xrefA) const;
+    explicit Dict(XRef *xrefA);
+    explicit Dict(const Dict *dictA, PrivateTag /*unused*/ = {});
+    std::unique_ptr<Dict> copy(XRef *xrefA) const;
+
+    std::unique_ptr<Dict> deepCopy() const;
 
     Dict(const Dict &) = delete;
     Dict &operator=(const Dict &) = delete;
@@ -58,35 +66,30 @@ public:
     // Get number of entries.
     int getLength() const { return static_cast<int>(entries.size()); }
 
-    // Add an entry. (Copies key into Dict.)
-    // val becomes a dead object after the call
-    void add(const char *key, Object &&val);
-
-    // Add an entry. (Takes ownership of key.)
-    void add(char *key, Object &&val) = delete;
+    // Add an entry. (Moves key into Dict.)
+    void add(std::string_view key, Object &&val);
 
     // Update the value of an existing entry, otherwise create it
-    // val becomes a dead object after the call
-    void set(const char *key, Object &&val);
+    void set(std::string_view key, Object &&val);
     // Remove an entry. This invalidate indexes
-    void remove(const char *key);
+    void remove(std::string_view key);
 
     // Check if dictionary is of specified type.
-    bool is(const char *type) const;
+    bool is(std::string_view type) const;
 
     // Look up an entry and return the value.  Returns a null object
     // if <key> is not in the dictionary.
-    Object lookup(const char *key, int recursion = 0) const;
+    Object lookup(std::string_view key, int recursion = 0) const;
     // Same as above but if the returned object is a fetched Ref returns such Ref in returnRef, otherwise returnRef is Ref::INVALID()
-    Object lookup(const char *key, Ref *returnRef, int recursion = 0) const;
+    Object lookup(std::string_view key, Ref *returnRef, int recursion = 0) const;
     // Look up an entry and return the value.  Returns a null object
     // if <key> is not in the dictionary or if it is a ref to a non encrypted object in a partially encrypted document
-    Object lookupEnsureEncryptedIfNeeded(const char *key) const;
-    const Object &lookupNF(const char *key) const;
-    bool lookupInt(const char *key, const char *alt_key, int *value) const;
+    Object lookupEnsureEncryptedIfNeeded(std::string_view key) const;
+    const Object &lookupNF(std::string_view key) const;
+    bool lookupInt(std::string_view key, std::optional<std::string_view> alt_key, int *value) const;
 
     // Iterative accessors.
-    const char *getKey(int i) const { return entries[i].first.c_str(); }
+    const std::string &getKey(int i) const { return entries[i].first; }
     Object getVal(int i) const { return entries[i].second.fetch(xref); }
     // Same as above but if the returned object is a fetched Ref returns such Ref in returnRef, otherwise returnRef is Ref::INVALID()
     Object getVal(int i, Ref *returnRef) const;
@@ -99,26 +102,75 @@ public:
 
     XRef *getXRef() const { return xref; }
 
-    bool hasKey(const char *key) const;
+    bool hasKey(std::string_view key) const;
+
+    // Returns a key name that is not in the dictionary
+    // It will be suggestedKey itself if available
+    // otherwise it will start adding 0, 1, 2, 3, etc. to suggestedKey until there's one available
+    std::string findAvailableKey(std::string_view suggestedKey);
 
 private:
-    friend class Object; // for incRef/decRef
-
-    // Reference counting.
-    int incRef() { return ++ref; }
-    int decRef() { return --ref; }
-
     using DictEntry = std::pair<std::string, Object>;
     struct CmpDictEntry;
 
     XRef *xref; // the xref table for this PDF file
     std::vector<DictEntry> entries;
-    std::atomic_int ref; // reference count
     std::atomic_bool sorted;
     mutable std::recursive_mutex mutex;
 
-    const DictEntry *find(const char *key) const;
-    DictEntry *find(const char *key);
+    const DictEntry *find(std::string_view key) const;
+    DictEntry *find(std::string_view key);
 };
+
+//------------------------------------------------------------------------
+// Object Dict accessors.
+//------------------------------------------------------------------------
+
+inline int Object::dictGetLength() const
+{
+    OBJECT_TYPE_CHECK(objDict);
+    return std::get<std::shared_ptr<Dict>>(data)->getLength();
+}
+
+inline void Object::dictAdd(std::string_view key, Object &&val)
+{
+    OBJECT_TYPE_CHECK(objDict);
+    std::get<std::shared_ptr<Dict>>(data)->add(key, std::move(val));
+}
+
+inline void Object::dictSet(std::string_view key, Object &&val)
+{
+    OBJECT_TYPE_CHECK(objDict);
+    std::get<std::shared_ptr<Dict>>(data)->set(key, std::move(val));
+}
+
+inline void Object::dictRemove(std::string_view key)
+{
+    OBJECT_TYPE_CHECK(objDict);
+    std::get<std::shared_ptr<Dict>>(data)->remove(key);
+}
+
+inline bool Object::isDict(std::string_view dictType) const
+{
+    return type == objDict && std::get<std::shared_ptr<Dict>>(data)->is(dictType);
+}
+
+inline Object Object::dictLookup(std::string_view key, int recursion) const
+{
+    OBJECT_TYPE_CHECK(objDict);
+    return std::get<std::shared_ptr<Dict>>(data)->lookup(key, recursion);
+}
+
+inline const Object &Object::dictLookupNF(std::string_view key) const
+{
+    OBJECT_TYPE_CHECK(objDict);
+    return std::get<std::shared_ptr<Dict>>(data)->lookupNF(key);
+}
+
+inline Object Object::dictGetVal(int i) const
+{
+    OBJECT_TYPE_CHECK(objDict);
+    return std::get<std::shared_ptr<Dict>>(data)->getVal(i);
+}
 
 #endif

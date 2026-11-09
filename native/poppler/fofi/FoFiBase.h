@@ -13,7 +13,9 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2018 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2018, 2022, 2024-2026 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2022 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -23,15 +25,23 @@
 #ifndef FOFIBASE_H
 #define FOFIBASE_H
 
+#include "poppler_private_export.h"
+
+#include <cstddef>
+#include <optional>
+#include <vector>
+#include <span>
+#include <string_view>
+
 //------------------------------------------------------------------------
 
-typedef void (*FoFiOutputFunc)(void *stream, const char *data, int len);
+using FoFiOutputFunc = void (*)(void *stream, std::string_view string);
 
 //------------------------------------------------------------------------
 // FoFiBase
 //------------------------------------------------------------------------
 
-class FoFiBase
+class POPPLER_PRIVATE_EXPORT FoFiBase
 {
 public:
     FoFiBase(const FoFiBase &) = delete;
@@ -40,8 +50,11 @@ public:
     virtual ~FoFiBase();
 
 protected:
-    FoFiBase(const char *fileA, int lenA, bool freeFileDataA);
-    static char *readFile(const char *fileName, int *fileLen);
+    // takes ownership over data
+    explicit FoFiBase(std::vector<unsigned char> &&fileA);
+    // callers responsibility to keep the data alive as long as this object exists
+    explicit FoFiBase(std::span<const unsigned char> fileA);
+    static std::optional<std::vector<unsigned char>> readFile(const char *fileName);
 
     // S = signed / U = unsigned
     // 8/16/32/Var = word length, in bytes
@@ -57,9 +70,8 @@ protected:
 
     bool checkRegion(int pos, int size) const;
 
-    const unsigned char *file;
-    int len;
-    bool freeFileData;
+    std::vector<unsigned char> fileOwner;
+    std::span<const unsigned char> file;
 };
 
 #endif

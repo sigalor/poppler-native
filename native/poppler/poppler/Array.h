@@ -16,9 +16,11 @@
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
-// Copyright (C) 2017-2019 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2017-2019, 2021, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018, 2019 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2026 Adam Sampson <ats@offog.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -28,11 +30,9 @@
 #ifndef ARRAY_H
 #define ARRAY_H
 
-#include <atomic>
 #include <mutex>
 #include <vector>
 
-#include "poppler-config.h"
 #include "poppler_private_export.h"
 #include "Object.h"
 
@@ -46,7 +46,7 @@ class POPPLER_PRIVATE_EXPORT Array
 {
 public:
     // Constructor.
-    Array(XRef *xrefA);
+    explicit Array(XRef *xrefA);
 
     // Destructor.
     ~Array();
@@ -58,7 +58,9 @@ public:
     int getLength() const { return elems.size(); }
 
     // Copy array with new xref
-    Array *copy(XRef *xrefA) const;
+    std::unique_ptr<Array> copy(XRef *xrefA) const;
+
+    std::unique_ptr<Array> deepCopy() const;
 
     // Add an element
     // elem becomes a dead object after this call
@@ -75,16 +77,35 @@ public:
     bool getString(int i, GooString *string) const;
 
 private:
-    friend class Object; // for incRef/decRef
-
-    // Reference counting.
-    int incRef() { return ++ref; }
-    int decRef() { return --ref; }
-
     XRef *xref; // the xref table for this PDF file
     std::vector<Object> elems; // array of elements
-    std::atomic_int ref; // reference count
     mutable std::recursive_mutex mutex;
 };
+
+//------------------------------------------------------------------------
+// Object Array accessors.
+//------------------------------------------------------------------------
+
+inline bool Object::isArrayOfLength(int length) const
+{
+    return type == objArray && std::get<std::shared_ptr<Array>>(data)->getLength() == length;
+}
+
+inline bool Object::isArrayOfLengthAtLeast(int length) const
+{
+    return type == objArray && std::get<std::shared_ptr<Array>>(data)->getLength() >= length;
+}
+
+inline int Object::arrayGetLength() const
+{
+    OBJECT_TYPE_CHECK(objArray);
+    return std::get<std::shared_ptr<Array>>(data)->getLength();
+}
+
+inline Object Object::arrayGet(int i, int recursion = 0) const
+{
+    OBJECT_TYPE_CHECK(objArray);
+    return std::get<std::shared_ptr<Array>>(data)->get(i, recursion);
+}
 
 #endif

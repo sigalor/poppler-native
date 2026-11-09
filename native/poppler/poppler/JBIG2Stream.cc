@@ -15,7 +15,7 @@
 //
 // Copyright (C) 2006 Raj Kumar <rkumar@archive.org>
 // Copyright (C) 2006 Paul Walmsley <paul@booyaka.com>
-// Copyright (C) 2006-2010, 2012, 2014-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006-2010, 2012, 2014-2022, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009 David Benjamin <davidben@mit.edu>
 // Copyright (C) 2011 Edward Jiang <ejiang@google.com>
 // Copyright (C) 2012 William Bader <williambader@hotmail.com>
@@ -27,7 +27,10 @@
 // Copyright (C) 2019 LE GARREC Vincent <legarrec.vincent@gmail.com>
 // Copyright (C) 2019-2021 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
-// Copyright (C) 2019, 2020 Even Rouault <even.rouault@spatialys.com>
+// Copyright (C) 2019-2021 Even Rouault <even.rouault@spatialys.com>
+// Copyright (C) 2024, 2025 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -47,10 +50,21 @@
 //~ share these tables
 #include "Stream-CCITT.h"
 
+#include "goo/gmem.h"
+
+//------------------------------------------------------------------------
+
+template<typename SizeType, typename ElementType>
+static inline bool sizeIsBiggerThanVectorMaxSize(SizeType size, const std::vector<ElementType> &vector)
+{
+    return size > vector.max_size();
+}
+
 //------------------------------------------------------------------------
 
 static const int contextSize[4] = { 16, 13, 10, 10 };
 static const int refContextSize[2] = { 13, 10 };
+static constexpr auto intNBits = sizeof(int) * CHAR_BIT;
 
 //------------------------------------------------------------------------
 // JBIG2HuffmanTable
@@ -68,113 +82,170 @@ struct JBIG2HuffmanTable
     unsigned int prefix;
 };
 
-static const JBIG2HuffmanTable huffTableA[] = { { 0, 1, 4, 0x000 }, { 16, 2, 8, 0x002 }, { 272, 3, 16, 0x006 }, { 65808, 3, 32, 0x007 }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static inline bool validateRangeLen(unsigned int rangeLen)
+{
+    switch (rangeLen) {
+    case jbig2HuffmanEOT:
+    case jbig2HuffmanOOB:
+    case jbig2HuffmanLOW:
+        return true;
+    default:
+        return rangeLen <= 32;
+    }
+}
 
-static const JBIG2HuffmanTable huffTableB[] = { { 0, 1, 0, 0x000 }, { 1, 2, 0, 0x002 }, { 2, 3, 0, 0x006 }, { 3, 4, 3, 0x00e }, { 11, 5, 6, 0x01e }, { 75, 6, 32, 0x03e }, { 0, 6, jbig2HuffmanOOB, 0x03f }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableA[] = { { .val = 0, .prefixLen = 1, .rangeLen = 4, .prefix = 0x000 },
+                                                { .val = 16, .prefixLen = 2, .rangeLen = 8, .prefix = 0x002 },
+                                                { .val = 272, .prefixLen = 3, .rangeLen = 16, .prefix = 0x006 },
+                                                { .val = 65808, .prefixLen = 3, .rangeLen = 32, .prefix = 0x007 },
+                                                { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableC[] = { { 0, 1, 0, 0x000 },          { 1, 2, 0, 0x002 },    { 2, 3, 0, 0x006 },
-                                                { 3, 4, 3, 0x00e },          { 11, 5, 6, 0x01e },   { 0, 6, jbig2HuffmanOOB, 0x03e },
-                                                { 75, 7, 32, 0x0fe },        { -256, 8, 8, 0x0fe }, { -257, 8, jbig2HuffmanLOW, 0x0ff },
-                                                { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableB[] = { { .val = 0, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },
+                                                { .val = 1, .prefixLen = 2, .rangeLen = 0, .prefix = 0x002 },
+                                                { .val = 2, .prefixLen = 3, .rangeLen = 0, .prefix = 0x006 },
+                                                { .val = 3, .prefixLen = 4, .rangeLen = 3, .prefix = 0x00e },
+                                                { .val = 11, .prefixLen = 5, .rangeLen = 6, .prefix = 0x01e },
+                                                { .val = 75, .prefixLen = 6, .rangeLen = 32, .prefix = 0x03e },
+                                                { .val = 0, .prefixLen = 6, .rangeLen = jbig2HuffmanOOB, .prefix = 0x03f },
+                                                { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableD[] = { { 1, 1, 0, 0x000 }, { 2, 2, 0, 0x002 }, { 3, 3, 0, 0x006 }, { 4, 4, 3, 0x00e }, { 12, 5, 6, 0x01e }, { 76, 5, 32, 0x01f }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableC[] = {
+    { .val = 0, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },          { .val = 1, .prefixLen = 2, .rangeLen = 0, .prefix = 0x002 },    { .val = 2, .prefixLen = 3, .rangeLen = 0, .prefix = 0x006 },
+    { .val = 3, .prefixLen = 4, .rangeLen = 3, .prefix = 0x00e },          { .val = 11, .prefixLen = 5, .rangeLen = 6, .prefix = 0x01e },   { .val = 0, .prefixLen = 6, .rangeLen = jbig2HuffmanOOB, .prefix = 0x03e },
+    { .val = 75, .prefixLen = 7, .rangeLen = 32, .prefix = 0x0fe },        { .val = -256, .prefixLen = 8, .rangeLen = 8, .prefix = 0x0fe }, { .val = -257, .prefixLen = 8, .rangeLen = jbig2HuffmanLOW, .prefix = 0x0ff },
+    { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 }
+};
 
-static const JBIG2HuffmanTable huffTableE[] = { { 1, 1, 0, 0x000 },          { 2, 2, 0, 0x002 }, { 3, 3, 0, 0x006 }, { 4, 4, 3, 0x00e }, { 12, 5, 6, 0x01e }, { 76, 6, 32, 0x03e }, { -255, 7, 8, 0x07e }, { -256, 7, jbig2HuffmanLOW, 0x07f },
-                                                { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableD[] = { { .val = 1, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },          { .val = 2, .prefixLen = 2, .rangeLen = 0, .prefix = 0x002 },
+                                                { .val = 3, .prefixLen = 3, .rangeLen = 0, .prefix = 0x006 },          { .val = 4, .prefixLen = 4, .rangeLen = 3, .prefix = 0x00e },
+                                                { .val = 12, .prefixLen = 5, .rangeLen = 6, .prefix = 0x01e },         { .val = 76, .prefixLen = 5, .rangeLen = 32, .prefix = 0x01f },
+                                                { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableF[] = { { 0, 2, 7, 0x000 },
-                                                { 128, 3, 7, 0x002 },
-                                                { 256, 3, 8, 0x003 },
-                                                { -1024, 4, 9, 0x008 },
-                                                { -512, 4, 8, 0x009 },
-                                                { -256, 4, 7, 0x00a },
-                                                { -32, 4, 5, 0x00b },
-                                                { 512, 4, 9, 0x00c },
-                                                { 1024, 4, 10, 0x00d },
-                                                { -2048, 5, 10, 0x01c },
-                                                { -128, 5, 6, 0x01d },
-                                                { -64, 5, 5, 0x01e },
-                                                { -2049, 6, jbig2HuffmanLOW, 0x03e },
-                                                { 2048, 6, 32, 0x03f },
-                                                { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableE[] = { { .val = 1, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },          { .val = 2, .prefixLen = 2, .rangeLen = 0, .prefix = 0x002 },
+                                                { .val = 3, .prefixLen = 3, .rangeLen = 0, .prefix = 0x006 },          { .val = 4, .prefixLen = 4, .rangeLen = 3, .prefix = 0x00e },
+                                                { .val = 12, .prefixLen = 5, .rangeLen = 6, .prefix = 0x01e },         { .val = 76, .prefixLen = 6, .rangeLen = 32, .prefix = 0x03e },
+                                                { .val = -255, .prefixLen = 7, .rangeLen = 8, .prefix = 0x07e },       { .val = -256, .prefixLen = 7, .rangeLen = jbig2HuffmanLOW, .prefix = 0x07f },
+                                                { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableG[] = { { -512, 3, 8, 0x000 },  { 256, 3, 8, 0x001 },        { 512, 3, 9, 0x002 },  { 1024, 3, 10, 0x003 }, { -1024, 4, 9, 0x008 }, { -256, 4, 7, 0x009 }, { -32, 4, 5, 0x00a },
-                                                { 0, 4, 5, 0x00b },     { 128, 4, 7, 0x00c },        { -128, 5, 6, 0x01a }, { -64, 5, 5, 0x01b },   { 32, 5, 5, 0x01c },    { 64, 5, 6, 0x01d },   { -1025, 5, jbig2HuffmanLOW, 0x01e },
-                                                { 2048, 5, 32, 0x01f }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableF[] = { { .val = 0, .prefixLen = 2, .rangeLen = 7, .prefix = 0x000 },
+                                                { .val = 128, .prefixLen = 3, .rangeLen = 7, .prefix = 0x002 },
+                                                { .val = 256, .prefixLen = 3, .rangeLen = 8, .prefix = 0x003 },
+                                                { .val = -1024, .prefixLen = 4, .rangeLen = 9, .prefix = 0x008 },
+                                                { .val = -512, .prefixLen = 4, .rangeLen = 8, .prefix = 0x009 },
+                                                { .val = -256, .prefixLen = 4, .rangeLen = 7, .prefix = 0x00a },
+                                                { .val = -32, .prefixLen = 4, .rangeLen = 5, .prefix = 0x00b },
+                                                { .val = 512, .prefixLen = 4, .rangeLen = 9, .prefix = 0x00c },
+                                                { .val = 1024, .prefixLen = 4, .rangeLen = 10, .prefix = 0x00d },
+                                                { .val = -2048, .prefixLen = 5, .rangeLen = 10, .prefix = 0x01c },
+                                                { .val = -128, .prefixLen = 5, .rangeLen = 6, .prefix = 0x01d },
+                                                { .val = -64, .prefixLen = 5, .rangeLen = 5, .prefix = 0x01e },
+                                                { .val = -2049, .prefixLen = 6, .rangeLen = jbig2HuffmanLOW, .prefix = 0x03e },
+                                                { .val = 2048, .prefixLen = 6, .rangeLen = 32, .prefix = 0x03f },
+                                                { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableH[] = { { 0, 2, 1, 0x000 },     { 0, 2, jbig2HuffmanOOB, 0x001 },
-                                                { 4, 3, 4, 0x004 },     { -1, 4, 0, 0x00a },
-                                                { 22, 4, 4, 0x00b },    { 38, 4, 5, 0x00c },
-                                                { 2, 5, 0, 0x01a },     { 70, 5, 6, 0x01b },
-                                                { 134, 5, 7, 0x01c },   { 3, 6, 0, 0x03a },
-                                                { 20, 6, 1, 0x03b },    { 262, 6, 7, 0x03c },
-                                                { 646, 6, 10, 0x03d },  { -2, 7, 0, 0x07c },
-                                                { 390, 7, 8, 0x07d },   { -15, 8, 3, 0x0fc },
-                                                { -5, 8, 1, 0x0fd },    { -7, 9, 1, 0x1fc },
-                                                { -3, 9, 0, 0x1fd },    { -16, 9, jbig2HuffmanLOW, 0x1fe },
-                                                { 1670, 9, 32, 0x1ff }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableG[] = { { .val = -512, .prefixLen = 3, .rangeLen = 8, .prefix = 0x000 },  { .val = 256, .prefixLen = 3, .rangeLen = 8, .prefix = 0x001 },
+                                                { .val = 512, .prefixLen = 3, .rangeLen = 9, .prefix = 0x002 },   { .val = 1024, .prefixLen = 3, .rangeLen = 10, .prefix = 0x003 },
+                                                { .val = -1024, .prefixLen = 4, .rangeLen = 9, .prefix = 0x008 }, { .val = -256, .prefixLen = 4, .rangeLen = 7, .prefix = 0x009 },
+                                                { .val = -32, .prefixLen = 4, .rangeLen = 5, .prefix = 0x00a },   { .val = 0, .prefixLen = 4, .rangeLen = 5, .prefix = 0x00b },
+                                                { .val = 128, .prefixLen = 4, .rangeLen = 7, .prefix = 0x00c },   { .val = -128, .prefixLen = 5, .rangeLen = 6, .prefix = 0x01a },
+                                                { .val = -64, .prefixLen = 5, .rangeLen = 5, .prefix = 0x01b },   { .val = 32, .prefixLen = 5, .rangeLen = 5, .prefix = 0x01c },
+                                                { .val = 64, .prefixLen = 5, .rangeLen = 6, .prefix = 0x01d },    { .val = -1025, .prefixLen = 5, .rangeLen = jbig2HuffmanLOW, .prefix = 0x01e },
+                                                { .val = 2048, .prefixLen = 5, .rangeLen = 32, .prefix = 0x01f }, { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableI[] = { { 0, 2, jbig2HuffmanOOB, 0x000 },
-                                                { -1, 3, 1, 0x002 },
-                                                { 1, 3, 1, 0x003 },
-                                                { 7, 3, 5, 0x004 },
-                                                { -3, 4, 1, 0x00a },
-                                                { 43, 4, 5, 0x00b },
-                                                { 75, 4, 6, 0x00c },
-                                                { 3, 5, 1, 0x01a },
-                                                { 139, 5, 7, 0x01b },
-                                                { 267, 5, 8, 0x01c },
-                                                { 5, 6, 1, 0x03a },
-                                                { 39, 6, 2, 0x03b },
-                                                { 523, 6, 8, 0x03c },
-                                                { 1291, 6, 11, 0x03d },
-                                                { -5, 7, 1, 0x07c },
-                                                { 779, 7, 9, 0x07d },
-                                                { -31, 8, 4, 0x0fc },
-                                                { -11, 8, 2, 0x0fd },
-                                                { -15, 9, 2, 0x1fc },
-                                                { -7, 9, 1, 0x1fd },
-                                                { -32, 9, jbig2HuffmanLOW, 0x1fe },
-                                                { 3339, 9, 32, 0x1ff },
-                                                { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableH[] = { { .val = 0, .prefixLen = 2, .rangeLen = 1, .prefix = 0x000 },     { .val = 0, .prefixLen = 2, .rangeLen = jbig2HuffmanOOB, .prefix = 0x001 },
+                                                { .val = 4, .prefixLen = 3, .rangeLen = 4, .prefix = 0x004 },     { .val = -1, .prefixLen = 4, .rangeLen = 0, .prefix = 0x00a },
+                                                { .val = 22, .prefixLen = 4, .rangeLen = 4, .prefix = 0x00b },    { .val = 38, .prefixLen = 4, .rangeLen = 5, .prefix = 0x00c },
+                                                { .val = 2, .prefixLen = 5, .rangeLen = 0, .prefix = 0x01a },     { .val = 70, .prefixLen = 5, .rangeLen = 6, .prefix = 0x01b },
+                                                { .val = 134, .prefixLen = 5, .rangeLen = 7, .prefix = 0x01c },   { .val = 3, .prefixLen = 6, .rangeLen = 0, .prefix = 0x03a },
+                                                { .val = 20, .prefixLen = 6, .rangeLen = 1, .prefix = 0x03b },    { .val = 262, .prefixLen = 6, .rangeLen = 7, .prefix = 0x03c },
+                                                { .val = 646, .prefixLen = 6, .rangeLen = 10, .prefix = 0x03d },  { .val = -2, .prefixLen = 7, .rangeLen = 0, .prefix = 0x07c },
+                                                { .val = 390, .prefixLen = 7, .rangeLen = 8, .prefix = 0x07d },   { .val = -15, .prefixLen = 8, .rangeLen = 3, .prefix = 0x0fc },
+                                                { .val = -5, .prefixLen = 8, .rangeLen = 1, .prefix = 0x0fd },    { .val = -7, .prefixLen = 9, .rangeLen = 1, .prefix = 0x1fc },
+                                                { .val = -3, .prefixLen = 9, .rangeLen = 0, .prefix = 0x1fd },    { .val = -16, .prefixLen = 9, .rangeLen = jbig2HuffmanLOW, .prefix = 0x1fe },
+                                                { .val = 1670, .prefixLen = 9, .rangeLen = 32, .prefix = 0x1ff }, { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableJ[] = { { -2, 2, 2, 0x000 },
-                                                { 6, 2, 6, 0x001 },
-                                                { 0, 2, jbig2HuffmanOOB, 0x002 },
-                                                { -3, 5, 0, 0x018 },
-                                                { 2, 5, 0, 0x019 },
-                                                { 70, 5, 5, 0x01a },
-                                                { 3, 6, 0, 0x036 },
-                                                { 102, 6, 5, 0x037 },
-                                                { 134, 6, 6, 0x038 },
-                                                { 198, 6, 7, 0x039 },
-                                                { 326, 6, 8, 0x03a },
-                                                { 582, 6, 9, 0x03b },
-                                                { 1094, 6, 10, 0x03c },
-                                                { -21, 7, 4, 0x07a },
-                                                { -4, 7, 0, 0x07b },
-                                                { 4, 7, 0, 0x07c },
-                                                { 2118, 7, 11, 0x07d },
-                                                { -5, 8, 0, 0x0fc },
-                                                { 5, 8, 0, 0x0fd },
-                                                { -22, 8, jbig2HuffmanLOW, 0x0fe },
-                                                { 4166, 8, 32, 0x0ff },
-                                                { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableI[] = { { .val = 0, .prefixLen = 2, .rangeLen = jbig2HuffmanOOB, .prefix = 0x000 },
+                                                { .val = -1, .prefixLen = 3, .rangeLen = 1, .prefix = 0x002 },
+                                                { .val = 1, .prefixLen = 3, .rangeLen = 1, .prefix = 0x003 },
+                                                { .val = 7, .prefixLen = 3, .rangeLen = 5, .prefix = 0x004 },
+                                                { .val = -3, .prefixLen = 4, .rangeLen = 1, .prefix = 0x00a },
+                                                { .val = 43, .prefixLen = 4, .rangeLen = 5, .prefix = 0x00b },
+                                                { .val = 75, .prefixLen = 4, .rangeLen = 6, .prefix = 0x00c },
+                                                { .val = 3, .prefixLen = 5, .rangeLen = 1, .prefix = 0x01a },
+                                                { .val = 139, .prefixLen = 5, .rangeLen = 7, .prefix = 0x01b },
+                                                { .val = 267, .prefixLen = 5, .rangeLen = 8, .prefix = 0x01c },
+                                                { .val = 5, .prefixLen = 6, .rangeLen = 1, .prefix = 0x03a },
+                                                { .val = 39, .prefixLen = 6, .rangeLen = 2, .prefix = 0x03b },
+                                                { .val = 523, .prefixLen = 6, .rangeLen = 8, .prefix = 0x03c },
+                                                { .val = 1291, .prefixLen = 6, .rangeLen = 11, .prefix = 0x03d },
+                                                { .val = -5, .prefixLen = 7, .rangeLen = 1, .prefix = 0x07c },
+                                                { .val = 779, .prefixLen = 7, .rangeLen = 9, .prefix = 0x07d },
+                                                { .val = -31, .prefixLen = 8, .rangeLen = 4, .prefix = 0x0fc },
+                                                { .val = -11, .prefixLen = 8, .rangeLen = 2, .prefix = 0x0fd },
+                                                { .val = -15, .prefixLen = 9, .rangeLen = 2, .prefix = 0x1fc },
+                                                { .val = -7, .prefixLen = 9, .rangeLen = 1, .prefix = 0x1fd },
+                                                { .val = -32, .prefixLen = 9, .rangeLen = jbig2HuffmanLOW, .prefix = 0x1fe },
+                                                { .val = 3339, .prefixLen = 9, .rangeLen = 32, .prefix = 0x1ff },
+                                                { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableK[] = { { 1, 1, 0, 0x000 },  { 2, 2, 1, 0x002 },  { 4, 4, 0, 0x00c },  { 5, 4, 1, 0x00d },  { 7, 5, 1, 0x01c },  { 9, 5, 2, 0x01d },    { 13, 6, 2, 0x03c },
-                                                { 17, 7, 2, 0x07a }, { 21, 7, 3, 0x07b }, { 29, 7, 4, 0x07c }, { 45, 7, 5, 0x07d }, { 77, 7, 6, 0x07e }, { 141, 7, 32, 0x07f }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableJ[] = { { .val = -2, .prefixLen = 2, .rangeLen = 2, .prefix = 0x000 },
+                                                { .val = 6, .prefixLen = 2, .rangeLen = 6, .prefix = 0x001 },
+                                                { .val = 0, .prefixLen = 2, .rangeLen = jbig2HuffmanOOB, .prefix = 0x002 },
+                                                { .val = -3, .prefixLen = 5, .rangeLen = 0, .prefix = 0x018 },
+                                                { .val = 2, .prefixLen = 5, .rangeLen = 0, .prefix = 0x019 },
+                                                { .val = 70, .prefixLen = 5, .rangeLen = 5, .prefix = 0x01a },
+                                                { .val = 3, .prefixLen = 6, .rangeLen = 0, .prefix = 0x036 },
+                                                { .val = 102, .prefixLen = 6, .rangeLen = 5, .prefix = 0x037 },
+                                                { .val = 134, .prefixLen = 6, .rangeLen = 6, .prefix = 0x038 },
+                                                { .val = 198, .prefixLen = 6, .rangeLen = 7, .prefix = 0x039 },
+                                                { .val = 326, .prefixLen = 6, .rangeLen = 8, .prefix = 0x03a },
+                                                { .val = 582, .prefixLen = 6, .rangeLen = 9, .prefix = 0x03b },
+                                                { .val = 1094, .prefixLen = 6, .rangeLen = 10, .prefix = 0x03c },
+                                                { .val = -21, .prefixLen = 7, .rangeLen = 4, .prefix = 0x07a },
+                                                { .val = -4, .prefixLen = 7, .rangeLen = 0, .prefix = 0x07b },
+                                                { .val = 4, .prefixLen = 7, .rangeLen = 0, .prefix = 0x07c },
+                                                { .val = 2118, .prefixLen = 7, .rangeLen = 11, .prefix = 0x07d },
+                                                { .val = -5, .prefixLen = 8, .rangeLen = 0, .prefix = 0x0fc },
+                                                { .val = 5, .prefixLen = 8, .rangeLen = 0, .prefix = 0x0fd },
+                                                { .val = -22, .prefixLen = 8, .rangeLen = jbig2HuffmanLOW, .prefix = 0x0fe },
+                                                { .val = 4166, .prefixLen = 8, .rangeLen = 32, .prefix = 0x0ff },
+                                                { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableL[] = { { 1, 1, 0, 0x000 },  { 2, 2, 0, 0x002 },  { 3, 3, 1, 0x006 },  { 5, 5, 0, 0x01c },  { 6, 5, 1, 0x01d },  { 8, 6, 1, 0x03c },   { 10, 7, 0, 0x07a },
-                                                { 11, 7, 1, 0x07b }, { 13, 7, 2, 0x07c }, { 17, 7, 3, 0x07d }, { 25, 7, 4, 0x07e }, { 41, 8, 5, 0x0fe }, { 73, 8, 32, 0x0ff }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableK[] = { { .val = 1, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },    { .val = 2, .prefixLen = 2, .rangeLen = 1, .prefix = 0x002 },
+                                                { .val = 4, .prefixLen = 4, .rangeLen = 0, .prefix = 0x00c },    { .val = 5, .prefixLen = 4, .rangeLen = 1, .prefix = 0x00d },
+                                                { .val = 7, .prefixLen = 5, .rangeLen = 1, .prefix = 0x01c },    { .val = 9, .prefixLen = 5, .rangeLen = 2, .prefix = 0x01d },
+                                                { .val = 13, .prefixLen = 6, .rangeLen = 2, .prefix = 0x03c },   { .val = 17, .prefixLen = 7, .rangeLen = 2, .prefix = 0x07a },
+                                                { .val = 21, .prefixLen = 7, .rangeLen = 3, .prefix = 0x07b },   { .val = 29, .prefixLen = 7, .rangeLen = 4, .prefix = 0x07c },
+                                                { .val = 45, .prefixLen = 7, .rangeLen = 5, .prefix = 0x07d },   { .val = 77, .prefixLen = 7, .rangeLen = 6, .prefix = 0x07e },
+                                                { .val = 141, .prefixLen = 7, .rangeLen = 32, .prefix = 0x07f }, { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableM[] = { { 1, 1, 0, 0x000 },  { 2, 3, 0, 0x004 },  { 7, 3, 3, 0x005 },  { 3, 4, 0, 0x00c },  { 5, 4, 1, 0x00d },  { 4, 5, 0, 0x01c },    { 15, 6, 1, 0x03a },
-                                                { 17, 6, 2, 0x03b }, { 21, 6, 3, 0x03c }, { 29, 6, 4, 0x03d }, { 45, 6, 5, 0x03e }, { 77, 7, 6, 0x07e }, { 141, 7, 32, 0x07f }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableL[] = { { .val = 1, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },   { .val = 2, .prefixLen = 2, .rangeLen = 0, .prefix = 0x002 },
+                                                { .val = 3, .prefixLen = 3, .rangeLen = 1, .prefix = 0x006 },   { .val = 5, .prefixLen = 5, .rangeLen = 0, .prefix = 0x01c },
+                                                { .val = 6, .prefixLen = 5, .rangeLen = 1, .prefix = 0x01d },   { .val = 8, .prefixLen = 6, .rangeLen = 1, .prefix = 0x03c },
+                                                { .val = 10, .prefixLen = 7, .rangeLen = 0, .prefix = 0x07a },  { .val = 11, .prefixLen = 7, .rangeLen = 1, .prefix = 0x07b },
+                                                { .val = 13, .prefixLen = 7, .rangeLen = 2, .prefix = 0x07c },  { .val = 17, .prefixLen = 7, .rangeLen = 3, .prefix = 0x07d },
+                                                { .val = 25, .prefixLen = 7, .rangeLen = 4, .prefix = 0x07e },  { .val = 41, .prefixLen = 8, .rangeLen = 5, .prefix = 0x0fe },
+                                                { .val = 73, .prefixLen = 8, .rangeLen = 32, .prefix = 0x0ff }, { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableN[] = { { 0, 1, 0, 0x000 }, { -2, 3, 0, 0x004 }, { -1, 3, 0, 0x005 }, { 1, 3, 0, 0x006 }, { 2, 3, 0, 0x007 }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableM[] = { { .val = 1, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },    { .val = 2, .prefixLen = 3, .rangeLen = 0, .prefix = 0x004 },
+                                                { .val = 7, .prefixLen = 3, .rangeLen = 3, .prefix = 0x005 },    { .val = 3, .prefixLen = 4, .rangeLen = 0, .prefix = 0x00c },
+                                                { .val = 5, .prefixLen = 4, .rangeLen = 1, .prefix = 0x00d },    { .val = 4, .prefixLen = 5, .rangeLen = 0, .prefix = 0x01c },
+                                                { .val = 15, .prefixLen = 6, .rangeLen = 1, .prefix = 0x03a },   { .val = 17, .prefixLen = 6, .rangeLen = 2, .prefix = 0x03b },
+                                                { .val = 21, .prefixLen = 6, .rangeLen = 3, .prefix = 0x03c },   { .val = 29, .prefixLen = 6, .rangeLen = 4, .prefix = 0x03d },
+                                                { .val = 45, .prefixLen = 6, .rangeLen = 5, .prefix = 0x03e },   { .val = 77, .prefixLen = 7, .rangeLen = 6, .prefix = 0x07e },
+                                                { .val = 141, .prefixLen = 7, .rangeLen = 32, .prefix = 0x07f }, { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
-static const JBIG2HuffmanTable huffTableO[] = { { 0, 1, 0, 0x000 },   { -1, 3, 0, 0x004 },         { 1, 3, 0, 0x005 }, { -2, 4, 0, 0x00c },  { 2, 4, 0, 0x00d }, { -4, 5, 1, 0x01c },
-                                                { 3, 5, 1, 0x01d },   { -8, 6, 2, 0x03c },         { 5, 6, 2, 0x03d }, { -24, 7, 4, 0x07c }, { 9, 7, 4, 0x07d }, { -25, 7, jbig2HuffmanLOW, 0x07e },
-                                                { 25, 7, 32, 0x07f }, { 0, 0, jbig2HuffmanEOT, 0 } };
+static const JBIG2HuffmanTable huffTableN[] = { { .val = 0, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },  { .val = -2, .prefixLen = 3, .rangeLen = 0, .prefix = 0x004 },
+                                                { .val = -1, .prefixLen = 3, .rangeLen = 0, .prefix = 0x005 }, { .val = 1, .prefixLen = 3, .rangeLen = 0, .prefix = 0x006 },
+                                                { .val = 2, .prefixLen = 3, .rangeLen = 0, .prefix = 0x007 },  { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
+
+static const JBIG2HuffmanTable huffTableO[] = { { .val = 0, .prefixLen = 1, .rangeLen = 0, .prefix = 0x000 },   { .val = -1, .prefixLen = 3, .rangeLen = 0, .prefix = 0x004 },
+                                                { .val = 1, .prefixLen = 3, .rangeLen = 0, .prefix = 0x005 },   { .val = -2, .prefixLen = 4, .rangeLen = 0, .prefix = 0x00c },
+                                                { .val = 2, .prefixLen = 4, .rangeLen = 0, .prefix = 0x00d },   { .val = -4, .prefixLen = 5, .rangeLen = 1, .prefix = 0x01c },
+                                                { .val = 3, .prefixLen = 5, .rangeLen = 1, .prefix = 0x01d },   { .val = -8, .prefixLen = 6, .rangeLen = 2, .prefix = 0x03c },
+                                                { .val = 5, .prefixLen = 6, .rangeLen = 2, .prefix = 0x03d },   { .val = -24, .prefixLen = 7, .rangeLen = 4, .prefix = 0x07c },
+                                                { .val = 9, .prefixLen = 7, .rangeLen = 4, .prefix = 0x07d },   { .val = -25, .prefixLen = 7, .rangeLen = jbig2HuffmanLOW, .prefix = 0x07e },
+                                                { .val = 25, .prefixLen = 7, .rangeLen = 32, .prefix = 0x07f }, { .val = 0, .prefixLen = 0, .rangeLen = jbig2HuffmanEOT, .prefix = 0 } };
 
 //------------------------------------------------------------------------
 // JBIG2HuffmanDecoder
@@ -184,7 +255,7 @@ class JBIG2HuffmanDecoder
 {
 public:
     JBIG2HuffmanDecoder();
-    ~JBIG2HuffmanDecoder();
+    ~JBIG2HuffmanDecoder() = default;
     void setStream(Stream *strA) { str = strA; }
 
     void reset();
@@ -192,7 +263,7 @@ public:
     // Returns false for OOB, otherwise sets *<x> and returns true.
     bool decodeInt(int *x, const JBIG2HuffmanTable *table);
 
-    unsigned int readBits(unsigned int n);
+    unsigned int readBits(unsigned int n, bool *eof = nullptr);
     unsigned int readBit();
 
     // Sort the table by prefix length and assign prefix values.
@@ -214,8 +285,6 @@ JBIG2HuffmanDecoder::JBIG2HuffmanDecoder()
     byteCounter = 0;
     reset();
 }
-
-JBIG2HuffmanDecoder::~JBIG2HuffmanDecoder() { }
 
 void JBIG2HuffmanDecoder::reset()
 {
@@ -254,7 +323,7 @@ bool JBIG2HuffmanDecoder::decodeInt(int *x, const JBIG2HuffmanTable *table)
     return false;
 }
 
-unsigned int JBIG2HuffmanDecoder::readBits(unsigned int n)
+unsigned int JBIG2HuffmanDecoder::readBits(unsigned int n, bool *eof)
 {
     unsigned int x, mask, nLeft;
 
@@ -267,12 +336,20 @@ unsigned int JBIG2HuffmanDecoder::readBits(unsigned int n)
         nLeft = n - bufLen;
         bufLen = 0;
         while (nLeft >= 8) {
-            x = (x << 8) | (str->getChar() & 0xff);
+            const int c = str->getChar();
+            if (eof) {
+                *eof = *eof || c == EOF;
+            }
+            x = (x << 8) | (c & 0xff);
             ++byteCounter;
             nLeft -= 8;
         }
         if (nLeft > 0) {
-            buf = str->getChar();
+            const int c = str->getChar();
+            if (eof) {
+                *eof = *eof || c == EOF;
+            }
+            buf = c;
             ++byteCounter;
             bufLen = 8 - nLeft;
             x = (x << nLeft) | ((buf >> bufLen) & ((1 << nLeft) - 1));
@@ -294,8 +371,7 @@ unsigned int JBIG2HuffmanDecoder::readBit()
 
 bool JBIG2HuffmanDecoder::buildTable(JBIG2HuffmanTable *table, unsigned int len)
 {
-    unsigned int i, j, k, prefix;
-    JBIG2HuffmanTable tab;
+    unsigned int i, j;
 
     // stable selection sort:
     // - entries with prefixLen > 0, in ascending prefixLen order
@@ -303,19 +379,20 @@ bool JBIG2HuffmanDecoder::buildTable(JBIG2HuffmanTable *table, unsigned int len)
     // - all other entries with prefixLen = 0
     // (on entry, table[len] has prefixLen = 0, rangeLen = EOT)
     for (i = 0; i < len; ++i) {
-        for (j = i; j < len && table[j].prefixLen == 0; ++j)
+        for (j = i; j < len && table[j].prefixLen == 0; ++j) {
             ;
+        }
         if (j == len) {
             break;
         }
-        for (k = j + 1; k < len; ++k) {
+        for (unsigned int k = j + 1; k < len; ++k) {
             if (table[k].prefixLen > 0 && table[k].prefixLen < table[j].prefixLen) {
                 j = k;
             }
         }
         if (j != i) {
-            tab = table[j];
-            for (k = j; k > i; --k) {
+            const JBIG2HuffmanTable tab = table[j];
+            for (unsigned int k = j; k > i; --k) {
                 table[k] = table[k - 1];
             }
             table[i] = tab;
@@ -326,15 +403,16 @@ bool JBIG2HuffmanDecoder::buildTable(JBIG2HuffmanTable *table, unsigned int len)
     // assign prefixes
     if (table[0].rangeLen != jbig2HuffmanEOT) {
         i = 0;
-        prefix = 0;
+        unsigned int prefix = 0;
         table[i++].prefix = prefix++;
         for (; table[i].rangeLen != jbig2HuffmanEOT; ++i) {
-            if (table[i].prefixLen - table[i - 1].prefixLen > 32) {
+            const size_t bitsToShift = table[i].prefixLen - table[i - 1].prefixLen;
+            if (bitsToShift >= intNBits) {
                 error(errSyntaxError, -1, "Failed to build table for JBIG2 stream");
                 return false;
-            } else {
-                prefix <<= table[i].prefixLen - table[i - 1].prefixLen;
             }
+            prefix <<= bitsToShift;
+
             table[i].prefix = prefix++;
         }
     }
@@ -350,7 +428,7 @@ class JBIG2MMRDecoder
 {
 public:
     JBIG2MMRDecoder();
-    ~JBIG2MMRDecoder();
+    ~JBIG2MMRDecoder() = default;
     void setStream(Stream *strA) { str = strA; }
     void reset();
     int get2DCode();
@@ -359,7 +437,7 @@ public:
     unsigned int get24Bits();
     void resetByteCounter() { byteCounter = 0; }
     unsigned int getByteCounter() const { return byteCounter; }
-    void skipTo(unsigned int length);
+    [[nodiscard]] bool skipTo(unsigned int length);
 
 private:
     Stream *str;
@@ -375,8 +453,6 @@ JBIG2MMRDecoder::JBIG2MMRDecoder()
     byteCounter = 0;
     reset();
 }
-
-JBIG2MMRDecoder::~JBIG2MMRDecoder() { }
 
 void JBIG2MMRDecoder::reset()
 {
@@ -399,7 +475,7 @@ int JBIG2MMRDecoder::get2DCode()
         p = &twoDimTab1[(buf >> 1) & 0x7f];
     } else if (bufLen < 8) {
         p = &twoDimTab1[(buf << (7 - bufLen)) & 0x7f];
-        if (p->bits < 0 || p->bits > (int)bufLen) {
+        if (p->bits < 0 || p->bits > static_cast<int>(bufLen)) {
             buf = (buf << 8) | (str->getChar() & 0xff);
             bufLen += 8;
             ++nBytesRead;
@@ -442,7 +518,7 @@ int JBIG2MMRDecoder::getWhiteCode()
             }
             p = &whiteTab2[code & 0x1ff];
         }
-        if (p->bits > 0 && p->bits <= (int)bufLen) {
+        if (p->bits > 0 && p->bits <= static_cast<int>(bufLen)) {
             bufLen -= p->bits;
             return p->n;
         }
@@ -498,7 +574,7 @@ int JBIG2MMRDecoder::getBlackCode()
             }
             p = &blackTab3[code & 0x3f];
         }
-        if (p->bits > 0 && p->bits <= (int)bufLen) {
+        if (p->bits > 0 && p->bits <= static_cast<int>(bufLen)) {
             bufLen -= p->bits;
             return p->n;
         }
@@ -528,11 +604,13 @@ unsigned int JBIG2MMRDecoder::get24Bits()
     return (buf >> (bufLen - 24)) & 0xffffff;
 }
 
-void JBIG2MMRDecoder::skipTo(unsigned int length)
+bool JBIG2MMRDecoder::skipTo(unsigned int length)
 {
-    int n = str->discardChars(length - nBytesRead);
+    const unsigned int nBytesToDiscard = length - nBytesRead;
+    const unsigned int n = str->discardChars(nBytesToDiscard);
     nBytesRead += n;
     byteCounter += n;
+    return n == nBytesToDiscard;
 }
 
 //------------------------------------------------------------------------
@@ -550,13 +628,13 @@ enum JBIG2SegmentType
 class JBIG2Segment
 {
 public:
-    JBIG2Segment(unsigned int segNumA) { segNum = segNumA; }
+    explicit JBIG2Segment(unsigned int segNumA) { segNum = segNumA; }
     virtual ~JBIG2Segment();
     JBIG2Segment(const JBIG2Segment &) = delete;
     JBIG2Segment &operator=(const JBIG2Segment &) = delete;
     void setSegNum(unsigned int segNumA) { segNum = segNumA; }
-    unsigned int getSegNum() { return segNum; }
-    virtual JBIG2SegmentType getType() = 0;
+    unsigned int getSegNum() const { return segNum; }
+    virtual JBIG2SegmentType getType() const = 0;
 
 private:
     unsigned int segNum;
@@ -579,10 +657,10 @@ class JBIG2Bitmap : public JBIG2Segment
 {
 public:
     JBIG2Bitmap(unsigned int segNumA, int wA, int hA);
-    JBIG2Bitmap(JBIG2Bitmap *bitmap);
+    explicit JBIG2Bitmap(JBIG2Bitmap *bitmap);
     ~JBIG2Bitmap() override;
-    JBIG2SegmentType getType() override { return jbig2SegBitmap; }
-    JBIG2Bitmap *getSlice(unsigned int x, unsigned int y, unsigned int wA, unsigned int hA);
+    JBIG2SegmentType getType() const override { return jbig2SegBitmap; }
+    std::unique_ptr<JBIG2Bitmap> getSlice(unsigned int x, unsigned int y, unsigned int wA, unsigned int hA);
     void expand(int newH, unsigned int pixel);
     void clearToZero();
     void clearToOne();
@@ -593,9 +671,9 @@ public:
     void setPixel(int x, int y) { data[y * line + (x >> 3)] |= 1 << (7 - (x & 7)); }
     void clearPixel(int x, int y) { data[y * line + (x >> 3)] &= 0x7f7f >> (x & 7); }
     void getPixelPtr(int x, int y, JBIG2BitmapPtr *ptr);
-    int nextPixel(JBIG2BitmapPtr *ptr);
+    int nextPixel(JBIG2BitmapPtr *ptr) const;
     void duplicateRow(int yDest, int ySrc);
-    void combine(JBIG2Bitmap *bitmap, int x, int y, unsigned int combOp);
+    void combine(const JBIG2Bitmap &bitmap, int x, int y, unsigned int combOp);
     unsigned char *getDataPtr() { return data; }
     int getDataSize() const { return h * line; }
     bool isOk() const { return data != nullptr; }
@@ -623,7 +701,7 @@ JBIG2Bitmap::JBIG2Bitmap(unsigned int segNumA, int wA, int hA) : JBIG2Segment(se
         return;
     }
     // need to allocate one extra guard byte for use in combine()
-    data = (unsigned char *)gmalloc_checkoverflow(h * line + 1);
+    data = static_cast<unsigned char *>(gmalloc_checkoverflow(h * line + 1));
     if (data != nullptr) {
         data[h * line] = 0;
     }
@@ -648,7 +726,7 @@ JBIG2Bitmap::JBIG2Bitmap(JBIG2Bitmap *bitmap) : JBIG2Segment(0)
         return;
     }
     // need to allocate one extra guard byte for use in combine()
-    data = (unsigned char *)gmalloc(h * line + 1);
+    data = static_cast<unsigned char *>(gmalloc(h * line + 1));
     memcpy(data, bitmap->data, h * line);
     data[h * line] = 0;
 }
@@ -659,34 +737,33 @@ JBIG2Bitmap::~JBIG2Bitmap()
 }
 
 //~ optimize this
-JBIG2Bitmap *JBIG2Bitmap::getSlice(unsigned int x, unsigned int y, unsigned int wA, unsigned int hA)
+std::unique_ptr<JBIG2Bitmap> JBIG2Bitmap::getSlice(unsigned int x, unsigned int y, unsigned int wA, unsigned int hA)
 {
-    JBIG2Bitmap *slice;
-    unsigned int xx, yy;
-
     if (!data) {
-        return nullptr;
+        return {};
     }
 
-    slice = new JBIG2Bitmap(0, wA, hA);
-    if (slice->isOk()) {
-        slice->clearToZero();
-        for (yy = 0; yy < hA; ++yy) {
-            for (xx = 0; xx < wA; ++xx) {
-                if (getPixel(x + xx, y + yy)) {
-                    slice->setPixel(xx, yy);
-                }
+    auto slice = std::make_unique<JBIG2Bitmap>(0, wA, hA);
+    if (!slice->isOk()) {
+        return {};
+    }
+
+    slice->clearToZero();
+    for (unsigned int yy = 0; yy < hA; ++yy) {
+        for (unsigned int xx = 0; xx < wA; ++xx) {
+            if (getPixel(x + xx, y + yy)) {
+                slice->setPixel(xx, yy);
             }
         }
-    } else {
-        delete slice;
-        slice = nullptr;
     }
     return slice;
 }
 
 void JBIG2Bitmap::expand(int newH, unsigned int pixel)
 {
+    if (unlikely(!data)) {
+        return;
+    }
     if (newH <= h || line <= 0 || newH >= (INT_MAX - 1) / line) {
         error(errSyntaxError, -1, "invalid width/height");
         gfree(data);
@@ -694,7 +771,7 @@ void JBIG2Bitmap::expand(int newH, unsigned int pixel)
         return;
     }
     // need to allocate one extra guard byte for use in combine()
-    data = (unsigned char *)grealloc(data, newH * line + 1);
+    data = static_cast<unsigned char *>(grealloc(data, newH * line + 1));
     if (pixel) {
         memset(data + h * line, 0xff, (newH - h) * line);
     } else {
@@ -731,7 +808,7 @@ inline void JBIG2Bitmap::getPixelPtr(int x, int y, JBIG2BitmapPtr *ptr)
     }
 }
 
-inline int JBIG2Bitmap::nextPixel(JBIG2BitmapPtr *ptr)
+inline int JBIG2Bitmap::nextPixel(JBIG2BitmapPtr *ptr) const
 {
     int pix;
 
@@ -759,13 +836,16 @@ void JBIG2Bitmap::duplicateRow(int yDest, int ySrc)
     memcpy(data + yDest * line, data + ySrc * line, line);
 }
 
-void JBIG2Bitmap::combine(JBIG2Bitmap *bitmap, int x, int y, unsigned int combOp)
+void JBIG2Bitmap::combine(const JBIG2Bitmap &bitmap, int x, int y, unsigned int combOp)
 {
-    int x0, x1, y0, y1, xx, yy;
+    int x0, x1, y0, y1, xx, yy, yyy;
     unsigned char *srcPtr, *destPtr;
     unsigned int src0, src1, src, dest, s1, s2, m1, m2, m3;
     bool oneByte;
 
+    if (unlikely(!isOk())) {
+        return;
+    }
     // check for the pathological case where y = -2^31
     if (y < -0x7fffffff) {
         return;
@@ -775,10 +855,14 @@ void JBIG2Bitmap::combine(JBIG2Bitmap *bitmap, int x, int y, unsigned int combOp
     } else {
         y0 = 0;
     }
-    if (y + bitmap->h > h) {
+    int yPlusBitmapH;
+    if (unlikely(checkedAdd(y, bitmap.h, &yPlusBitmapH))) {
+        return;
+    }
+    if (yPlusBitmapH > h) {
         y1 = h - y;
     } else {
-        y1 = bitmap->h;
+        y1 = bitmap.h;
     }
     if (y0 >= y1) {
         return;
@@ -789,7 +873,7 @@ void JBIG2Bitmap::combine(JBIG2Bitmap *bitmap, int x, int y, unsigned int combOp
     } else {
         x0 = 0;
     }
-    if (unlikely(checkedAdd(x, bitmap->w, &x1))) {
+    if (unlikely(checkedAdd(x, bitmap.w, &x1))) {
         return;
     }
     if (x1 > w) {
@@ -808,14 +892,18 @@ void JBIG2Bitmap::combine(JBIG2Bitmap *bitmap, int x, int y, unsigned int combOp
     oneByte = x0 == ((x1 - 1) & ~7);
 
     for (yy = y0; yy < y1; ++yy) {
-        if (unlikely((y + yy >= h) || (y + yy < 0)))
+        if (unlikely(checkedAdd(y, yy, &yyy))) {
             continue;
+        }
+        if (unlikely((yyy >= h) || (yyy < 0))) {
+            continue;
+        }
 
         // one byte per line -- need to mask both left and right side
         if (oneByte) {
             if (x >= 0) {
-                destPtr = data + (y + yy) * line + (x >> 3);
-                srcPtr = bitmap->data + yy * bitmap->line;
+                destPtr = data + yyy * line + (x >> 3);
+                srcPtr = bitmap.data + yy * bitmap.line;
                 dest = *destPtr;
                 src1 = *srcPtr;
                 switch (combOp) {
@@ -837,8 +925,8 @@ void JBIG2Bitmap::combine(JBIG2Bitmap *bitmap, int x, int y, unsigned int combOp
                 }
                 *destPtr = dest;
             } else {
-                destPtr = data + (y + yy) * line;
-                srcPtr = bitmap->data + yy * bitmap->line + (-x >> 3);
+                destPtr = data + yyy * line;
+                srcPtr = bitmap.data + yy * bitmap.line + (-x >> 3);
                 dest = *destPtr;
                 src1 = *srcPtr;
                 switch (combOp) {
@@ -867,8 +955,8 @@ void JBIG2Bitmap::combine(JBIG2Bitmap *bitmap, int x, int y, unsigned int combOp
 
             // left-most byte
             if (x >= 0) {
-                destPtr = data + (y + yy) * line + (x >> 3);
-                srcPtr = bitmap->data + yy * bitmap->line;
+                destPtr = data + yyy * line + (x >> 3);
+                srcPtr = bitmap.data + yy * bitmap.line;
                 src1 = *srcPtr++;
                 dest = *destPtr;
                 switch (combOp) {
@@ -891,8 +979,8 @@ void JBIG2Bitmap::combine(JBIG2Bitmap *bitmap, int x, int y, unsigned int combOp
                 *destPtr++ = dest;
                 xx = x0 + 8;
             } else {
-                destPtr = data + (y + yy) * line;
-                srcPtr = bitmap->data + yy * bitmap->line + (-x >> 3);
+                destPtr = data + yyy * line;
+                srcPtr = bitmap.data + yy * bitmap.line + (-x >> 3);
                 src1 = *srcPtr++;
                 xx = x0;
             }
@@ -963,53 +1051,32 @@ class JBIG2SymbolDict : public JBIG2Segment
 public:
     JBIG2SymbolDict(unsigned int segNumA, unsigned int sizeA);
     ~JBIG2SymbolDict() override;
-    JBIG2SegmentType getType() override { return jbig2SegSymbolDict; }
-    unsigned int getSize() { return size; }
-    void setBitmap(unsigned int idx, JBIG2Bitmap *bitmap) { bitmaps[idx] = bitmap; }
-    JBIG2Bitmap *getBitmap(unsigned int idx) { return bitmaps[idx]; }
-    bool isOk() { return bitmaps != nullptr; }
-    void setGenericRegionStats(JArithmeticDecoderStats *stats) { genericRegionStats = stats; }
-    void setRefinementRegionStats(JArithmeticDecoderStats *stats) { refinementRegionStats = stats; }
-    JArithmeticDecoderStats *getGenericRegionStats() { return genericRegionStats; }
-    JArithmeticDecoderStats *getRefinementRegionStats() { return refinementRegionStats; }
+    JBIG2SegmentType getType() const override { return jbig2SegSymbolDict; }
+    unsigned int getSize() const { return bitmaps.size(); }
+    void setBitmap(unsigned int idx, std::unique_ptr<JBIG2Bitmap> bitmap) { bitmaps[idx] = std::move(bitmap); }
+    JBIG2Bitmap *getBitmap(unsigned int idx) { return bitmaps[idx].get(); }
+    bool isOk() const { return ok; }
+    void setGenericRegionStats(std::unique_ptr<JArithmeticDecoderStats> stats) { genericRegionStats = std::move(stats); }
+    void setRefinementRegionStats(std::unique_ptr<JArithmeticDecoderStats> stats) { refinementRegionStats = std::move(stats); }
+    JArithmeticDecoderStats *getGenericRegionStats() { return genericRegionStats.get(); }
+    JArithmeticDecoderStats *getRefinementRegionStats() { return refinementRegionStats.get(); }
 
 private:
-    unsigned int size;
-    JBIG2Bitmap **bitmaps;
-    JArithmeticDecoderStats *genericRegionStats;
-    JArithmeticDecoderStats *refinementRegionStats;
+    bool ok;
+    std::vector<std::unique_ptr<JBIG2Bitmap>> bitmaps;
+    std::unique_ptr<JArithmeticDecoderStats> genericRegionStats;
+    std::unique_ptr<JArithmeticDecoderStats> refinementRegionStats;
 };
 
 JBIG2SymbolDict::JBIG2SymbolDict(unsigned int segNumA, unsigned int sizeA) : JBIG2Segment(segNumA)
 {
-    unsigned int i;
-
-    size = sizeA;
-    bitmaps = (JBIG2Bitmap **)gmallocn_checkoverflow(size, sizeof(JBIG2Bitmap *));
-    if (!bitmaps)
-        size = 0;
-    for (i = 0; i < size; ++i) {
-        bitmaps[i] = nullptr;
-    }
-    genericRegionStats = nullptr;
-    refinementRegionStats = nullptr;
-}
-
-JBIG2SymbolDict::~JBIG2SymbolDict()
-{
-    unsigned int i;
-
-    for (i = 0; i < size; ++i) {
-        delete bitmaps[i];
-    }
-    gfree(bitmaps);
-    if (genericRegionStats) {
-        delete genericRegionStats;
-    }
-    if (refinementRegionStats) {
-        delete refinementRegionStats;
+    ok = sizeA <= bitmaps.max_size();
+    if (ok) {
+        bitmaps.resize(sizeA);
     }
 }
+
+JBIG2SymbolDict::~JBIG2SymbolDict() = default;
 
 //------------------------------------------------------------------------
 // JBIG2PatternDict
@@ -1020,40 +1087,30 @@ class JBIG2PatternDict : public JBIG2Segment
 public:
     JBIG2PatternDict(unsigned int segNumA, unsigned int sizeA);
     ~JBIG2PatternDict() override;
-    JBIG2SegmentType getType() override { return jbig2SegPatternDict; }
-    unsigned int getSize() { return size; }
-    void setBitmap(unsigned int idx, JBIG2Bitmap *bitmap)
+    JBIG2SegmentType getType() const override { return jbig2SegPatternDict; }
+    unsigned int getSize() const { return bitmaps.size(); }
+    void setBitmap(unsigned int idx, std::unique_ptr<JBIG2Bitmap> bitmap)
     {
-        if (likely(idx < size))
-            bitmaps[idx] = bitmap;
+        if (likely(idx < bitmaps.size())) {
+            bitmaps[idx] = std::move(bitmap);
+        }
     }
-    JBIG2Bitmap *getBitmap(unsigned int idx) { return (idx < size) ? bitmaps[idx] : nullptr; }
+    JBIG2Bitmap *getBitmap(unsigned int idx) { return (idx < bitmaps.size()) ? bitmaps[idx].get() : nullptr; }
 
 private:
-    unsigned int size;
-    JBIG2Bitmap **bitmaps;
+    std::vector<std::unique_ptr<JBIG2Bitmap>> bitmaps;
 };
 
 JBIG2PatternDict::JBIG2PatternDict(unsigned int segNumA, unsigned int sizeA) : JBIG2Segment(segNumA)
 {
-    bitmaps = (JBIG2Bitmap **)gmallocn_checkoverflow(sizeA, sizeof(JBIG2Bitmap *));
-    if (bitmaps) {
-        size = sizeA;
-    } else {
-        size = 0;
+    if (sizeA > bitmaps.max_size()) {
         error(errSyntaxError, -1, "JBIG2PatternDict: can't allocate bitmaps");
+        return;
     }
+    bitmaps.resize(sizeA);
 }
 
-JBIG2PatternDict::~JBIG2PatternDict()
-{
-    unsigned int i;
-
-    for (i = 0; i < size; ++i) {
-        delete bitmaps[i];
-    }
-    gfree(bitmaps);
-}
+JBIG2PatternDict::~JBIG2PatternDict() = default;
 
 //------------------------------------------------------------------------
 // JBIG2CodeTable
@@ -1064,7 +1121,7 @@ class JBIG2CodeTable : public JBIG2Segment
 public:
     JBIG2CodeTable(unsigned int segNumA, JBIG2HuffmanTable *tableA);
     ~JBIG2CodeTable() override;
-    JBIG2SegmentType getType() override { return jbig2SegCodeTable; }
+    JBIG2SegmentType getType() const override { return jbig2SegCodeTable; }
     JBIG2HuffmanTable *getHuffTable() { return table; }
 
 private:
@@ -1085,13 +1142,11 @@ JBIG2CodeTable::~JBIG2CodeTable()
 // JBIG2Stream
 //------------------------------------------------------------------------
 
-JBIG2Stream::JBIG2Stream(Stream *strA, Object &&globalsStreamA, Object *globalsStreamRefA) : FilterStream(strA)
+JBIG2Stream::JBIG2Stream(std::unique_ptr<Stream> strA, Object &&globalsStreamA, Object *globalsStreamRefA) : OwnedFilterStream(std::move(strA))
 {
-    pageBitmap = nullptr;
-
     arithDecoder = new JArithmeticDecoder();
-    genericRegionStats = new JArithmeticDecoderStats(1 << 1);
-    refinementRegionStats = new JArithmeticDecoderStats(1 << 1);
+    genericRegionStats = std::make_unique<JArithmeticDecoderStats>(1 << 1);
+    refinementRegionStats = std::make_unique<JArithmeticDecoderStats>(1 << 1);
     iadhStats = new JArithmeticDecoderStats(1 << 9);
     iadwStats = new JArithmeticDecoderStats(1 << 9);
     iaexStats = new JArithmeticDecoderStats(1 << 9);
@@ -1111,8 +1166,9 @@ JBIG2Stream::JBIG2Stream(Stream *strA, Object &&globalsStreamA, Object *globalsS
 
     if (globalsStreamA.isStream()) {
         globalsStream = std::move(globalsStreamA);
-        if (globalsStreamRefA->isRef())
+        if (globalsStreamRefA->isRef()) {
             globalsStreamRef = globalsStreamRefA->getRef();
+        }
     }
 
     curStr = nullptr;
@@ -1123,8 +1179,6 @@ JBIG2Stream::~JBIG2Stream()
 {
     close();
     delete arithDecoder;
-    delete genericRegionStats;
-    delete refinementRegionStats;
     delete iadhStats;
     delete iadwStats;
     delete iaexStats;
@@ -1141,22 +1195,22 @@ JBIG2Stream::~JBIG2Stream()
     delete iaidStats;
     delete huffDecoder;
     delete mmrDecoder;
-    delete str;
 }
 
-void JBIG2Stream::reset()
+bool JBIG2Stream::rewind()
 {
     segments.resize(0);
     globalSegments.resize(0);
+    bool rewindSuccess = true;
 
     // read the globals stream
     if (globalsStream.isStream()) {
         curStr = globalsStream.getStream();
-        curStr->reset();
+        rewindSuccess = curStr->rewind();
         arithDecoder->setStream(curStr);
         huffDecoder->setStream(curStr);
         mmrDecoder->setStream(curStr);
-        readSegments();
+        rewindSuccess = rewindSuccess && readSegments();
         curStr->close();
         // swap the newly read segments list into globalSegments
         std::swap(segments, globalSegments);
@@ -1164,26 +1218,25 @@ void JBIG2Stream::reset()
 
     // read the main stream
     curStr = str;
-    curStr->reset();
+    rewindSuccess = rewindSuccess && curStr->rewind();
     arithDecoder->setStream(curStr);
     huffDecoder->setStream(curStr);
     mmrDecoder->setStream(curStr);
-    readSegments();
+    rewindSuccess = rewindSuccess && readSegments();
 
-    if (pageBitmap) {
+    if (pageBitmap && pageBitmap->isOk()) {
         dataPtr = pageBitmap->getDataPtr();
         dataEnd = dataPtr + pageBitmap->getDataSize();
     } else {
         dataPtr = dataEnd = nullptr;
     }
+
+    return rewindSuccess;
 }
 
 void JBIG2Stream::close()
 {
-    if (pageBitmap) {
-        delete pageBitmap;
-        pageBitmap = nullptr;
-    }
+    pageBitmap.reset();
     segments.resize(0);
     globalSegments.resize(0);
     dataPtr = dataEnd = nullptr;
@@ -1222,7 +1275,7 @@ int JBIG2Stream::getChars(int nChars, unsigned char *buffer)
         return 0;
     }
     if (dataEnd - dataPtr < nChars) {
-        n = (int)(dataEnd - dataPtr);
+        n = static_cast<int>(dataEnd - dataPtr);
     } else {
         n = nChars;
     }
@@ -1232,21 +1285,21 @@ int JBIG2Stream::getChars(int nChars, unsigned char *buffer)
     return n;
 }
 
-GooString *JBIG2Stream::getPSFilter(int psLevel, const char *indent)
+std::optional<std::string> JBIG2Stream::getPSFilter(int /*psLevel*/, const char * /*indent*/)
 {
-    return nullptr;
+    return {};
 }
 
-bool JBIG2Stream::isBinary(bool last)
+bool JBIG2Stream::isBinary(bool /*last*/) const
 {
     return str->isBinary(true);
 }
 
-void JBIG2Stream::readSegments()
+bool JBIG2Stream::readSegments()
 {
     unsigned int segNum, segFlags, segType, page, segLength;
     unsigned int refFlags, nRefSegs;
-    unsigned int *refSegs;
+    std::vector<unsigned int> refSegs;
     int c1, c2, c3;
 
     bool done = false;
@@ -1254,47 +1307,57 @@ void JBIG2Stream::readSegments()
 
         // segment header flags
         if (!readUByte(&segFlags)) {
-            goto eofError1;
+            error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+            return false;
         }
         segType = segFlags & 0x3f;
 
         // referred-to segment count and retention flags
         if (!readUByte(&refFlags)) {
-            goto eofError1;
+            error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+            return false;
         }
         nRefSegs = refFlags >> 5;
         if (nRefSegs == 7) {
             if ((c1 = curStr->getChar()) == EOF || (c2 = curStr->getChar()) == EOF || (c3 = curStr->getChar()) == EOF) {
-                goto eofError1;
+                error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                return false;
             }
             refFlags = (refFlags << 24) | (c1 << 16) | (c2 << 8) | c3;
             nRefSegs = refFlags & 0x1fffffff;
             const unsigned int nCharsToRead = (nRefSegs + 9) >> 3;
             for (unsigned int i = 0; i < nCharsToRead; ++i) {
                 if ((c1 = curStr->getChar()) == EOF) {
-                    goto eofError1;
+                    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                    return false;
                 }
             }
         }
 
         // referred-to segment numbers
-        refSegs = (unsigned int *)gmallocn(nRefSegs, sizeof(unsigned int));
+        if (sizeIsBiggerThanVectorMaxSize(nRefSegs, refSegs)) {
+            return false;
+        }
+        refSegs.resize(nRefSegs);
         if (segNum <= 256) {
             for (unsigned int i = 0; i < nRefSegs; ++i) {
                 if (!readUByte(&refSegs[i])) {
-                    goto eofError2;
+                    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                    return false;
                 }
             }
         } else if (segNum <= 65536) {
             for (unsigned int i = 0; i < nRefSegs; ++i) {
                 if (!readUWord(&refSegs[i])) {
-                    goto eofError2;
+                    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                    return false;
                 }
             }
         } else {
             for (unsigned int i = 0; i < nRefSegs; ++i) {
                 if (!readULong(&refSegs[i])) {
-                    goto eofError2;
+                    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                    return false;
                 }
             }
         }
@@ -1302,23 +1365,26 @@ void JBIG2Stream::readSegments()
         // segment page association
         if (segFlags & 0x40) {
             if (!readULong(&page)) {
-                goto eofError2;
+                error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                return false;
             }
         } else {
             if (!readUByte(&page)) {
-                goto eofError2;
+                error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                return false;
             }
         }
 
         // segment data length
         if (!readULong(&segLength)) {
-            goto eofError2;
+            error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+            return false;
         }
 
         // check for missing page information segment
         if (!pageBitmap && ((segType >= 4 && segType <= 7) || (segType >= 20 && segType <= 43))) {
             error(errSyntaxError, curStr->getPos(), "First JBIG2 segment associated with a page must be a page information segment");
-            goto syntaxError;
+            return false;
         }
 
         // read the segment data
@@ -1328,73 +1394,94 @@ void JBIG2Stream::readSegments()
         byteCounter = 0;
         switch (segType) {
         case 0:
-            if (!readSymbolDictSeg(segNum, segLength, refSegs, nRefSegs)) {
-                goto syntaxError;
+            if (!readSymbolDictSeg(segNum, refSegs)) {
+                return false;
             }
             break;
         case 4:
-            readTextRegionSeg(segNum, false, false, segLength, refSegs, nRefSegs);
+            if (!readTextRegionSeg(segNum, false, refSegs)) {
+                return false;
+            }
             break;
         case 6:
-            readTextRegionSeg(segNum, true, false, segLength, refSegs, nRefSegs);
-            break;
         case 7:
-            readTextRegionSeg(segNum, true, true, segLength, refSegs, nRefSegs);
+            if (!readTextRegionSeg(segNum, true, refSegs)) {
+                return false;
+            }
             break;
         case 16:
-            readPatternDictSeg(segNum, segLength);
+            if (!readPatternDictSeg(segNum, segLength)) {
+                return false;
+            }
             break;
         case 20:
-            readHalftoneRegionSeg(segNum, false, false, segLength, refSegs, nRefSegs);
+            if (!readHalftoneRegionSeg(segNum, false, refSegs)) {
+                return false;
+            }
             break;
         case 22:
-            readHalftoneRegionSeg(segNum, true, false, segLength, refSegs, nRefSegs);
-            break;
         case 23:
-            readHalftoneRegionSeg(segNum, true, true, segLength, refSegs, nRefSegs);
+            if (!readHalftoneRegionSeg(segNum, true, refSegs)) {
+                return false;
+            }
             break;
         case 36:
-            readGenericRegionSeg(segNum, false, false, segLength);
+            if (!readGenericRegionSeg(segNum, false, segLength)) {
+                return false;
+            }
             break;
         case 38:
-            readGenericRegionSeg(segNum, true, false, segLength);
-            break;
         case 39:
-            readGenericRegionSeg(segNum, true, true, segLength);
+            if (!readGenericRegionSeg(segNum, true, segLength)) {
+                return false;
+            }
             break;
         case 40:
-            readGenericRefinementRegionSeg(segNum, false, false, segLength, refSegs, nRefSegs);
+            if (!readGenericRefinementRegionSeg(segNum, false, refSegs)) {
+                return false;
+            }
             break;
         case 42:
-            readGenericRefinementRegionSeg(segNum, true, false, segLength, refSegs, nRefSegs);
-            break;
         case 43:
-            readGenericRefinementRegionSeg(segNum, true, true, segLength, refSegs, nRefSegs);
+            if (!readGenericRefinementRegionSeg(segNum, true, refSegs)) {
+                return false;
+            }
             break;
         case 48:
-            readPageInfoSeg(segLength);
+            if (!readPageInfoSeg()) {
+                return false;
+            }
             break;
         case 50:
-            readEndOfStripeSeg(segLength);
+            if (!readEndOfStripeSeg(segLength)) {
+                return false;
+            }
             break;
         case 51:
             // end of file segment
             done = true;
             break;
         case 52:
-            readProfilesSeg(segLength);
+            if (!readProfilesSeg(segLength)) {
+                return false;
+            }
             break;
         case 53:
-            readCodeTableSeg(segNum, segLength);
+            if (!readCodeTableSeg(segNum)) {
+                return false;
+            }
             break;
         case 62:
-            readExtensionSeg(segLength);
+            if (!readExtensionSeg(segLength)) {
+                return false;
+            }
             break;
         default:
             error(errSyntaxError, curStr->getPos(), "Unknown segment type in JBIG2 stream");
             for (unsigned int i = 0; i < segLength; ++i) {
                 if ((c1 = curStr->getChar()) == EOF) {
-                    goto eofError2;
+                    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                    return false;
                 }
             }
             break;
@@ -1404,14 +1491,14 @@ void JBIG2Stream::readSegments()
         // segment data, unless this segment is marked as having an
         // unknown length (section 7.2.7 of the JBIG2 Final Committee Draft)
 
-        if (!(segType == 38 && segLength == 0xffffffff)) {
+        if (segType != 38 || segLength != 0xffffffff) {
 
             byteCounter += arithDecoder->getByteCounter();
             byteCounter += huffDecoder->getByteCounter();
             byteCounter += mmrDecoder->getByteCounter();
 
-            Goffset segExtraBytes = segLength - byteCounter;
-            if (segExtraBytes > 0) {
+            if (segLength > byteCounter) {
+                const unsigned int segExtraBytes = segLength - byteCounter;
 
                 // If we didn't read all of the bytes in the segment data,
                 // indicate an error, and throw away the rest of the data.
@@ -1421,83 +1508,83 @@ void JBIG2Stream::readSegments()
                 // arithmetic-coded symbol dictionary segments when numNewSyms
                 // == 0.  Segments like this often occur for blank pages.
 
-                error(errSyntaxError, curStr->getPos(), "{0:lld} extraneous byte{1:s} after segment", segExtraBytes, (segExtraBytes > 1) ? "s" : "");
-
-            } else if (segExtraBytes < 0 || segLength - byteCounter > 65536) {
+                error(errSyntaxError, curStr->getPos(), "{0:ud} extraneous byte{1:s} after segment", segExtraBytes, (segExtraBytes > 1) ? "s" : "");
+                byteCounter += curStr->discardChars(segExtraBytes);
+            } else if (segLength < byteCounter) {
 
                 // If we read more bytes than we should have, according to the
                 // segment length field, note an error.
 
                 error(errSyntaxError, curStr->getPos(), "Previous segment handler read too many bytes");
-                goto syntaxError;
+                return false;
             }
-            byteCounter += curStr->discardChars(segExtraBytes);
         }
-
-        gfree(refSegs);
     }
 
-    return;
-
-syntaxError:
-    gfree(refSegs);
-    return;
-
-eofError2:
-    gfree(refSegs);
-eofError1:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+    return true;
 }
 
-bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, unsigned int *refSegs, unsigned int nRefSegs)
+// compute symbol code length, per 6.5.8.2.3
+//  symCodeLen = ceil( log2( numInputSyms + numNewSyms ) )
+static unsigned int calculateSymCodeLen(const unsigned int numInputSyms, const unsigned int numNewSyms, const unsigned int huff)
+{
+    unsigned int i = numInputSyms + numNewSyms;
+    if (i <= 1) {
+        return huff ? 1 : 0;
+    }
+
+    --i;
+    unsigned int symCodeLen = 0;
+    // i = floor((numSyms-1) / 2^symCodeLen)
+    while (i > 0) {
+        ++symCodeLen;
+        i >>= 1;
+    }
+    return symCodeLen;
+}
+
+bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, const std::vector<unsigned int> &refSegs)
 {
     std::unique_ptr<JBIG2SymbolDict> symbolDict;
     const JBIG2HuffmanTable *huffDHTable, *huffDWTable;
     const JBIG2HuffmanTable *huffBMSizeTable, *huffAggInstTable;
-    JBIG2Segment *seg;
     std::vector<JBIG2Segment *> codeTables;
     JBIG2SymbolDict *inputSymbolDict;
-    unsigned int flags, sdTemplate, sdrTemplate, huff, refAgg;
-    unsigned int huffDH, huffDW, huffBMSize, huffAggInst;
-    unsigned int contextUsed, contextRetained;
+    unsigned int flags;
     int sdATX[4], sdATY[4], sdrATX[2], sdrATY[2];
-    unsigned int numExSyms, numNewSyms, numInputSyms, symCodeLen;
-    JBIG2Bitmap **bitmaps;
-    JBIG2Bitmap *collBitmap, *refBitmap;
-    unsigned int *symWidths;
-    unsigned int symHeight, symWidth, totalWidth, x, symID;
-    int dh = 0, dw, refAggNum, refDX = 0, refDY = 0, bmSize;
+    unsigned int numExSyms, numNewSyms, numInputSyms;
+    std::vector<JBIG2Bitmap *> bitmaps;
+    std::vector<std::unique_ptr<JBIG2Bitmap>> bitmapsToDelete;
+    std::vector<unsigned int> symWidths;
+    unsigned int symHeight, symWidth, totalWidth, symID;
+    int dh = 0, dw;
     bool ex;
-    int run, cnt, c;
+    int run;
     unsigned int i, j, k;
-    unsigned char *p;
-
-    symWidths = nullptr;
 
     // symbol dictionary flags
     if (!readUWord(&flags)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
-    sdTemplate = (flags >> 10) & 3;
-    sdrTemplate = (flags >> 12) & 1;
-    huff = flags & 1;
-    refAgg = (flags >> 1) & 1;
-    huffDH = (flags >> 2) & 3;
-    huffDW = (flags >> 4) & 3;
-    huffBMSize = (flags >> 6) & 1;
-    huffAggInst = (flags >> 7) & 1;
-    contextUsed = (flags >> 8) & 1;
-    contextRetained = (flags >> 9) & 1;
+    const unsigned int sdTemplate = (flags >> 10) & 3;
+    const unsigned int sdrTemplate = (flags >> 12) & 1;
+    const unsigned int huff = flags & 1;
+    const unsigned int refAgg = (flags >> 1) & 1;
+    const unsigned int contextUsed = (flags >> 8) & 1;
+    const unsigned int contextRetained = (flags >> 9) & 1;
 
     // symbol dictionary AT flags
     if (!huff) {
         if (sdTemplate == 0) {
             if (!readByte(&sdATX[0]) || !readByte(&sdATY[0]) || !readByte(&sdATX[1]) || !readByte(&sdATY[1]) || !readByte(&sdATX[2]) || !readByte(&sdATY[2]) || !readByte(&sdATX[3]) || !readByte(&sdATY[3])) {
-                goto eofError;
+                error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                return false;
             }
         } else {
             if (!readByte(&sdATX[0]) || !readByte(&sdATY[0])) {
-                goto eofError;
+                error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                return false;
             }
         }
     }
@@ -1505,27 +1592,31 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
     // symbol dictionary refinement AT flags
     if (refAgg && !sdrTemplate) {
         if (!readByte(&sdrATX[0]) || !readByte(&sdrATY[0]) || !readByte(&sdrATX[1]) || !readByte(&sdrATY[1])) {
-            goto eofError;
+            error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+            return false;
         }
     }
 
     // SDNUMEXSYMS and SDNUMNEWSYMS
     if (!readULong(&numExSyms) || !readULong(&numNewSyms)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
 
     // get referenced segments: input symbol dictionaries and code tables
     numInputSyms = 0;
-    for (i = 0; i < nRefSegs; ++i) {
+    for (const unsigned int refSegI : refSegs) {
         // This is need by bug 12014, returning false makes it not crash
         // but we end up with a empty page while acroread is able to render
         // part of it
-        if ((seg = findSegment(refSegs[i]))) {
+        JBIG2Segment *seg = findSegment(refSegI);
+        if (seg) {
             if (seg->getType() == jbig2SegSymbolDict) {
-                j = ((JBIG2SymbolDict *)seg)->getSize();
+                j = static_cast<JBIG2SymbolDict *>(seg)->getSize();
                 if (numInputSyms > UINT_MAX - j) {
                     error(errSyntaxError, curStr->getPos(), "Too many input symbols in JBIG2 symbol dictionary");
-                    goto eofError;
+                    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+                    return false;
                 }
                 numInputSyms += j;
             } else if (seg->getType() == jbig2SegCodeTable) {
@@ -1537,39 +1628,27 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
     }
     if (numInputSyms > UINT_MAX - numNewSyms) {
         error(errSyntaxError, curStr->getPos(), "Too many input symbols in JBIG2 symbol dictionary");
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
 
-    // compute symbol code length, per 6.5.8.2.3
-    //  symCodeLen = ceil( log2( numInputSyms + numNewSyms ) )
-    i = numInputSyms + numNewSyms;
-    if (i <= 1) {
-        symCodeLen = huff ? 1 : 0;
-    } else {
-        --i;
-        symCodeLen = 0;
-        // i = floor((numSyms-1) / 2^symCodeLen)
-        while (i > 0) {
-            ++symCodeLen;
-            i >>= 1;
-        }
+    const unsigned int symCodeLen = calculateSymCodeLen(numInputSyms, numNewSyms, huff);
+    if (symCodeLen >= 31) {
+        return false;
     }
 
     // get the input symbol bitmaps
-    bitmaps = (JBIG2Bitmap **)gmallocn_checkoverflow(numInputSyms + numNewSyms, sizeof(JBIG2Bitmap *));
-    if (!bitmaps && (numInputSyms + numNewSyms > 0)) {
+    if (sizeIsBiggerThanVectorMaxSize(numInputSyms + numNewSyms, bitmaps)) {
         error(errSyntaxError, curStr->getPos(), "Too many input symbols in JBIG2 symbol dictionary");
-        goto eofError;
+        return false;
     }
-    for (i = 0; i < numInputSyms + numNewSyms; ++i) {
-        bitmaps[i] = nullptr;
-    }
+    bitmaps.resize(numInputSyms + numNewSyms);
     k = 0;
     inputSymbolDict = nullptr;
-    for (i = 0; i < nRefSegs; ++i) {
-        seg = findSegment(refSegs[i]);
+    for (const unsigned int refSegI : refSegs) {
+        JBIG2Segment *seg = findSegment(refSegI);
         if (seg != nullptr && seg->getType() == jbig2SegSymbolDict) {
-            inputSymbolDict = (JBIG2SymbolDict *)seg;
+            inputSymbolDict = static_cast<JBIG2SymbolDict *>(seg);
             for (j = 0; j < inputSymbolDict->getSize(); ++j) {
                 bitmaps[k++] = inputSymbolDict->getBitmap(j);
             }
@@ -1581,41 +1660,52 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
     huffBMSizeTable = huffAggInstTable = nullptr; // make gcc happy
     i = 0;
     if (huff) {
+        const unsigned int huffDH = (flags >> 2) & 3;
         if (huffDH == 0) {
             huffDHTable = huffTableD;
         } else if (huffDH == 1) {
             huffDHTable = huffTableE;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 symbol dictionary");
+                return false;
             }
-            huffDHTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffDHTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
+
+        const unsigned int huffDW = (flags >> 4) & 3;
         if (huffDW == 0) {
             huffDWTable = huffTableB;
         } else if (huffDW == 1) {
             huffDWTable = huffTableC;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 symbol dictionary");
+                return false;
             }
-            huffDWTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffDWTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
+
+        const unsigned int huffBMSize = (flags >> 6) & 1;
         if (huffBMSize == 0) {
             huffBMSizeTable = huffTableA;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 symbol dictionary");
+                return false;
             }
-            huffBMSizeTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffBMSizeTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
+
+        const unsigned int huffAggInst = (flags >> 7) & 1;
         if (huffAggInst == 0) {
             huffAggInstTable = huffTableA;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 symbol dictionary");
+                return false;
             }
-            huffAggInstTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffAggInstTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
     }
 
@@ -1631,7 +1721,7 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
             resetGenericStats(sdTemplate, nullptr);
         }
         if (!resetIntStats(symCodeLen)) {
-            goto syntaxError;
+            return false;
         }
         arithDecoder->start();
     }
@@ -1645,9 +1735,11 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
         }
     }
 
-    // allocate symbol widths storage
     if (huff && !refAgg) {
-        symWidths = (unsigned int *)gmallocn(numNewSyms, sizeof(unsigned int));
+        if (sizeIsBiggerThanVectorMaxSize(numNewSyms, symWidths)) {
+            return false;
+        }
+        symWidths.resize(numNewSyms);
     }
 
     symHeight = 0;
@@ -1660,14 +1752,14 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
         } else {
             arithDecoder->decodeInt(&dh, iadhStats);
         }
-        if (dh < 0 && (unsigned int)-dh >= symHeight) {
+        if (dh < 0 && static_cast<unsigned int>(-dh) >= symHeight) {
             error(errSyntaxError, curStr->getPos(), "Bad delta-height value in JBIG2 symbol dictionary");
-            goto syntaxError;
+            return false;
         }
         symHeight += dh;
         if (unlikely(symHeight > 0x40000000)) {
             error(errSyntaxError, curStr->getPos(), "Bad height value in JBIG2 symbol dictionary");
-            goto syntaxError;
+            return false;
         }
         symWidth = 0;
         totalWidth = 0;
@@ -1686,14 +1778,14 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
                     break;
                 }
             }
-            if (dw < 0 && (unsigned int)-dw >= symWidth) {
+            if (dw < 0 && static_cast<unsigned int>(-dw) >= symWidth) {
                 error(errSyntaxError, curStr->getPos(), "Bad delta-height value in JBIG2 symbol dictionary");
-                goto syntaxError;
+                return false;
             }
             symWidth += dw;
             if (i >= numNewSyms) {
                 error(errSyntaxError, curStr->getPos(), "Too many symbols in JBIG2 symbol dictionary");
-                goto syntaxError;
+                return false;
             }
 
             // using a collective bitmap, so don't read a bitmap here
@@ -1703,6 +1795,7 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
 
                 // refinement/aggregate coding
             } else if (refAgg) {
+                int refAggNum;
                 if (huff) {
                     if (!huffDecoder->decodeInt(&refAggNum, huffAggInstTable)) {
                         break;
@@ -1717,6 +1810,7 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
                 //~ JBIG2 images that predate it.
                 //~ if (0) {
                 if (refAggNum == 1) {
+                    int refDX = 0, refDY = 0, bmSize;
                     if (huff) {
                         symID = huffDecoder->readBits(symCodeLen);
                         huffDecoder->decodeInt(&refDX, huffTableO);
@@ -1726,7 +1820,7 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
                         arithDecoder->start();
                     } else {
                         if (iaidStats == nullptr) {
-                            goto syntaxError;
+                            return false;
                         }
                         symID = arithDecoder->decodeIAID(symCodeLen, iaidStats);
                         arithDecoder->decodeInt(&refDX, iardxStats);
@@ -1734,32 +1828,37 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
                     }
                     if (symID >= numInputSyms + i) {
                         error(errSyntaxError, curStr->getPos(), "Invalid symbol ID in JBIG2 symbol dictionary");
-                        goto syntaxError;
+                        return false;
                     }
-                    refBitmap = bitmaps[symID];
+                    JBIG2Bitmap *refBitmap = bitmaps[symID];
                     if (unlikely(refBitmap == nullptr)) {
                         error(errSyntaxError, curStr->getPos(), "Invalid ref bitmap for symbol ID {0:ud} in JBIG2 symbol dictionary", symID);
-                        goto syntaxError;
+                        return false;
                     }
-                    bitmaps[numInputSyms + i] = readGenericRefinementRegion(symWidth, symHeight, sdrTemplate, false, refBitmap, refDX, refDY, sdrATX, sdrATY).release();
+                    std::unique_ptr<JBIG2Bitmap> bitmap = readGenericRefinementRegion(symWidth, symHeight, sdrTemplate, false, refBitmap, refDX, refDY, sdrATX, sdrATY);
+                    bitmaps[numInputSyms + i] = bitmap.get();
+                    bitmapsToDelete.emplace_back(std::move(bitmap));
                     //~ do we need to use the bmSize value here (in Huffman mode)?
                 } else {
-                    bitmaps[numInputSyms + i] = readTextRegion(huff, true, symWidth, symHeight, refAggNum, 0, numInputSyms + i, nullptr, symCodeLen, bitmaps, 0, 0, 0, 1, 0, huffTableF, huffTableH, huffTableK, huffTableO, huffTableO,
-                                                               huffTableO, huffTableO, huffTableA, sdrTemplate, sdrATX, sdrATY)
-                                                        .release();
-                    if (unlikely(!bitmaps[numInputSyms + i])) {
+                    std::unique_ptr<JBIG2Bitmap> bitmap = readTextRegion(huff, true, symWidth, symHeight, refAggNum, 0, numInputSyms + i, nullptr, symCodeLen, bitmaps, 0, 0, 0, 1, 0, huffTableF, huffTableH, huffTableK, huffTableO,
+                                                                         huffTableO, huffTableO, huffTableO, huffTableA, sdrTemplate, sdrATX, sdrATY);
+                    if (unlikely(!bitmap)) {
                         error(errSyntaxError, curStr->getPos(), "NULL bitmap in readTextRegion");
-                        goto syntaxError;
+                        return false;
                     }
+                    bitmaps[numInputSyms + i] = bitmap.get();
+                    bitmapsToDelete.emplace_back(std::move(bitmap));
                 }
 
                 // non-ref/agg coding
             } else {
-                bitmaps[numInputSyms + i] = readGenericBitmap(false, symWidth, symHeight, sdTemplate, false, false, nullptr, sdATX, sdATY, 0).release();
-                if (unlikely(!bitmaps[numInputSyms + i])) {
+                std::unique_ptr<JBIG2Bitmap> bitmap = readGenericBitmap(false, symWidth, symHeight, sdTemplate, false, false, nullptr, sdATX, sdATY, 0);
+                if (unlikely(!bitmap)) {
                     error(errSyntaxError, curStr->getPos(), "NULL bitmap in readGenericBitmap");
-                    goto syntaxError;
+                    return false;
                 }
+                bitmaps[numInputSyms + i] = bitmap.get();
+                bitmapsToDelete.emplace_back(std::move(bitmap));
             }
 
             ++i;
@@ -1767,36 +1866,45 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
 
         // read the collective bitmap
         if (huff && !refAgg) {
-            huffDecoder->decodeInt(&bmSize, huffBMSizeTable);
+            int bmSize;
+            if (!huffDecoder->decodeInt(&bmSize, huffBMSizeTable)) {
+                return false;
+            }
             huffDecoder->reset();
+            std::unique_ptr<JBIG2Bitmap> collBitmap;
             if (bmSize == 0) {
-                collBitmap = new JBIG2Bitmap(0, totalWidth, symHeight);
+                collBitmap = std::make_unique<JBIG2Bitmap>(0, totalWidth, symHeight);
                 bmSize = symHeight * ((totalWidth + 7) >> 3);
-                p = collBitmap->getDataPtr();
+                unsigned char *p = collBitmap->getDataPtr();
                 if (unlikely(p == nullptr)) {
-                    delete collBitmap;
-                    goto syntaxError;
+                    return false;
                 }
-                for (k = 0; k < (unsigned int)bmSize; ++k) {
-                    if ((c = curStr->getChar()) == EOF) {
+                for (k = 0; k < static_cast<unsigned int>(bmSize); ++k) {
+                    const int c = curStr->getChar();
+                    if (c == EOF) {
                         memset(p, 0, bmSize - k);
                         break;
                     }
-                    *p++ = (unsigned char)c;
+                    *p++ = static_cast<unsigned char>(c);
                 }
+                byteCounter += k;
             } else {
-                collBitmap = readGenericBitmap(true, totalWidth, symHeight, 0, false, false, nullptr, nullptr, nullptr, bmSize).release();
+                collBitmap = readGenericBitmap(true, totalWidth, symHeight, 0, false, false, nullptr, nullptr, nullptr, bmSize);
             }
-            if (likely(collBitmap != nullptr)) {
-                x = 0;
+            if (collBitmap) {
+                unsigned int x = 0;
                 for (; j < i; ++j) {
-                    bitmaps[numInputSyms + j] = collBitmap->getSlice(x, 0, symWidths[j], symHeight);
+                    std::unique_ptr<JBIG2Bitmap> bitmap = collBitmap->getSlice(x, 0, symWidths[j], symHeight);
+                    if (!bitmap) {
+                        return false;
+                    }
+                    bitmaps[numInputSyms + j] = bitmap.get();
+                    bitmapsToDelete.emplace_back(std::move(bitmap));
                     x += symWidths[j];
                 }
-                delete collBitmap;
             } else {
                 error(errSyntaxError, curStr->getPos(), "collBitmap was null");
-                goto syntaxError;
+                return false;
             }
         }
     }
@@ -1804,7 +1912,7 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
     // create the symbol dict object
     symbolDict = std::make_unique<JBIG2SymbolDict>(segNum, numExSyms);
     if (!symbolDict->isOk()) {
-        goto syntaxError;
+        return false;
     }
 
     // exported symbol list
@@ -1820,13 +1928,14 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
         }
         if (i + run > numInputSyms + numNewSyms || (ex && j + run > numExSyms)) {
             error(errSyntaxError, curStr->getPos(), "Too many exported symbols in JBIG2 symbol dictionary");
-            for (; j < numExSyms; ++j)
+            for (; j < numExSyms; ++j) {
                 symbolDict->setBitmap(j, nullptr);
-            goto syntaxError;
+            }
+            return false;
         }
         if (ex) {
-            for (cnt = 0; cnt < run; ++cnt) {
-                symbolDict->setBitmap(j++, new JBIG2Bitmap(bitmaps[i++]));
+            for (int cnt = 0; cnt < run; ++cnt) {
+                symbolDict->setBitmap(j++, std::make_unique<JBIG2Bitmap>(bitmaps[i++]));
             }
         } else {
             i += run;
@@ -1835,17 +1944,10 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
     }
     if (j != numExSyms) {
         error(errSyntaxError, curStr->getPos(), "Too few symbols in JBIG2 symbol dictionary");
-        for (; j < numExSyms; ++j)
+        for (; j < numExSyms; ++j) {
             symbolDict->setBitmap(j, nullptr);
-        goto syntaxError;
-    }
-
-    for (i = 0; i < numNewSyms; ++i) {
-        delete bitmaps[numInputSyms + i];
-    }
-    gfree(bitmaps);
-    if (symWidths) {
-        gfree(symWidths);
+        }
+        return false;
     }
 
     // save the arithmetic decoder stats
@@ -1860,28 +1962,9 @@ bool JBIG2Stream::readSymbolDictSeg(unsigned int segNum, unsigned int length, un
     segments.push_back(std::move(symbolDict));
 
     return true;
-
-codeTableError:
-    error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 symbol dictionary");
-
-syntaxError:
-    for (i = 0; i < numNewSyms; ++i) {
-        if (bitmaps[numInputSyms + i]) {
-            delete bitmaps[numInputSyms + i];
-        }
-    }
-    gfree(bitmaps);
-    if (symWidths) {
-        gfree(symWidths);
-    }
-    return false;
-
-eofError:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
-    return false;
 }
 
-void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless, unsigned int length, unsigned int *refSegs, unsigned int nRefSegs)
+bool JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, const std::vector<unsigned int> &refSegs)
 {
     std::unique_ptr<JBIG2Bitmap> bitmap;
     JBIG2HuffmanTable runLengthTab[36];
@@ -1889,48 +1972,48 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
     const JBIG2HuffmanTable *huffFSTable, *huffDSTable, *huffDTTable;
     const JBIG2HuffmanTable *huffRDWTable, *huffRDHTable;
     const JBIG2HuffmanTable *huffRDXTable, *huffRDYTable, *huffRSizeTable;
-    JBIG2Segment *seg;
     std::vector<JBIG2Segment *> codeTables;
-    JBIG2SymbolDict *symbolDict;
-    JBIG2Bitmap **syms;
-    unsigned int w, h, x, y, segInfoFlags, extCombOp;
-    unsigned int flags, huff, refine, logStrips, refCorner, transposed;
-    unsigned int combOp, defPixel, templ;
+    std::vector<JBIG2Bitmap *> syms;
+    unsigned int w, h, x, y, segInfoFlags;
+    unsigned int flags;
     int sOffset;
     unsigned int huffFlags, huffFS, huffDS, huffDT;
     unsigned int huffRDW, huffRDH, huffRDX, huffRDY, huffRSize;
     unsigned int numInstances, numSyms, symCodeLen;
     int atx[2], aty[2];
-    unsigned int i, k, kk;
+    unsigned int i;
     int j = 0;
 
     // region segment info field
     if (!readULong(&w) || !readULong(&h) || !readULong(&x) || !readULong(&y) || !readUByte(&segInfoFlags)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
-    extCombOp = segInfoFlags & 7;
+    const unsigned int extCombOp = segInfoFlags & 7;
 
     // rest of the text region header
     if (!readUWord(&flags)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
-    huff = flags & 1;
-    refine = (flags >> 1) & 1;
-    logStrips = (flags >> 2) & 3;
-    refCorner = (flags >> 4) & 3;
-    transposed = (flags >> 6) & 1;
-    combOp = (flags >> 7) & 3;
-    defPixel = (flags >> 9) & 1;
+    unsigned int huff = flags & 1;
+    const unsigned int refine = (flags >> 1) & 1;
+    const unsigned int logStrips = (flags >> 2) & 3;
+    const unsigned int refCorner = (flags >> 4) & 3;
+    const unsigned int transposed = (flags >> 6) & 1;
+    const unsigned int combOp = (flags >> 7) & 3;
+    const unsigned int defPixel = (flags >> 9) & 1;
     sOffset = (flags >> 10) & 0x1f;
     if (sOffset & 0x10) {
         sOffset |= -1 - 0x0f;
     }
-    templ = (flags >> 15) & 1;
+    const unsigned int templ = (flags >> 15) & 1;
     huffFS = huffDS = huffDT = 0; // make gcc happy
     huffRDW = huffRDH = huffRDX = huffRDY = huffRSize = 0; // make gcc happy
     if (huff) {
         if (!readUWord(&huffFlags)) {
-            goto eofError;
+            error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+            return false;
         }
         huffFS = huffFlags & 3;
         huffDS = (huffFlags >> 2) & 3;
@@ -1943,25 +2026,32 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
     }
     if (refine && templ == 0) {
         if (!readByte(&atx[0]) || !readByte(&aty[0]) || !readByte(&atx[1]) || !readByte(&aty[1])) {
-            goto eofError;
+            error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+            return false;
         }
     }
     if (!readULong(&numInstances)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
 
     // get symbol dictionaries and tables
     numSyms = 0;
-    for (i = 0; i < nRefSegs; ++i) {
-        if ((seg = findSegment(refSegs[i]))) {
+    for (const unsigned int refSegI : refSegs) {
+        JBIG2Segment *seg = findSegment(refSegI);
+        if (seg) {
             if (seg->getType() == jbig2SegSymbolDict) {
-                numSyms += ((JBIG2SymbolDict *)seg)->getSize();
+                const unsigned int segSize = static_cast<JBIG2SymbolDict *>(seg)->getSize();
+                if (unlikely(checkedAdd(numSyms, segSize, &numSyms))) {
+                    error(errSyntaxError, getPos(), "Too many symbols in JBIG2 text region");
+                    return false;
+                }
             } else if (seg->getType() == jbig2SegCodeTable) {
                 codeTables.push_back(seg);
             }
         } else {
             error(errSyntaxError, curStr->getPos(), "Invalid segment reference in JBIG2 text region");
-            return;
+            return false;
         }
     }
     i = numSyms;
@@ -1978,13 +2068,17 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
     }
 
     // get the symbol bitmaps
-    syms = (JBIG2Bitmap **)gmallocn(numSyms, sizeof(JBIG2Bitmap *));
-    kk = 0;
-    for (i = 0; i < nRefSegs; ++i) {
-        if ((seg = findSegment(refSegs[i]))) {
+    if (sizeIsBiggerThanVectorMaxSize(numSyms, syms)) {
+        return false;
+    }
+    syms.resize(numSyms);
+    unsigned int kk = 0;
+    for (const unsigned int refSegI : refSegs) {
+        JBIG2Segment *seg = findSegment(refSegI);
+        if (seg) {
             if (seg->getType() == jbig2SegSymbolDict) {
-                symbolDict = (JBIG2SymbolDict *)seg;
-                for (k = 0; k < symbolDict->getSize(); ++k) {
+                auto *symbolDict = static_cast<JBIG2SymbolDict *>(seg);
+                for (unsigned int k = 0; k < symbolDict->getSize(); ++k) {
                     syms[kk++] = symbolDict->getBitmap(k);
                 }
             }
@@ -2003,9 +2097,10 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
             huffFSTable = huffTableG;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
+                return false;
             }
-            huffFSTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffFSTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
         if (huffDS == 0) {
             huffDSTable = huffTableH;
@@ -2015,9 +2110,10 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
             huffDSTable = huffTableJ;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
+                return false;
             }
-            huffDSTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffDSTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
         if (huffDT == 0) {
             huffDTTable = huffTableK;
@@ -2027,9 +2123,10 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
             huffDTTable = huffTableM;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
+                return false;
             }
-            huffDTTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffDTTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
         if (huffRDW == 0) {
             huffRDWTable = huffTableN;
@@ -2037,9 +2134,10 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
             huffRDWTable = huffTableO;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
+                return false;
             }
-            huffRDWTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffRDWTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
         if (huffRDH == 0) {
             huffRDHTable = huffTableN;
@@ -2047,9 +2145,10 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
             huffRDHTable = huffTableO;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
+                return false;
             }
-            huffRDHTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffRDHTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
         if (huffRDX == 0) {
             huffRDXTable = huffTableN;
@@ -2057,9 +2156,10 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
             huffRDXTable = huffTableO;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
+                return false;
             }
-            huffRDXTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffRDXTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
         if (huffRDY == 0) {
             huffRDYTable = huffTableN;
@@ -2067,17 +2167,19 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
             huffRDYTable = huffTableO;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
+                return false;
             }
-            huffRDYTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffRDYTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
         if (huffRSize == 0) {
             huffRSizeTable = huffTableA;
         } else {
             if (i >= codeTables.size()) {
-                goto codeTableError;
+                error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
+                return false;
             }
-            huffRSizeTable = ((JBIG2CodeTable *)codeTables[i++])->getHuffTable();
+            huffRSizeTable = static_cast<JBIG2CodeTable *>(codeTables[i++])->getHuffTable();
         }
     }
 
@@ -2106,7 +2208,10 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
     }
 
     if (huff) {
-        symCodeTab = (JBIG2HuffmanTable *)gmallocn(numSyms + 1, sizeof(JBIG2HuffmanTable));
+        symCodeTab = static_cast<JBIG2HuffmanTable *>(gmallocn_checkoverflow(numSyms + 1, sizeof(JBIG2HuffmanTable)));
+        if (!symCodeTab) {
+            return false;
+        }
         for (i = 0; i < numSyms; ++i) {
             symCodeTab[i].val = i;
             symCodeTab[i].rangeLen = 0;
@@ -2145,8 +2250,7 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
 
     if (!huff) {
         if (!resetIntStats(symCodeLen)) {
-            gfree(syms);
-            return;
+            return false;
         }
         arithDecoder->start();
     }
@@ -2157,15 +2261,13 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
     bitmap = readTextRegion(huff, refine, w, h, numInstances, logStrips, numSyms, symCodeTab, symCodeLen, syms, defPixel, combOp, transposed, refCorner, sOffset, huffFSTable, huffDSTable, huffDTTable, huffRDWTable, huffRDHTable,
                             huffRDXTable, huffRDYTable, huffRSizeTable, templ, atx, aty);
 
-    gfree(syms);
-
     if (bitmap) {
         // combine the region bitmap into the page bitmap
         if (imm) {
             if (pageH == 0xffffffff && y + h > curPageH) {
                 pageBitmap->expand(y + h, pageDefPixel);
             }
-            pageBitmap->combine(bitmap.get(), x, y, extCombOp);
+            pageBitmap->combine(*bitmap, x, y, extCombOp);
 
             // store the region bitmap
         } else {
@@ -2179,28 +2281,26 @@ void JBIG2Stream::readTextRegionSeg(unsigned int segNum, bool imm, bool lossless
         gfree(symCodeTab);
     }
 
-    return;
-
-codeTableError:
-    error(errSyntaxError, curStr->getPos(), "Missing code table in JBIG2 text region");
-    gfree(syms);
-    return;
-
-eofError:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
-    return;
+    return true;
 }
 
-std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine, int w, int h, unsigned int numInstances, unsigned int logStrips, int numSyms, const JBIG2HuffmanTable *symCodeTab, unsigned int symCodeLen, JBIG2Bitmap **syms,
-                                                         unsigned int defPixel, unsigned int combOp, unsigned int transposed, unsigned int refCorner, int sOffset, const JBIG2HuffmanTable *huffFSTable, const JBIG2HuffmanTable *huffDSTable,
-                                                         const JBIG2HuffmanTable *huffDTTable, const JBIG2HuffmanTable *huffRDWTable, const JBIG2HuffmanTable *huffRDHTable, const JBIG2HuffmanTable *huffRDXTable,
-                                                         const JBIG2HuffmanTable *huffRDYTable, const JBIG2HuffmanTable *huffRSizeTable, unsigned int templ, int *atx, int *aty)
+std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine, int w, int h, unsigned int numInstances, unsigned int logStrips, unsigned int numSyms, const JBIG2HuffmanTable *symCodeTab, unsigned int symCodeLen,
+                                                         const std::vector<JBIG2Bitmap *> &syms, unsigned int defPixel, unsigned int combOp, unsigned int transposed, unsigned int refCorner, int sOffset, const JBIG2HuffmanTable *huffFSTable,
+                                                         const JBIG2HuffmanTable *huffDSTable, const JBIG2HuffmanTable *huffDTTable, const JBIG2HuffmanTable *huffRDWTable, const JBIG2HuffmanTable *huffRDHTable,
+                                                         const JBIG2HuffmanTable *huffRDXTable, const JBIG2HuffmanTable *huffRDYTable, const JBIG2HuffmanTable *huffRSizeTable, unsigned int templ, int *atx, int *aty)
 {
     JBIG2Bitmap *symbolBitmap;
     unsigned int strips;
     int t = 0, dt = 0, tt, s, ds = 0, sFirst, j = 0;
     int rdw, rdh, rdx, rdy, ri = 0, refDX, refDY, bmSize;
     unsigned int symID, inst, bw, bh;
+
+    if (symCodeLen >= 32) {
+        return nullptr;
+    }
+    if (logStrips >= 32) {
+        return nullptr;
+    }
 
     strips = 1 << logStrips;
 
@@ -2222,7 +2322,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
         arithDecoder->decodeInt(&t, iadtStats);
     }
 
-    if (checkedMultiply(t, -(int)strips, &t)) {
+    if (checkedMultiply(t, -static_cast<int>(strips), &t)) {
         return {};
     }
 
@@ -2270,7 +2370,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
             if (huff) {
                 if (symCodeTab) {
                     huffDecoder->decodeInt(&j, symCodeTab);
-                    symID = (unsigned int)j;
+                    symID = static_cast<unsigned int>(j);
                 } else {
                     symID = huffDecoder->readBits(symCodeLen);
                 }
@@ -2281,7 +2381,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
                 symID = arithDecoder->decodeIAID(symCodeLen, iaidStats);
             }
 
-            if (symID >= (unsigned int)numSyms) {
+            if (symID >= numSyms) {
                 error(errSyntaxError, curStr->getPos(), "Invalid symbol number in JBIG2 text region");
                 if (unlikely(numInstances - inst > 0x800)) {
                     // don't loop too often with damaged JBIg2 streams
@@ -2293,7 +2393,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
                 symbolBitmap = nullptr;
                 if (refine) {
                     if (huff) {
-                        ri = (int)huffDecoder->readBit();
+                        ri = static_cast<int>(huffDecoder->readBit());
                     } else {
                         arithDecoder->decodeInt(&ri, iariStats);
                     }
@@ -2318,12 +2418,21 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
                     }
 
                     if (decodeSuccess && syms[symID]) {
-                        refDX = ((rdw >= 0) ? rdw : rdw - 1) / 2 + rdx;
+                        if (checkedAdd(((rdw >= 0) ? rdw : rdw - 1) / 2, rdx, &refDX)) {
+                            return nullptr;
+                        }
                         if (checkedAdd(((rdh >= 0) ? rdh : rdh - 1) / 2, rdy, &refDY)) {
                             return nullptr;
                         }
+                        int refinementSectionW, refinementSectionH;
+                        if (checkedAdd(rdw, syms[symID]->getWidth(), &refinementSectionW)) {
+                            return nullptr;
+                        }
+                        if (checkedAdd(rdh, syms[symID]->getHeight(), &refinementSectionH)) {
+                            return nullptr;
+                        }
 
-                        symbolBitmap = readGenericRefinementRegion(rdw + syms[symID]->getWidth(), rdh + syms[symID]->getHeight(), templ, false, syms[symID], refDX, refDY, atx, aty).release();
+                        symbolBitmap = readGenericRefinementRegion(refinementSectionW, refinementSectionH, templ, false, syms[symID], refDX, refDY, atx, aty).release();
                     }
                     //~ do we need to use the bmSize value here (in Huffman mode)?
                 } else {
@@ -2353,16 +2462,16 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
                         }
                         switch (refCorner) {
                         case 0: // bottom left
-                            bitmap->combine(symbolBitmap, tt, s, combOp);
+                            bitmap->combine(*symbolBitmap, tt, s, combOp);
                             break;
                         case 1: // top left
-                            bitmap->combine(symbolBitmap, tt, s, combOp);
+                            bitmap->combine(*symbolBitmap, tt, s, combOp);
                             break;
                         case 2: // bottom right
-                            bitmap->combine(symbolBitmap, tt - bw, s, combOp);
+                            bitmap->combine(*symbolBitmap, tt - bw, s, combOp);
                             break;
                         case 3: // top right
-                            bitmap->combine(symbolBitmap, tt - bw, s, combOp);
+                            bitmap->combine(*symbolBitmap, tt - bw, s, combOp);
                             break;
                         }
                         s += bh;
@@ -2376,7 +2485,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
                                 }
                                 return nullptr;
                             }
-                            bitmap->combine(symbolBitmap, s, tt - bh, combOp);
+                            bitmap->combine(*symbolBitmap, s, tt - bh, combOp);
                             break;
                         case 1: // top left
                             if (unlikely(tt > 2 * bitmap->getHeight())) {
@@ -2386,7 +2495,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
                                 }
                                 return nullptr;
                             }
-                            bitmap->combine(symbolBitmap, s, tt, combOp);
+                            bitmap->combine(*symbolBitmap, s, tt, combOp);
                             break;
                         case 2: // bottom right
                             if (unlikely(tt - (int)bh > 2 * bitmap->getHeight())) {
@@ -2396,7 +2505,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
                                 }
                                 return nullptr;
                             }
-                            bitmap->combine(symbolBitmap, s, tt - bh, combOp);
+                            bitmap->combine(*symbolBitmap, s, tt - bh, combOp);
                             break;
                         case 3: // top right
                             if (unlikely(tt > 2 * bitmap->getHeight())) {
@@ -2406,7 +2515,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
                                 }
                                 return nullptr;
                             }
-                            bitmap->combine(symbolBitmap, s, tt, combOp);
+                            bitmap->combine(*symbolBitmap, s, tt, combOp);
                             break;
                         }
                         s += bw;
@@ -2442,7 +2551,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readTextRegion(bool huff, bool refine,
     return bitmap;
 }
 
-void JBIG2Stream::readPatternDictSeg(unsigned int segNum, unsigned int length)
+bool JBIG2Stream::readPatternDictSeg(unsigned int segNum, unsigned int length)
 {
     std::unique_ptr<JBIG2PatternDict> patternDict;
     std::unique_ptr<JBIG2Bitmap> bitmap;
@@ -2452,7 +2561,8 @@ void JBIG2Stream::readPatternDictSeg(unsigned int segNum, unsigned int length)
 
     // halftone dictionary flags, pattern width and height, max gray value
     if (!readUByte(&flags) || !readUByte(&patternW) || !readUByte(&patternH) || !readULong(&grayMax)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
     templ = (flags >> 1) & 3;
     mmr = flags & 1;
@@ -2464,7 +2574,7 @@ void JBIG2Stream::readPatternDictSeg(unsigned int segNum, unsigned int length)
     }
 
     // read the bitmap
-    atx[0] = -(int)patternW;
+    atx[0] = -static_cast<int>(patternW);
     aty[0] = 0;
     atx[1] = -3;
     aty[1] = -1;
@@ -2472,10 +2582,23 @@ void JBIG2Stream::readPatternDictSeg(unsigned int segNum, unsigned int length)
     aty[2] = -2;
     atx[3] = -2;
     aty[3] = -2;
-    bitmap = readGenericBitmap(mmr, (grayMax + 1) * patternW, patternH, templ, false, false, nullptr, atx, aty, length - 7);
 
-    if (!bitmap)
-        return;
+    unsigned int grayMaxPlusOne;
+    if (unlikely(checkedAdd(grayMax, 1U, &grayMaxPlusOne))) {
+        return false;
+    }
+    unsigned int bitmapW;
+    if (unlikely(checkedMultiply(grayMaxPlusOne, patternW, &bitmapW))) {
+        return false;
+    }
+    if (bitmapW >= INT_MAX) {
+        return false;
+    }
+    bitmap = readGenericBitmap(mmr, static_cast<int>(bitmapW), patternH, templ, false, false, nullptr, atx, aty, length - 7);
+
+    if (!bitmap) {
+        return false;
+    }
 
     // create the pattern dict object
     patternDict = std::make_unique<JBIG2PatternDict>(segNum, grayMax + 1);
@@ -2490,65 +2613,65 @@ void JBIG2Stream::readPatternDictSeg(unsigned int segNum, unsigned int length)
     // store the new pattern dict
     segments.push_back(std::move(patternDict));
 
-    return;
-
-eofError:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+    return true;
 }
 
-void JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, bool lossless, unsigned int length, unsigned int *refSegs, unsigned int nRefSegs)
+bool JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, const std::vector<unsigned int> &refSegs)
 {
     std::unique_ptr<JBIG2Bitmap> bitmap;
     JBIG2Segment *seg;
     JBIG2PatternDict *patternDict;
-    JBIG2Bitmap *skipBitmap;
+    std::unique_ptr<JBIG2Bitmap> skipBitmap;
     unsigned int *grayImg;
     JBIG2Bitmap *patternBitmap;
     unsigned int w, h, x, y, segInfoFlags, extCombOp;
     unsigned int flags, mmr, templ, enableSkip, combOp;
     unsigned int gridW, gridH, stepX, stepY, patW, patH;
     int atx[4], aty[4];
-    int gridX, gridY, xx, yy, bit, j;
+    int gridX, gridY, xx, yy, j;
     unsigned int bpp, m, n, i;
 
     // region segment info field
     if (!readULong(&w) || !readULong(&h) || !readULong(&x) || !readULong(&y) || !readUByte(&segInfoFlags)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
     extCombOp = segInfoFlags & 7;
 
     // rest of the halftone region header
     if (!readUByte(&flags)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
     mmr = flags & 1;
     templ = (flags >> 1) & 3;
     enableSkip = (flags >> 3) & 1;
     combOp = (flags >> 4) & 7;
     if (!readULong(&gridW) || !readULong(&gridH) || !readLong(&gridX) || !readLong(&gridY) || !readUWord(&stepX) || !readUWord(&stepY)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
     if (w == 0 || h == 0 || w >= INT_MAX / h) {
         error(errSyntaxError, curStr->getPos(), "Bad bitmap size in JBIG2 halftone segment");
-        return;
+        return false;
     }
     if (gridH == 0 || gridW >= INT_MAX / gridH) {
         error(errSyntaxError, curStr->getPos(), "Bad grid size in JBIG2 halftone segment");
-        return;
+        return false;
     }
 
     // get pattern dictionary
-    if (nRefSegs != 1) {
+    if (refSegs.size() != 1) {
         error(errSyntaxError, curStr->getPos(), "Bad symbol dictionary reference in JBIG2 halftone segment");
-        return;
+        return false;
     }
     seg = findSegment(refSegs[0]);
     if (seg == nullptr || seg->getType() != jbig2SegPatternDict) {
         error(errSyntaxError, curStr->getPos(), "Bad symbol dictionary reference in JBIG2 halftone segment");
-        return;
+        return false;
     }
 
-    patternDict = (JBIG2PatternDict *)seg;
+    patternDict = static_cast<JBIG2PatternDict *>(seg);
     i = patternDict->getSize();
     if (i <= 1) {
         bpp = 0;
@@ -2564,7 +2687,7 @@ void JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, bool loss
     patternBitmap = patternDict->getBitmap(0);
     if (unlikely(patternBitmap == nullptr)) {
         error(errSyntaxError, curStr->getPos(), "Bad pattern bitmap");
-        return;
+        return false;
     }
     patW = patternBitmap->getWidth();
     patH = patternBitmap->getHeight();
@@ -2577,6 +2700,9 @@ void JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, bool loss
 
     // allocate the bitmap
     bitmap = std::make_unique<JBIG2Bitmap>(segNum, w, h);
+    if (!bitmap->isOk()) {
+        return false;
+    }
     if (flags & 0x80) { // HDEFPIXEL
         bitmap->clearToOne();
     } else {
@@ -2584,15 +2710,17 @@ void JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, bool loss
     }
 
     // compute the skip bitmap
-    skipBitmap = nullptr;
     if (enableSkip) {
-        skipBitmap = new JBIG2Bitmap(0, gridW, gridH);
+        skipBitmap = std::make_unique<JBIG2Bitmap>(0, gridW, gridH);
+        if (!skipBitmap->isOk()) {
+            return false;
+        }
         skipBitmap->clearToZero();
         for (m = 0; m < gridH; ++m) {
             for (n = 0; n < gridW; ++n) {
                 xx = gridX + m * stepY + n * stepX;
                 yy = gridY + m * stepX - n * stepY;
-                if (((xx + (int)patW) >> 8) <= 0 || (xx >> 8) >= (int)w || ((yy + (int)patH) >> 8) <= 0 || (yy >> 8) >= (int)h) {
+                if (((xx + static_cast<int>(patW)) >> 8) <= 0 || (xx >> 8) >= static_cast<int>(w) || ((yy + static_cast<int>(patH)) >> 8) <= 0 || (yy >> 8) >= static_cast<int>(h)) {
                     skipBitmap->setPixel(n, m);
                 }
             }
@@ -2600,7 +2728,10 @@ void JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, bool loss
     }
 
     // read the gray-scale image
-    grayImg = (unsigned int *)gmallocn(gridW * gridH, sizeof(unsigned int));
+    grayImg = static_cast<unsigned int *>(gmallocn_checkoverflow(gridW * gridH, sizeof(unsigned int)));
+    if (!grayImg) {
+        return false;
+    }
     memset(grayImg, 0, gridW * gridH * sizeof(unsigned int));
     atx[0] = templ <= 1 ? 3 : 2;
     aty[0] = -1;
@@ -2611,11 +2742,15 @@ void JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, bool loss
     atx[3] = -2;
     aty[3] = -2;
     for (j = bpp - 1; j >= 0; --j) {
-        std::unique_ptr<JBIG2Bitmap> grayBitmap = readGenericBitmap(mmr, gridW, gridH, templ, false, enableSkip, skipBitmap, atx, aty, -1);
+        const std::unique_ptr<JBIG2Bitmap> grayBitmap = readGenericBitmap(mmr, gridW, gridH, templ, false, enableSkip, skipBitmap.get(), atx, aty, -1);
+        if (!grayBitmap) {
+            gfree(grayImg);
+            return false;
+        }
         i = 0;
         for (m = 0; m < gridH; ++m) {
             for (n = 0; n < gridW; ++n) {
-                bit = grayBitmap->getPixel(n, m) ^ (grayImg[i] & 1);
+                const int bit = grayBitmap->getPixel(n, m) ^ (grayImg[i] & 1);
                 grayImg[i] = (grayImg[i] << 1) | bit;
                 ++i;
             }
@@ -2631,12 +2766,11 @@ void JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, bool loss
             if (!(enableSkip && skipBitmap->getPixel(n, m))) {
                 patternBitmap = patternDict->getBitmap(grayImg[i]);
                 if (unlikely(patternBitmap == nullptr)) {
-                    delete skipBitmap;
                     gfree(grayImg);
                     error(errSyntaxError, curStr->getPos(), "Bad pattern bitmap");
-                    return;
+                    return false;
                 }
-                bitmap->combine(patternBitmap, xx >> 8, yy >> 8, combOp);
+                bitmap->combine(*patternBitmap, xx >> 8, yy >> 8, combOp);
             }
             xx += stepX;
             yy -= stepY;
@@ -2645,29 +2779,23 @@ void JBIG2Stream::readHalftoneRegionSeg(unsigned int segNum, bool imm, bool loss
     }
 
     gfree(grayImg);
-    if (skipBitmap) {
-        delete skipBitmap;
-    }
 
     // combine the region bitmap into the page bitmap
     if (imm) {
         if (pageH == 0xffffffff && y + h > curPageH) {
             pageBitmap->expand(y + h, pageDefPixel);
         }
-        pageBitmap->combine(bitmap.get(), x, y, extCombOp);
+        pageBitmap->combine(*bitmap, x, y, extCombOp);
 
         // store the region bitmap
     } else {
         segments.push_back(std::move(bitmap));
     }
 
-    return;
-
-eofError:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+    return true;
 }
 
-void JBIG2Stream::readGenericRegionSeg(unsigned int segNum, bool imm, bool lossless, unsigned int length)
+bool JBIG2Stream::readGenericRegionSeg(unsigned int segNum, bool imm, unsigned int length)
 {
     std::unique_ptr<JBIG2Bitmap> bitmap;
     unsigned int w, h, x, y, segInfoFlags, extCombOp, rowCount;
@@ -2676,13 +2804,13 @@ void JBIG2Stream::readGenericRegionSeg(unsigned int segNum, bool imm, bool lossl
 
     // region segment info field
     if (!readULong(&w) || !readULong(&h) || !readULong(&x) || !readULong(&y) || !readUByte(&segInfoFlags)) {
-        goto eofError;
+        return false;
     }
     extCombOp = segInfoFlags & 7;
 
     // rest of the generic region segment header
     if (!readUByte(&flags)) {
-        goto eofError;
+        return false;
     }
     mmr = flags & 1;
     templ = (flags >> 1) & 3;
@@ -2692,11 +2820,11 @@ void JBIG2Stream::readGenericRegionSeg(unsigned int segNum, bool imm, bool lossl
     if (!mmr) {
         if (templ == 0) {
             if (!readByte(&atx[0]) || !readByte(&aty[0]) || !readByte(&atx[1]) || !readByte(&aty[1]) || !readByte(&atx[2]) || !readByte(&aty[2]) || !readByte(&atx[3]) || !readByte(&aty[3])) {
-                goto eofError;
+                return false;
             }
         } else {
             if (!readByte(&atx[0]) || !readByte(&aty[0])) {
-                goto eofError;
+                return false;
             }
         }
     }
@@ -2709,15 +2837,19 @@ void JBIG2Stream::readGenericRegionSeg(unsigned int segNum, bool imm, bool lossl
 
     // read the bitmap
     bitmap = readGenericBitmap(mmr, w, h, templ, tpgdOn, false, nullptr, atx, aty, mmr ? length - 18 : 0);
-    if (!bitmap)
-        return;
+    if (!bitmap) {
+        return false;
+    }
 
     // combine the region bitmap into the page bitmap
     if (imm) {
         if (pageH == 0xffffffff && y + h > curPageH) {
             pageBitmap->expand(y + h, pageDefPixel);
+            if (!pageBitmap->isOk()) {
+                return false;
+            }
         }
-        pageBitmap->combine(bitmap.get(), x, y, extCombOp);
+        pageBitmap->combine(*bitmap, x, y, extCombOp);
 
         // store the region bitmap
     } else {
@@ -2728,13 +2860,12 @@ void JBIG2Stream::readGenericRegionSeg(unsigned int segNum, bool imm, bool lossl
     // immediate generic segments can have an unspecified length, in
     // which case, a row count is stored at the end of the segment
     if (imm && length == 0xffffffff) {
-        readULong(&rowCount);
+        if (!readULong(&rowCount)) {
+            return false;
+        }
     }
 
-    return;
-
-eofError:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+    return true;
 }
 
 inline void JBIG2Stream::mmrAddPixels(int a1, int blackPixels, int *codingLine, int *a0i, int w)
@@ -2774,20 +2905,13 @@ inline void JBIG2Stream::mmrAddPixelsNeg(int a1, int blackPixels, int *codingLin
     }
 }
 
+static inline bool isPixelOutsideAdaptiveField(int x, int y)
+{
+    return y < -128 || y > 0 || x < -128 || (y < 0 && x > 127) || (y == 0 && x >= 0);
+}
+
 std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int h, int templ, bool tpgdOn, bool useSkip, JBIG2Bitmap *skip, int *atx, int *aty, int mmrDataLength)
 {
-    bool ltp;
-    unsigned int ltpCX, cx, cx0, cx1, cx2;
-    int *refLine, *codingLine;
-    int code1, code2, code3;
-    unsigned char *p0, *p1, *p2, *pp;
-    unsigned char *atP0, *atP1, *atP2, *atP3;
-    unsigned int buf0, buf1, buf2;
-    unsigned int atBuf0, atBuf1, atBuf2, atBuf3;
-    int atShift0, atShift1, atShift2, atShift3;
-    unsigned char mask;
-    int x, y, x0, x1, a0i, b1i, blackPixels, pix, i;
-
     auto bitmap = std::make_unique<JBIG2Bitmap>(0, w, h);
     if (!bitmap->isOk()) {
         return nullptr;
@@ -2803,8 +2927,8 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
         // ---> max codingLine size = w + 1
         // refLine has one extra guard entry at the end
         // ---> max refLine size = w + 2
-        codingLine = (int *)gmallocn_checkoverflow(w + 1, sizeof(int));
-        refLine = (int *)gmallocn_checkoverflow(w + 2, sizeof(int));
+        int *codingLine = static_cast<int *>(gmallocn_checkoverflow(w + 1, sizeof(int)));
+        int *refLine = static_cast<int *>(gmallocn_checkoverflow(w + 2, sizeof(int)));
 
         if (unlikely(!codingLine || !refLine)) {
             gfree(codingLine);
@@ -2813,23 +2937,27 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
         }
 
         memset(refLine, 0, (w + 2) * sizeof(int));
-        for (i = 0; i < w + 1; ++i)
+        for (int i = 0; i < w + 1; ++i) {
             codingLine[i] = w;
+        }
 
-        for (y = 0; y < h; ++y) {
+        for (int y = 0; y < h; ++y) {
 
             // copy coding line to ref line
-            for (i = 0; codingLine[i] < w; ++i) {
-                refLine[i] = codingLine[i];
+            {
+                int i;
+                for (i = 0; codingLine[i] < w; ++i) {
+                    refLine[i] = codingLine[i];
+                }
+                refLine[i++] = w;
+                refLine[i] = w;
             }
-            refLine[i++] = w;
-            refLine[i] = w;
 
             // decode a line
             codingLine[0] = 0;
-            a0i = 0;
-            b1i = 0;
-            blackPixels = 0;
+            int a0i = 0;
+            int b1i = 0;
+            int blackPixels = 0;
             // invariant:
             // refLine[b1i-1] <= codingLine[a0i] < refLine[b1i] < refLine[b1i+1] <= w
             // exception at left edge:
@@ -2837,8 +2965,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
             // exception at right edge:
             //   refLine[b1i] = refLine[b1i+1] = w is possible
             while (codingLine[a0i] < w) {
-                code1 = mmrDecoder->get2DCode();
-                switch (code1) {
+                switch (mmrDecoder->get2DCode()) {
                 case twoDimPass:
                     if (unlikely(b1i + 1 >= w + 2)) {
                         break;
@@ -2848,9 +2975,11 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         b1i += 2;
                     }
                     break;
-                case twoDimHoriz:
-                    code1 = code2 = 0;
+                case twoDimHoriz: {
+                    int code1 = 0;
+                    int code2 = 0;
                     if (blackPixels) {
+                        int code3;
                         do {
                             code1 += code3 = mmrDecoder->getBlackCode();
                         } while (code3 >= 64);
@@ -2858,6 +2987,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                             code2 += code3 = mmrDecoder->getWhiteCode();
                         } while (code3 >= 64);
                     } else {
+                        int code3;
                         do {
                             code1 += code3 = mmrDecoder->getWhiteCode();
                         } while (code3 >= 64);
@@ -2873,6 +3003,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         b1i += 2;
                     }
                     break;
+                }
                 case twoDimVertR3:
                     if (unlikely(b1i >= w + 2)) {
                         break;
@@ -2987,20 +3118,27 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
             }
 
             // convert the run lengths to a bitmap line
-            i = 0;
-            while (true) {
-                for (x = codingLine[i]; x < codingLine[i + 1]; ++x) {
-                    bitmap->setPixel(x, y);
+            {
+                int i = 0;
+                while (true) {
+                    for (int x = codingLine[i]; x < codingLine[i + 1]; ++x) {
+                        bitmap->setPixel(x, y);
+                    }
+                    if (codingLine[i + 1] >= w || codingLine[i + 2] >= w) {
+                        break;
+                    }
+                    i += 2;
                 }
-                if (codingLine[i + 1] >= w || codingLine[i + 2] >= w) {
-                    break;
-                }
-                i += 2;
             }
         }
 
         if (mmrDataLength >= 0) {
-            mmrDecoder->skipTo(mmrDataLength);
+            if (!mmrDecoder->skipTo(mmrDataLength)) {
+                error(errSyntaxError, curStr->getPos(), "Error in mmrDecoder skikpping");
+                gfree(refLine);
+                gfree(codingLine);
+                return {};
+            }
         } else {
             if (mmrDecoder->get24Bits() != 0x001001) {
                 error(errSyntaxError, curStr->getPos(), "Missing EOFB in JBIG2 MMR bitmap data");
@@ -3014,31 +3152,32 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
 
     } else {
         // set up the typical row context
-        ltpCX = 0; // make gcc happy
-        if (tpgdOn) {
-            switch (templ) {
-            case 0:
-                ltpCX = 0x3953; // 001 11001 0101 0011
-                break;
-            case 1:
-                ltpCX = 0x079a; // 0011 11001 101 0
-                break;
-            case 2:
-                ltpCX = 0x0e3; // 001 1100 01 1
-                break;
-            case 3:
-                ltpCX = 0x18b; // 01100 0101 1
-                break;
+        const unsigned int ltpCX = [tpgdOn, templ] {
+            if (tpgdOn) {
+                switch (templ) {
+                case 0:
+                    return 0x3953; // 001 11001 0101 0011
+                    break;
+                case 1:
+                    return 0x079a; // 0011 11001 101 0
+                    break;
+                case 2:
+                    return 0x0e3; // 001 1100 01 1
+                    break;
+                case 3:
+                    return 0x18b; // 01100 0101 1
+                    break;
+                }
             }
-        }
+            return 0;
+        }();
 
-        ltp = false;
-        cx = cx0 = cx1 = cx2 = 0; // make gcc happy
-        for (y = 0; y < h; ++y) {
+        bool ltp = false;
+        for (int y = 0; y < h; ++y) {
 
             // check for a "typical" (duplicate) row
             if (tpgdOn) {
-                if (arithDecoder->decodeBit(ltpCX, genericRegionStats)) {
+                if (arithDecoder->decodeBit(ltpCX, genericRegionStats.get())) {
                     ltp = !ltp;
                 }
                 if (ltp) {
@@ -3050,11 +3189,16 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
             }
 
             switch (templ) {
-            case 0:
+            case 0: {
+                if (isPixelOutsideAdaptiveField(atx[0], aty[0]) || isPixelOutsideAdaptiveField(atx[1], aty[1]) || isPixelOutsideAdaptiveField(atx[2], aty[2]) || isPixelOutsideAdaptiveField(atx[3], aty[3])) {
+                    return nullptr;
+                }
 
                 // set up the context
+                unsigned char *p0, *p1, *p2, *pp;
                 p2 = pp = bitmap->getDataPtr() + y * bitmap->getLineSize();
-                buf2 = *p2++ << 8;
+                unsigned int buf0, buf1;
+                unsigned int buf2 = *p2++ << 8;
                 if (y >= 1) {
                     p1 = bitmap->getDataPtr() + (y - 1) * bitmap->getLineSize();
                     buf1 = *p1++ << 8;
@@ -3072,6 +3216,8 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
 
                 if (atx[0] >= -8 && atx[0] <= 8 && atx[1] >= -8 && atx[1] <= 8 && atx[2] >= -8 && atx[2] <= 8 && atx[3] >= -8 && atx[3] <= 8) {
                     // set up the adaptive context
+                    unsigned int atBuf0, atBuf1, atBuf2, atBuf3;
+                    unsigned char *atP0, *atP1, *atP2, *atP3;
                     if (y + aty[0] >= 0 && y + aty[0] < bitmap->getHeight()) {
                         atP0 = bitmap->getDataPtr() + (y + aty[0]) * bitmap->getLineSize();
                         atBuf0 = *atP0++ << 8;
@@ -3079,7 +3225,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         atP0 = nullptr;
                         atBuf0 = 0;
                     }
-                    atShift0 = 15 - atx[0];
+                    const int atShift0 = 15 - atx[0];
                     if (y + aty[1] >= 0 && y + aty[1] < bitmap->getHeight()) {
                         atP1 = bitmap->getDataPtr() + (y + aty[1]) * bitmap->getLineSize();
                         atBuf1 = *atP1++ << 8;
@@ -3087,7 +3233,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         atP1 = nullptr;
                         atBuf1 = 0;
                     }
-                    atShift1 = 15 - atx[1];
+                    const int atShift1 = 15 - atx[1];
                     if (y + aty[2] >= 0 && y + aty[2] < bitmap->getHeight()) {
                         atP2 = bitmap->getDataPtr() + (y + aty[2]) * bitmap->getLineSize();
                         atBuf2 = *atP2++ << 8;
@@ -3095,7 +3241,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         atP2 = nullptr;
                         atBuf2 = 0;
                     }
-                    atShift2 = 15 - atx[2];
+                    const int atShift2 = 15 - atx[2];
                     if (y + aty[3] >= 0 && y + aty[3] < bitmap->getHeight()) {
                         atP3 = bitmap->getDataPtr() + (y + aty[3]) * bitmap->getLineSize();
                         atBuf3 = *atP3++ << 8;
@@ -3103,10 +3249,10 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         atP3 = nullptr;
                         atBuf3 = 0;
                     }
-                    atShift3 = 15 - atx[3];
+                    const int atShift3 = 15 - atx[3];
 
                     // decode the row
-                    for (x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
+                    for (int x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
                         if (x0 + 8 < w) {
                             if (p0) {
                                 buf0 |= *p0++;
@@ -3128,19 +3274,20 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                                 atBuf3 |= *atP3++;
                             }
                         }
-                        for (x1 = 0, mask = 0x80; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
+                        unsigned char mask = 0x80;
+                        for (int x1 = 0; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
 
                             // build the context
-                            cx0 = (buf0 >> 14) & 0x07;
-                            cx1 = (buf1 >> 13) & 0x1f;
-                            cx2 = (buf2 >> 16) & 0x0f;
-                            cx = (cx0 << 13) | (cx1 << 8) | (cx2 << 4) | (((atBuf0 >> atShift0) & 1) << 3) | (((atBuf1 >> atShift1) & 1) << 2) | (((atBuf2 >> atShift2) & 1) << 1) | ((atBuf3 >> atShift3) & 1);
+                            const unsigned int cx0 = (buf0 >> 14) & 0x07;
+                            const unsigned int cx1 = (buf1 >> 13) & 0x1f;
+                            const unsigned int cx2 = (buf2 >> 16) & 0x0f;
+                            const unsigned int cx = (cx0 << 13) | (cx1 << 8) | (cx2 << 4) | (((atBuf0 >> atShift0) & 1) << 3) | (((atBuf1 >> atShift1) & 1) << 2) | (((atBuf2 >> atShift2) & 1) << 1) | ((atBuf3 >> atShift3) & 1);
 
                             // check for a skipped pixel
                             if (!(useSkip && skip->getPixel(x, y))) {
 
                                 // decode the pixel
-                                if ((pix = arithDecoder->decodeBit(cx, genericRegionStats))) {
+                                if (arithDecoder->decodeBit(cx, genericRegionStats.get())) {
                                     *pp |= mask;
                                     buf2 |= 0x8000;
                                     if (aty[0] == 0) {
@@ -3171,7 +3318,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
 
                 } else {
                     // decode the row
-                    for (x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
+                    for (int x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
                         if (x0 + 8 < w) {
                             if (p0) {
                                 buf0 |= *p0++;
@@ -3181,20 +3328,21 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                             }
                             buf2 |= *p2++;
                         }
-                        for (x1 = 0, mask = 0x80; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
+                        unsigned char mask = 0x80;
+                        for (int x1 = 0; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
 
                             // build the context
-                            cx0 = (buf0 >> 14) & 0x07;
-                            cx1 = (buf1 >> 13) & 0x1f;
-                            cx2 = (buf2 >> 16) & 0x0f;
-                            cx = (cx0 << 13) | (cx1 << 8) | (cx2 << 4) | (bitmap->getPixel(x + atx[0], y + aty[0]) << 3) | (bitmap->getPixel(x + atx[1], y + aty[1]) << 2) | (bitmap->getPixel(x + atx[2], y + aty[2]) << 1)
+                            const unsigned int cx0 = (buf0 >> 14) & 0x07;
+                            const unsigned int cx1 = (buf1 >> 13) & 0x1f;
+                            const unsigned int cx2 = (buf2 >> 16) & 0x0f;
+                            const unsigned int cx = (cx0 << 13) | (cx1 << 8) | (cx2 << 4) | (bitmap->getPixel(x + atx[0], y + aty[0]) << 3) | (bitmap->getPixel(x + atx[1], y + aty[1]) << 2) | (bitmap->getPixel(x + atx[2], y + aty[2]) << 1)
                                     | bitmap->getPixel(x + atx[3], y + aty[3]);
 
                             // check for a skipped pixel
                             if (!(useSkip && skip->getPixel(x, y))) {
 
                                 // decode the pixel
-                                if ((pix = arithDecoder->decodeBit(cx, genericRegionStats))) {
+                                if (arithDecoder->decodeBit(cx, genericRegionStats.get())) {
                                     *pp |= mask;
                                     buf2 |= 0x8000;
                                 }
@@ -3208,12 +3356,17 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                     }
                 }
                 break;
-
-            case 1:
+            }
+            case 1: {
+                if (isPixelOutsideAdaptiveField(atx[0], aty[0])) {
+                    return nullptr;
+                }
 
                 // set up the context
+                unsigned char *p0, *p1, *p2, *pp;
                 p2 = pp = bitmap->getDataPtr() + y * bitmap->getLineSize();
-                buf2 = *p2++ << 8;
+                unsigned int buf0, buf1;
+                unsigned int buf2 = *p2++ << 8;
                 if (y >= 1) {
                     p1 = bitmap->getDataPtr() + (y - 1) * bitmap->getLineSize();
                     buf1 = *p1++ << 8;
@@ -3232,6 +3385,8 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                 if (atx[0] >= -8 && atx[0] <= 8) {
                     // set up the adaptive context
                     const int atY = y + aty[0];
+                    unsigned int atBuf0;
+                    unsigned char *atP0;
                     if ((atY >= 0) && (atY < bitmap->getHeight())) {
                         atP0 = bitmap->getDataPtr() + atY * bitmap->getLineSize();
                         atBuf0 = *atP0++ << 8;
@@ -3239,10 +3394,10 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         atP0 = nullptr;
                         atBuf0 = 0;
                     }
-                    atShift0 = 15 - atx[0];
+                    const int atShift0 = 15 - atx[0];
 
                     // decode the row
-                    for (x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
+                    for (int x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
                         if (x0 + 8 < w) {
                             if (p0) {
                                 buf0 |= *p0++;
@@ -3255,24 +3410,28 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                                 atBuf0 |= *atP0++;
                             }
                         }
-                        for (x1 = 0, mask = 0x80; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
+                        unsigned char mask = 0x80;
+                        for (int x1 = 0; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
 
                             // build the context
-                            cx0 = (buf0 >> 13) & 0x0f;
-                            cx1 = (buf1 >> 13) & 0x1f;
-                            cx2 = (buf2 >> 16) & 0x07;
-                            cx = (cx0 << 9) | (cx1 << 4) | (cx2 << 1) | ((atBuf0 >> atShift0) & 1);
+                            const unsigned int cx0 = (buf0 >> 13) & 0x0f;
+                            const unsigned int cx1 = (buf1 >> 13) & 0x1f;
+                            const unsigned int cx2 = (buf2 >> 16) & 0x07;
+                            const unsigned int cx = (cx0 << 9) | (cx1 << 4) | (cx2 << 1) | ((atBuf0 >> atShift0) & 1);
 
                             // check for a skipped pixel
                             if (!(useSkip && skip->getPixel(x, y))) {
 
                                 // decode the pixel
-                                if ((pix = arithDecoder->decodeBit(cx, genericRegionStats))) {
+                                if (arithDecoder->decodeBit(cx, genericRegionStats.get())) {
                                     *pp |= mask;
                                     buf2 |= 0x8000;
                                     if (aty[0] == 0) {
                                         atBuf0 |= 0x8000;
                                     }
+                                }
+                                if (unlikely(arithDecoder->getReadPastEndOfStream())) {
+                                    return nullptr;
                                 }
                             }
 
@@ -3286,7 +3445,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
 
                 } else {
                     // decode the row
-                    for (x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
+                    for (int x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
                         if (x0 + 8 < w) {
                             if (p0) {
                                 buf0 |= *p0++;
@@ -3296,21 +3455,25 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                             }
                             buf2 |= *p2++;
                         }
-                        for (x1 = 0, mask = 0x80; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
+                        unsigned char mask = 0x80;
+                        for (int x1 = 0; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
 
                             // build the context
-                            cx0 = (buf0 >> 13) & 0x0f;
-                            cx1 = (buf1 >> 13) & 0x1f;
-                            cx2 = (buf2 >> 16) & 0x07;
-                            cx = (cx0 << 9) | (cx1 << 4) | (cx2 << 1) | bitmap->getPixel(x + atx[0], y + aty[0]);
+                            const unsigned int cx0 = (buf0 >> 13) & 0x0f;
+                            const unsigned int cx1 = (buf1 >> 13) & 0x1f;
+                            const unsigned int cx2 = (buf2 >> 16) & 0x07;
+                            const unsigned int cx = (cx0 << 9) | (cx1 << 4) | (cx2 << 1) | bitmap->getPixel(x + atx[0], y + aty[0]);
 
                             // check for a skipped pixel
                             if (!(useSkip && skip->getPixel(x, y))) {
 
                                 // decode the pixel
-                                if ((pix = arithDecoder->decodeBit(cx, genericRegionStats))) {
+                                if (arithDecoder->decodeBit(cx, genericRegionStats.get())) {
                                     *pp |= mask;
                                     buf2 |= 0x8000;
+                                }
+                                if (unlikely(arithDecoder->getReadPastEndOfStream())) {
+                                    return nullptr;
                                 }
                             }
 
@@ -3322,12 +3485,17 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                     }
                 }
                 break;
-
-            case 2:
+            }
+            case 2: {
+                if (isPixelOutsideAdaptiveField(atx[0], aty[0])) {
+                    return nullptr;
+                }
 
                 // set up the context
+                unsigned char *p0, *p1, *p2, *pp;
                 p2 = pp = bitmap->getDataPtr() + y * bitmap->getLineSize();
-                buf2 = *p2++ << 8;
+                unsigned int buf0, buf1;
+                unsigned int buf2 = *p2++ << 8;
                 if (y >= 1) {
                     p1 = bitmap->getDataPtr() + (y - 1) * bitmap->getLineSize();
                     buf1 = *p1++ << 8;
@@ -3346,6 +3514,8 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                 if (atx[0] >= -8 && atx[0] <= 8) {
                     // set up the adaptive context
                     const int atY = y + aty[0];
+                    unsigned int atBuf0;
+                    unsigned char *atP0;
                     if ((atY >= 0) && (atY < bitmap->getHeight())) {
                         atP0 = bitmap->getDataPtr() + atY * bitmap->getLineSize();
                         atBuf0 = *atP0++ << 8;
@@ -3353,10 +3523,10 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         atP0 = nullptr;
                         atBuf0 = 0;
                     }
-                    atShift0 = 15 - atx[0];
+                    const int atShift0 = 15 - atx[0];
 
                     // decode the row
-                    for (x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
+                    for (int x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
                         if (x0 + 8 < w) {
                             if (p0) {
                                 buf0 |= *p0++;
@@ -3369,24 +3539,28 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                                 atBuf0 |= *atP0++;
                             }
                         }
-                        for (x1 = 0, mask = 0x80; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
+                        unsigned char mask = 0x80;
+                        for (int x1 = 0; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
 
                             // build the context
-                            cx0 = (buf0 >> 14) & 0x07;
-                            cx1 = (buf1 >> 14) & 0x0f;
-                            cx2 = (buf2 >> 16) & 0x03;
-                            cx = (cx0 << 7) | (cx1 << 3) | (cx2 << 1) | ((atBuf0 >> atShift0) & 1);
+                            const unsigned int cx0 = (buf0 >> 14) & 0x07;
+                            const unsigned int cx1 = (buf1 >> 14) & 0x0f;
+                            const unsigned int cx2 = (buf2 >> 16) & 0x03;
+                            const unsigned int cx = (cx0 << 7) | (cx1 << 3) | (cx2 << 1) | ((atBuf0 >> atShift0) & 1);
 
                             // check for a skipped pixel
                             if (!(useSkip && skip->getPixel(x, y))) {
 
                                 // decode the pixel
-                                if ((pix = arithDecoder->decodeBit(cx, genericRegionStats))) {
+                                if (arithDecoder->decodeBit(cx, genericRegionStats.get())) {
                                     *pp |= mask;
                                     buf2 |= 0x8000;
                                     if (aty[0] == 0) {
                                         atBuf0 |= 0x8000;
                                     }
+                                }
+                                if (unlikely(arithDecoder->getReadPastEndOfStream())) {
+                                    return nullptr;
                                 }
                             }
 
@@ -3400,7 +3574,7 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
 
                 } else {
                     // decode the row
-                    for (x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
+                    for (int x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
                         if (x0 + 8 < w) {
                             if (p0) {
                                 buf0 |= *p0++;
@@ -3410,19 +3584,20 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                             }
                             buf2 |= *p2++;
                         }
-                        for (x1 = 0, mask = 0x80; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
+                        unsigned char mask = 0x80;
+                        for (int x1 = 0; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
 
                             // build the context
-                            cx0 = (buf0 >> 14) & 0x07;
-                            cx1 = (buf1 >> 14) & 0x0f;
-                            cx2 = (buf2 >> 16) & 0x03;
-                            cx = (cx0 << 7) | (cx1 << 3) | (cx2 << 1) | bitmap->getPixel(x + atx[0], y + aty[0]);
+                            const unsigned int cx0 = (buf0 >> 14) & 0x07;
+                            const unsigned int cx1 = (buf1 >> 14) & 0x0f;
+                            const unsigned int cx2 = (buf2 >> 16) & 0x03;
+                            const unsigned int cx = (cx0 << 7) | (cx1 << 3) | (cx2 << 1) | bitmap->getPixel(x + atx[0], y + aty[0]);
 
                             // check for a skipped pixel
                             if (!(useSkip && skip->getPixel(x, y))) {
 
                                 // decode the pixel
-                                if ((pix = arithDecoder->decodeBit(cx, genericRegionStats))) {
+                                if (arithDecoder->decodeBit(cx, genericRegionStats.get())) {
                                     *pp |= mask;
                                     buf2 |= 0x8000;
                                 }
@@ -3436,12 +3611,17 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                     }
                 }
                 break;
-
+            }
             case 3:
+                if (isPixelOutsideAdaptiveField(atx[0], aty[0])) {
+                    return nullptr;
+                }
 
                 // set up the context
+                unsigned char *p1, *p2, *pp;
                 p2 = pp = bitmap->getDataPtr() + y * bitmap->getLineSize();
-                buf2 = *p2++ << 8;
+                unsigned int buf1;
+                unsigned int buf2 = *p2++ << 8;
                 if (y >= 1) {
                     p1 = bitmap->getDataPtr() + (y - 1) * bitmap->getLineSize();
                     buf1 = *p1++ << 8;
@@ -3453,6 +3633,8 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                 if (atx[0] >= -8 && atx[0] <= 8) {
                     // set up the adaptive context
                     const int atY = y + aty[0];
+                    unsigned int atBuf0;
+                    unsigned char *atP0;
                     if ((atY >= 0) && (atY < bitmap->getHeight())) {
                         atP0 = bitmap->getDataPtr() + atY * bitmap->getLineSize();
                         atBuf0 = *atP0++ << 8;
@@ -3460,10 +3642,10 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                         atP0 = nullptr;
                         atBuf0 = 0;
                     }
-                    atShift0 = 15 - atx[0];
+                    const int atShift0 = 15 - atx[0];
 
                     // decode the row
-                    for (x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
+                    for (int x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
                         if (x0 + 8 < w) {
                             if (p1) {
                                 buf1 |= *p1++;
@@ -3473,23 +3655,27 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
                                 atBuf0 |= *atP0++;
                             }
                         }
-                        for (x1 = 0, mask = 0x80; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
+                        unsigned char mask = 0x80;
+                        for (int x1 = 0; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
 
                             // build the context
-                            cx1 = (buf1 >> 14) & 0x1f;
-                            cx2 = (buf2 >> 16) & 0x0f;
-                            cx = (cx1 << 5) | (cx2 << 1) | ((atBuf0 >> atShift0) & 1);
+                            const unsigned int cx1 = (buf1 >> 14) & 0x1f;
+                            const unsigned int cx2 = (buf2 >> 16) & 0x0f;
+                            const unsigned int cx = (cx1 << 5) | (cx2 << 1) | ((atBuf0 >> atShift0) & 1);
 
                             // check for a skipped pixel
                             if (!(useSkip && skip->getPixel(x, y))) {
 
                                 // decode the pixel
-                                if ((pix = arithDecoder->decodeBit(cx, genericRegionStats))) {
+                                if (arithDecoder->decodeBit(cx, genericRegionStats.get())) {
                                     *pp |= mask;
                                     buf2 |= 0x8000;
                                     if (aty[0] == 0) {
                                         atBuf0 |= 0x8000;
                                     }
+                                }
+                                if (unlikely(arithDecoder->getReadPastEndOfStream())) {
+                                    return nullptr;
                                 }
                             }
 
@@ -3502,25 +3688,26 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
 
                 } else {
                     // decode the row
-                    for (x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
+                    for (int x0 = 0, x = 0; x0 < w; x0 += 8, ++pp) {
                         if (x0 + 8 < w) {
                             if (p1) {
                                 buf1 |= *p1++;
                             }
                             buf2 |= *p2++;
                         }
-                        for (x1 = 0, mask = 0x80; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
+                        unsigned char mask = 0x80;
+                        for (int x1 = 0; x1 < 8 && x < w; ++x1, ++x, mask >>= 1) {
 
                             // build the context
-                            cx1 = (buf1 >> 14) & 0x1f;
-                            cx2 = (buf2 >> 16) & 0x0f;
-                            cx = (cx1 << 5) | (cx2 << 1) | bitmap->getPixel(x + atx[0], y + aty[0]);
+                            const unsigned int cx1 = (buf1 >> 14) & 0x1f;
+                            const unsigned int cx2 = (buf2 >> 16) & 0x0f;
+                            const unsigned int cx = (cx1 << 5) | (cx2 << 1) | bitmap->getPixel(x + atx[0], y + aty[0]);
 
                             // check for a skipped pixel
                             if (!(useSkip && skip->getPixel(x, y))) {
 
                                 // decode the pixel
-                                if ((pix = arithDecoder->decodeBit(cx, genericRegionStats))) {
+                                if (arithDecoder->decodeBit(cx, genericRegionStats.get())) {
                                     *pp |= mask;
                                     buf2 |= 0x8000;
                                 }
@@ -3540,56 +3727,59 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericBitmap(bool mmr, int w, int
     return bitmap;
 }
 
-void JBIG2Stream::readGenericRefinementRegionSeg(unsigned int segNum, bool imm, bool lossless, unsigned int length, unsigned int *refSegs, unsigned int nRefSegs)
+bool JBIG2Stream::readGenericRefinementRegionSeg(unsigned int segNum, bool imm, const std::vector<unsigned int> &refSegs)
 {
-    std::unique_ptr<JBIG2Bitmap> bitmap;
-    JBIG2Bitmap *refBitmap;
-    unsigned int w, h, x, y, segInfoFlags, extCombOp;
-    unsigned int flags, templ, tpgrOn;
+    unsigned int w, h, x, y, segInfoFlags;
+    unsigned int flags;
     int atx[2], aty[2];
-    JBIG2Segment *seg;
 
     // region segment info field
     if (!readULong(&w) || !readULong(&h) || !readULong(&x) || !readULong(&y) || !readUByte(&segInfoFlags)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
-    extCombOp = segInfoFlags & 7;
+    const unsigned int extCombOp = segInfoFlags & 7;
 
     // rest of the generic refinement region segment header
     if (!readUByte(&flags)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
-    templ = flags & 1;
-    tpgrOn = (flags >> 1) & 1;
+    const unsigned int templ = flags & 1;
+    const unsigned int tpgrOn = (flags >> 1) & 1;
 
     // AT flags
     if (!templ) {
         if (!readByte(&atx[0]) || !readByte(&aty[0]) || !readByte(&atx[1]) || !readByte(&aty[1])) {
-            goto eofError;
+            error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+            return false;
         }
     }
 
     // resize the page bitmap if needed
-    if (nRefSegs == 0 || imm) {
+    if (refSegs.empty() || imm) {
         if (pageH == 0xffffffff && y + h > curPageH) {
             pageBitmap->expand(y + h, pageDefPixel);
         }
     }
 
     // get referenced bitmap
-    if (nRefSegs > 1) {
+    if (refSegs.size() > 1) {
         error(errSyntaxError, curStr->getPos(), "Bad reference in JBIG2 generic refinement segment");
-        return;
+        return false;
     }
-    if (nRefSegs == 1) {
-        seg = findSegment(refSegs[0]);
+    JBIG2Bitmap *refBitmap;
+    std::unique_ptr<JBIG2Bitmap> bitmapDeleter;
+    if (refSegs.size() == 1) {
+        JBIG2Segment *seg = findSegment(refSegs[0]);
         if (seg == nullptr || seg->getType() != jbig2SegBitmap) {
             error(errSyntaxError, curStr->getPos(), "Bad bitmap reference in JBIG2 generic refinement segment");
-            return;
+            return false;
         }
-        refBitmap = (JBIG2Bitmap *)seg;
+        refBitmap = static_cast<JBIG2Bitmap *>(seg);
     } else {
-        refBitmap = pageBitmap->getSlice(x, y, w, h);
+        bitmapDeleter = pageBitmap->getSlice(x, y, w, h);
+        refBitmap = bitmapDeleter.get();
     }
 
     // set up the arithmetic decoder
@@ -3597,11 +3787,11 @@ void JBIG2Stream::readGenericRefinementRegionSeg(unsigned int segNum, bool imm, 
     arithDecoder->start();
 
     // read
-    bitmap = readGenericRefinementRegion(w, h, templ, tpgrOn, refBitmap, 0, 0, atx, aty);
+    std::unique_ptr<JBIG2Bitmap> bitmap = readGenericRefinementRegion(w, h, templ, tpgrOn, refBitmap, 0, 0, atx, aty);
 
     // combine the region bitmap into the page bitmap
     if (imm && bitmap) {
-        pageBitmap->combine(bitmap.get(), x, y, extCombOp);
+        pageBitmap->combine(*bitmap, x, y, extCombOp);
 
         // store the region bitmap
     } else {
@@ -3614,32 +3804,27 @@ void JBIG2Stream::readGenericRefinementRegionSeg(unsigned int segNum, bool imm, 
     }
 
     // delete the referenced bitmap
-    if (nRefSegs == 1) {
+    if (refSegs.size() == 1) {
         discardSegment(refSegs[0]);
-    } else {
-        delete refBitmap;
     }
 
-    return;
-
-eofError:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+    return true;
 }
 
 std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericRefinementRegion(int w, int h, int templ, bool tpgrOn, JBIG2Bitmap *refBitmap, int refDX, int refDY, int *atx, int *aty)
 {
     bool ltp;
     unsigned int ltpCX, cx, cx0, cx2, cx3, cx4, tpgrCX0, tpgrCX1, tpgrCX2;
-    JBIG2BitmapPtr cxPtr0 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr cxPtr1 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr cxPtr2 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr cxPtr3 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr cxPtr4 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr cxPtr5 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr cxPtr6 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr tpgrCXPtr0 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr tpgrCXPtr1 = { nullptr, 0, 0 };
-    JBIG2BitmapPtr tpgrCXPtr2 = { nullptr, 0, 0 };
+    JBIG2BitmapPtr cxPtr0 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr cxPtr1 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr cxPtr2 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr cxPtr3 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr cxPtr4 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr cxPtr5 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr cxPtr6 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr tpgrCXPtr0 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr tpgrCXPtr1 = { .p = nullptr, .shift = 0, .x = 0 };
+    JBIG2BitmapPtr tpgrCXPtr2 = { .p = nullptr, .shift = 0, .x = 0 };
     int x, y, pix;
 
     if (!refBitmap) {
@@ -3710,13 +3895,14 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericRefinementRegion(int w, int
                     tpgrCX2 = ((tpgrCX2 << 1) | refBitmap->nextPixel(&tpgrCXPtr2)) & 7;
 
                     // check for a "typical" pixel
-                    if (arithDecoder->decodeBit(ltpCX, refinementRegionStats)) {
+                    if (arithDecoder->decodeBit(ltpCX, refinementRegionStats.get())) {
                         ltp = !ltp;
                     }
                     if (tpgrCX0 == 0 && tpgrCX1 == 0 && tpgrCX2 == 0) {
                         bitmap->clearPixel(x, y);
                         continue;
-                    } else if (tpgrCX0 == 7 && tpgrCX1 == 7 && tpgrCX2 == 7) {
+                    }
+                    if (tpgrCX0 == 7 && tpgrCX1 == 7 && tpgrCX2 == 7) {
                         bitmap->setPixel(x, y);
                         continue;
                     }
@@ -3726,8 +3912,11 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericRefinementRegion(int w, int
                 cx = (cx0 << 7) | (bitmap->nextPixel(&cxPtr1) << 6) | (refBitmap->nextPixel(&cxPtr2) << 5) | (cx3 << 2) | cx4;
 
                 // decode the pixel
-                if ((pix = arithDecoder->decodeBit(cx, refinementRegionStats))) {
+                if ((pix = arithDecoder->decodeBit(cx, refinementRegionStats.get()))) {
                     bitmap->setPixel(x, y);
+                }
+                if (unlikely(arithDecoder->getReadPastEndOfStream())) {
+                    return nullptr;
                 }
             }
 
@@ -3784,13 +3973,14 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericRefinementRegion(int w, int
                     tpgrCX2 = ((tpgrCX2 << 1) | refBitmap->nextPixel(&tpgrCXPtr2)) & 7;
 
                     // check for a "typical" pixel
-                    if (arithDecoder->decodeBit(ltpCX, refinementRegionStats)) {
+                    if (arithDecoder->decodeBit(ltpCX, refinementRegionStats.get())) {
                         ltp = !ltp;
                     }
                     if (tpgrCX0 == 0 && tpgrCX1 == 0 && tpgrCX2 == 0) {
                         bitmap->clearPixel(x, y);
                         continue;
-                    } else if (tpgrCX0 == 7 && tpgrCX1 == 7 && tpgrCX2 == 7) {
+                    }
+                    if (tpgrCX0 == 7 && tpgrCX1 == 7 && tpgrCX2 == 7) {
                         bitmap->setPixel(x, y);
                         continue;
                     }
@@ -3800,8 +3990,12 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericRefinementRegion(int w, int
                 cx = (cx0 << 11) | (bitmap->nextPixel(&cxPtr1) << 10) | (cx2 << 8) | (cx3 << 5) | (cx4 << 2) | (bitmap->nextPixel(&cxPtr5) << 1) | refBitmap->nextPixel(&cxPtr6);
 
                 // decode the pixel
-                if ((pix = arithDecoder->decodeBit(cx, refinementRegionStats))) {
+                if ((pix = arithDecoder->decodeBit(cx, refinementRegionStats.get()))) {
                     bitmap->setPixel(x, y);
+                }
+
+                if (unlikely(arithDecoder->getReadPastEndOfStream())) {
+                    return nullptr;
                 }
             }
         }
@@ -3810,12 +4004,13 @@ std::unique_ptr<JBIG2Bitmap> JBIG2Stream::readGenericRefinementRegion(int w, int
     return bitmap;
 }
 
-void JBIG2Stream::readPageInfoSeg(unsigned int length)
+bool JBIG2Stream::readPageInfoSeg()
 {
     unsigned int xRes, yRes, flags, striping;
 
     if (!readULong(&pageW) || !readULong(&pageH) || !readULong(&xRes) || !readULong(&yRes) || !readUByte(&flags) || !readUWord(&striping)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
     pageDefPixel = (flags >> 2) & 1;
     defCombOp = (flags >> 3) & 3;
@@ -3826,13 +4021,11 @@ void JBIG2Stream::readPageInfoSeg(unsigned int length)
     } else {
         curPageH = pageH;
     }
-    delete pageBitmap;
-    pageBitmap = new JBIG2Bitmap(0, pageW, curPageH);
+    pageBitmap = std::make_unique<JBIG2Bitmap>(0, pageW, curPageH);
 
     if (!pageBitmap->isOk()) {
-        delete pageBitmap;
-        pageBitmap = nullptr;
-        return;
+        pageBitmap.reset();
+        return false;
     }
 
     // default pixel value
@@ -3842,33 +4035,36 @@ void JBIG2Stream::readPageInfoSeg(unsigned int length)
         pageBitmap->clearToZero();
     }
 
-    return;
-
-eofError:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+    return true;
 }
 
-void JBIG2Stream::readEndOfStripeSeg(unsigned int length)
+bool JBIG2Stream::readEndOfStripeSeg(unsigned int length)
 {
     // skip the segment
-    byteCounter += curStr->discardChars(length);
+    const unsigned int discardedChars = curStr->discardChars(length);
+    byteCounter += discardedChars;
+    return discardedChars == length;
 }
 
-void JBIG2Stream::readProfilesSeg(unsigned int length)
+bool JBIG2Stream::readProfilesSeg(unsigned int length)
 {
     // skip the segment
-    byteCounter += curStr->discardChars(length);
+    const unsigned int discardedChars = curStr->discardChars(length);
+    byteCounter += discardedChars;
+    return discardedChars == length;
 }
 
-void JBIG2Stream::readCodeTableSeg(unsigned int segNum, unsigned int length)
+bool JBIG2Stream::readCodeTableSeg(unsigned int segNum)
 {
     JBIG2HuffmanTable *huffTab;
     unsigned int flags, oob, prefixBits, rangeBits;
     int lowVal, highVal, val;
     unsigned int huffTabSize, i;
+    bool eof = false;
 
     if (!readUByte(&flags) || !readLong(&lowVal) || !readLong(&highVal)) {
-        goto eofError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
     oob = flags & 1;
     prefixBits = ((flags >> 1) & 7) + 1;
@@ -3876,9 +4072,10 @@ void JBIG2Stream::readCodeTableSeg(unsigned int segNum, unsigned int length)
 
     huffDecoder->reset();
     huffTabSize = 8;
-    huffTab = (JBIG2HuffmanTable *)gmallocn_checkoverflow(huffTabSize, sizeof(JBIG2HuffmanTable));
+    huffTab = static_cast<JBIG2HuffmanTable *>(gmallocn_checkoverflow(huffTabSize, sizeof(JBIG2HuffmanTable)));
     if (unlikely(!huffTab)) {
-        goto oomError;
+        error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
+        return false;
     }
 
     i = 0;
@@ -3886,28 +4083,44 @@ void JBIG2Stream::readCodeTableSeg(unsigned int segNum, unsigned int length)
     while (val < highVal) {
         if (i == huffTabSize) {
             huffTabSize *= 2;
-            huffTab = (JBIG2HuffmanTable *)greallocn_checkoverflow(huffTab, huffTabSize, sizeof(JBIG2HuffmanTable));
+            huffTab = static_cast<JBIG2HuffmanTable *>(greallocn_checkoverflow(huffTab, huffTabSize, sizeof(JBIG2HuffmanTable)));
             if (unlikely(!huffTab)) {
-                goto oomError;
+                error(errInternal, curStr->getPos(), "Failed allocation when processing JBIG2 stream");
+                return false;
             }
         }
         huffTab[i].val = val;
-        huffTab[i].prefixLen = huffDecoder->readBits(prefixBits);
-        huffTab[i].rangeLen = huffDecoder->readBits(rangeBits);
-        if (unlikely(checkedAdd(val, 1 << huffTab[i].rangeLen, &val))) {
+        huffTab[i].prefixLen = huffDecoder->readBits(prefixBits, &eof);
+        unsigned int rangeLen = huffDecoder->readBits(rangeBits, &eof);
+        if (!validateRangeLen(rangeLen)) {
+            error(errInternal, curStr->getPos(), "Unexpected data in JBIG2 stream");
             free(huffTab);
-            return;
+            return false;
+        }
+        huffTab[i].rangeLen = rangeLen;
+
+        const int shiftBits = huffTab[i].rangeLen % intNBits;
+
+        if (eof || unlikely(checkedAdd(val, 1 << shiftBits, &val))) {
+            free(huffTab);
+            return false;
         }
         ++i;
     }
     if (i + oob + 3 > huffTabSize) {
         huffTabSize = i + oob + 3;
-        huffTab = (JBIG2HuffmanTable *)greallocn_checkoverflow(huffTab, huffTabSize, sizeof(JBIG2HuffmanTable));
+        huffTab = static_cast<JBIG2HuffmanTable *>(greallocn_checkoverflow(huffTab, huffTabSize, sizeof(JBIG2HuffmanTable)));
         if (unlikely(!huffTab)) {
-            goto oomError;
+            error(errInternal, curStr->getPos(), "Failed allocation when processing JBIG2 stream");
+            return false;
         }
     }
-    huffTab[i].val = lowVal - 1;
+    int lowValMinusOne;
+    if (unlikely(checkedSubtraction(lowVal, 1, &lowValMinusOne))) {
+        free(huffTab);
+        return false;
+    }
+    huffTab[i].val = lowValMinusOne;
     huffTab[i].prefixLen = huffDecoder->readBits(prefixBits);
     huffTab[i].rangeLen = jbig2HuffmanLOW;
     ++i;
@@ -3931,18 +4144,15 @@ void JBIG2Stream::readCodeTableSeg(unsigned int segNum, unsigned int length)
         free(huffTab);
     }
 
-    return;
-
-eofError:
-    error(errSyntaxError, curStr->getPos(), "Unexpected EOF in JBIG2 stream");
-oomError:
-    error(errInternal, curStr->getPos(), "Failed allocation when processing JBIG2 stream");
+    return true;
 }
 
-void JBIG2Stream::readExtensionSeg(unsigned int length)
+bool JBIG2Stream::readExtensionSeg(unsigned int length)
 {
     // skip the segment
-    byteCounter += curStr->discardChars(length);
+    const unsigned int discardedChars = curStr->discardChars(length);
+    byteCounter += discardedChars;
+    return discardedChars == length;
 }
 
 JBIG2Segment *JBIG2Stream::findSegment(unsigned int segNum)
@@ -3976,70 +4186,66 @@ void JBIG2Stream::discardSegment(unsigned int segNum)
     }
 }
 
-void JBIG2Stream::resetGenericStats(unsigned int templ, JArithmeticDecoderStats *prevStats)
+void JBIG2Stream::resetGenericStats(unsigned int templ, const JArithmeticDecoderStats *prevStats)
 {
     int size;
 
     size = contextSize[templ];
     if (prevStats && prevStats->getContextSize() == size) {
         if (genericRegionStats->getContextSize() == size) {
-            genericRegionStats->copyFrom(prevStats);
+            genericRegionStats->copyFrom(*prevStats);
         } else {
-            delete genericRegionStats;
             genericRegionStats = prevStats->copy();
         }
     } else {
         if (genericRegionStats->getContextSize() == size) {
-            genericRegionStats->reset();
+            genericRegionStats->resetContext();
         } else {
-            delete genericRegionStats;
-            genericRegionStats = new JArithmeticDecoderStats(1 << size);
+            genericRegionStats = std::make_unique<JArithmeticDecoderStats>(1 << size);
         }
     }
 }
 
-void JBIG2Stream::resetRefinementStats(unsigned int templ, JArithmeticDecoderStats *prevStats)
+void JBIG2Stream::resetRefinementStats(unsigned int templ, const JArithmeticDecoderStats *prevStats)
 {
     int size;
 
     size = refContextSize[templ];
     if (prevStats && prevStats->getContextSize() == size) {
         if (refinementRegionStats->getContextSize() == size) {
-            refinementRegionStats->copyFrom(prevStats);
+            refinementRegionStats->copyFrom(*prevStats);
         } else {
-            delete refinementRegionStats;
             refinementRegionStats = prevStats->copy();
         }
     } else {
         if (refinementRegionStats->getContextSize() == size) {
-            refinementRegionStats->reset();
+            refinementRegionStats->resetContext();
         } else {
-            delete refinementRegionStats;
-            refinementRegionStats = new JArithmeticDecoderStats(1 << size);
+            refinementRegionStats = std::make_unique<JArithmeticDecoderStats>(1 << size);
         }
     }
 }
 
 bool JBIG2Stream::resetIntStats(int symCodeLen)
 {
-    iadhStats->reset();
-    iadwStats->reset();
-    iaexStats->reset();
-    iaaiStats->reset();
-    iadtStats->reset();
-    iaitStats->reset();
-    iafsStats->reset();
-    iadsStats->reset();
-    iardxStats->reset();
-    iardyStats->reset();
-    iardwStats->reset();
-    iardhStats->reset();
-    iariStats->reset();
+    iadhStats->resetContext();
+    iadwStats->resetContext();
+    iaexStats->resetContext();
+    iaaiStats->resetContext();
+    iadtStats->resetContext();
+    iaitStats->resetContext();
+    iafsStats->resetContext();
+    iadsStats->resetContext();
+    iardxStats->resetContext();
+    iardyStats->resetContext();
+    iardwStats->resetContext();
+    iardhStats->resetContext();
+    iariStats->resetContext();
     if (symCodeLen + 1 >= 31) {
         return false;
     }
     if (iaidStats != nullptr && iaidStats->getContextSize() == 1 << (symCodeLen + 1)) {
-        iaidStats->reset();
+        iaidStats->resetContext();
     } else {
         delete iaidStats;
         iaidStats = new JArithmeticDecoderStats(1 << (symCodeLen + 1));
@@ -4060,7 +4266,7 @@ bool JBIG2Stream::readUByte(unsigned int *x)
         return false;
     }
     ++byteCounter;
-    *x = (unsigned int)c0;
+    *x = static_cast<unsigned int>(c0);
     return true;
 }
 
@@ -4087,7 +4293,7 @@ bool JBIG2Stream::readUWord(unsigned int *x)
         return false;
     }
     byteCounter += 2;
-    *x = (unsigned int)((c0 << 8) | c1);
+    *x = static_cast<unsigned int>((c0 << 8) | c1);
     return true;
 }
 
@@ -4099,7 +4305,7 @@ bool JBIG2Stream::readULong(unsigned int *x)
         return false;
     }
     byteCounter += 4;
-    *x = (unsigned int)((c0 << 24) | (c1 << 16) | (c2 << 8) | c3);
+    *x = static_cast<unsigned int>((c0 << 24) | (c1 << 16) | (c2 << 8) | c3);
     return true;
 }
 
@@ -4113,7 +4319,7 @@ bool JBIG2Stream::readLong(int *x)
     byteCounter += 4;
     *x = ((c0 << 24) | (c1 << 16) | (c2 << 8) | c3);
     if (c0 & 0x80) {
-        *x |= -1 - (int)0xffffffff;
+        *x |= -1 - static_cast<int>(0xffffffff);
     }
     return true;
 }

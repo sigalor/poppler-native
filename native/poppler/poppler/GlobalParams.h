@@ -13,7 +13,7 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2005, 2007-2010, 2012, 2015, 2017-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005, 2007-2010, 2012, 2015, 2017-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2005 Jonathan Blandford <jrb@redhat.com>
 // Copyright (C) 2006 Takashi Iwai <tiwai@suse.de>
 // Copyright (C) 2006 Kristian Høgsberg <krh@redhat.com>
@@ -28,6 +28,8 @@
 // Copyright (C) 2013 Jason Crain <jason@aquaticape.us>
 // Copyright (C) 2018, 2020 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2023 Shivodit Gill <shivodit.gill@gmail.com>
+// Copyright (C) 2024-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -38,7 +40,6 @@
 #define GLOBALPARAMS_H
 
 #include <cassert>
-#include "poppler-config.h"
 #include "poppler_private_export.h"
 #include <cstdio>
 #include "CharTypes.h"
@@ -48,7 +49,10 @@
 #include <string>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <utility>
 #include <vector>
+#include <filesystem>
 
 class GooString;
 class NameToCharCode;
@@ -79,11 +83,38 @@ enum SysFontType
 
 //------------------------------------------------------------------------
 
+struct FamilyStyleFontSearchResult
+{
+    FamilyStyleFontSearchResult() = default;
+
+    FamilyStyleFontSearchResult(std::string filepathA, int faceIndexA, bool substitutedA) : filepath(std::move(filepathA)), faceIndex(faceIndexA), substituted(substitutedA) { }
+
+    std::string filepath;
+    int faceIndex = 0;
+    bool substituted = false; /**True if you got something close but different*/
+};
+
+//------------------------------------------------------------------------
+
+struct UCharFontSearchResult
+{
+    UCharFontSearchResult() = default;
+
+    UCharFontSearchResult(std::string filepathA, int faceIndexA, std::string familyA, std::string styleA) : filepath(std::move(filepathA)), faceIndex(faceIndexA), family(std::move(familyA)), style(std::move(styleA)) { }
+
+    const std::string filepath;
+    const int faceIndex = 0;
+    const std::string family;
+    const std::string style;
+};
+
+//------------------------------------------------------------------------
+
 class POPPLER_PRIVATE_EXPORT GlobalParams
 {
 public:
     // Initialize the global parameters
-    GlobalParams(const char *customPopplerDataDir = nullptr);
+    explicit GlobalParams(std::string customPopplerDataDir = {});
 
     ~GlobalParams();
 
@@ -106,47 +137,46 @@ public:
 
     UnicodeMap *getResidentUnicodeMap(const std::string &encodingName);
     FILE *getUnicodeMapFile(const std::string &encodingName);
-    FILE *findCMapFile(const GooString *collection, const GooString *cMapName);
-    FILE *findToUnicodeFile(const GooString *name);
-    GooString *findFontFile(const GooString *fontName);
-    GooString *findBase14FontFile(const GooString *base14Name, const GfxFont *font);
-    GooString *findSystemFontFile(const GfxFont *font, SysFontType *type, int *fontNum, GooString *substituteFontName = nullptr, const GooString *base14Name = nullptr);
-    bool getPSExpandSmaller();
-    bool getPSShrinkLarger();
+    FILE *findCMapFile(const std::string &collection, const std::string &cMapName);
+    FILE *findToUnicodeFile(const std::string &name);
+    std::optional<std::string> findFontFile(const std::string &fontName);
+    std::optional<std::string> findBase14FontFile(const std::string &base14Name, const GfxFont &font, GooString *substituteFontName = nullptr);
+    std::optional<std::string> findSystemFontFile(const GfxFont &font, SysFontType *type, int *fontNum, GooString *substituteFontName = nullptr, const std::string *base14Name = nullptr);
+    FamilyStyleFontSearchResult findSystemFontFileForFamilyAndStyle(const std::string &fontFamily, const std::string &fontStyle, const std::vector<std::string> &filesToIgnore = {});
+    UCharFontSearchResult findSystemFontFileForUChar(Unicode uChar, const GfxFont &fontToEmulate);
     std::string getTextEncodingName() const;
-    bool getOverprintPreview() { return overprintPreview; }
     bool getPrintCommands();
     bool getProfileCommands();
-    bool getErrQuiet();
+    bool getErrQuiet() const;
 
-    CharCodeToUnicode *getCIDToUnicode(const GooString *collection);
+    std::shared_ptr<CharCodeToUnicode> getCIDToUnicode(const std::string &collection);
     const UnicodeMap *getUnicodeMap(const std::string &encodingName);
-    CMap *getCMap(const GooString *collection, const GooString *cMapName);
+    std::shared_ptr<CMap> getCMap(const std::string &collection, const std::string &cMapName);
     const UnicodeMap *getTextEncoding();
 
     const UnicodeMap *getUtf8Map();
 
-    std::vector<GooString *> *getEncodingNames();
+    std::vector<std::string> getEncodingNames();
 
     //----- functions to set parameters
-    void addFontFile(const GooString *fontName, const GooString *path);
-    void setPSExpandSmaller(bool expand);
-    void setPSShrinkLarger(bool shrink);
-    void setTextEncoding(const char *encodingName);
-    void setOverprintPreview(bool overprintPreviewA);
+    void addFontFile(const std::string &fontName, const std::string &path);
+    void setTextEncoding(const std::string &encodingName);
     void setPrintCommands(bool printCommandsA);
     void setProfileCommands(bool profileCommandsA);
     void setErrQuiet(bool errQuietA);
-
+#ifdef ANDROID
+    static void setFontDir(const std::string &fontDir);
+#endif
     static bool parseYesNo2(const char *token, bool *flag);
 
 private:
-    void parseNameToUnicode(const GooString *name);
+    static std::string appendToPath(const std::string &path, const std::string &fileName);
+    void parseNameToUnicode(const std::filesystem::path &name);
 
     void scanEncodingDirs();
-    void addCIDToUnicode(const GooString *collection, const GooString *fileName);
-    void addUnicodeMap(const GooString *encodingName, const GooString *fileName);
-    void addCMapDir(const GooString *collection, const GooString *dir);
+    void addCIDToUnicode(std::string &&collection, std::string &&fileName);
+    void addUnicodeMap(std::string &&encodingName, std::string &&fileName);
+    void addCMapDir(std::string &&collection, std::string &&dir);
 
     //----- static tables
 
@@ -170,7 +200,7 @@ private:
     std::unordered_map<std::string, std::string> unicodeMaps;
     // list of CMap dirs, indexed by collection
     std::unordered_multimap<std::string, std::string> cMapDirs;
-    std::vector<GooString *> *toUnicodeDirs; // list of ToUnicode CMap dirs
+    std::vector<std::string> toUnicodeDirs; // list of ToUnicode CMap dirs
     bool baseFontsInitialized;
 #ifdef _WIN32
     // windows font substitutes (for CID fonts)
@@ -179,17 +209,14 @@ private:
     // font files: font name mapped to path
     std::unordered_map<std::string, std::string> fontFiles;
     SysFontList *sysFonts; // system fonts
-    bool psExpandSmaller; // expand smaller pages to fill paper
-    bool psShrinkLarger; // shrink larger pages to fit paper
-    GooString *textEncoding; // encoding (unicodeMap) to use for text
-                             //   output
-    bool overprintPreview; // enable overprint preview
+    std::string textEncoding; // encoding (unicodeMap) to use for text
+                              //   output
     bool printCommands; // print the drawing commands
     bool profileCommands; // profile the drawing commands
     bool errQuiet; // suppress error messages?
 
-    CharCodeToUnicodeCache *cidToUnicodeCache;
-    CharCodeToUnicodeCache *unicodeToUnicodeCache;
+    std::unique_ptr<CharCodeToUnicodeCache> cidToUnicodeCache;
+    std::unique_ptr<CharCodeToUnicodeCache> unicodeToUnicodeCache;
     UnicodeMapCache *unicodeMapCache;
     CMapCache *cMapCache;
 
@@ -199,13 +226,13 @@ private:
     mutable std::recursive_mutex unicodeMapCacheMutex;
     mutable std::recursive_mutex cMapCacheMutex;
 
-    const char *popplerDataDir;
+    std::string popplerDataDir;
 };
 
 class POPPLER_PRIVATE_EXPORT GlobalParamsIniter
 {
 public:
-    GlobalParamsIniter(ErrorCallback errorCallback);
+    explicit GlobalParamsIniter(ErrorCallback errorCallback);
     ~GlobalParamsIniter();
 
     GlobalParamsIniter(const GlobalParamsIniter &) = delete;

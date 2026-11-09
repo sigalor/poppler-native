@@ -16,9 +16,10 @@
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
-// Copyright (C) 2013, 2017, 2019 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2013, 2017, 2019, 2022 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018, 2019 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -36,23 +37,33 @@
 // Array
 //------------------------------------------------------------------------
 
-#define arrayLocker() std::unique_lock<std::recursive_mutex> locker(mutex)
+#define arrayLocker() const std::scoped_lock locker(mutex)
 
 Array::Array(XRef *xrefA)
 {
     xref = xrefA;
-    ref = 1;
 }
 
-Array::~Array() { }
+Array::~Array() = default;
 
-Array *Array::copy(XRef *xrefA) const
+std::unique_ptr<Array> Array::copy(XRef *xrefA) const
 {
     arrayLocker();
-    Array *a = new Array(xrefA);
+    auto a = std::make_unique<Array>(xrefA);
     a->elems.reserve(elems.size());
     for (const auto &elem : elems) {
         a->elems.push_back(elem.copy());
+    }
+    return a;
+}
+
+std::unique_ptr<Array> Array::deepCopy() const
+{
+    arrayLocker();
+    auto a = std::make_unique<Array>(xref);
+    a->elems.reserve(elems.size());
+    for (const auto &elem : elems) {
+        a->elems.push_back(elem.deepCopy());
     }
     return a;
 }
@@ -66,7 +77,7 @@ void Array::add(Object &&elem)
 void Array::remove(int i)
 {
     arrayLocker();
-    if (i < 0 || std::size_t(i) >= elems.size()) {
+    if (i < 0 || static_cast<std::size_t>(i) >= elems.size()) {
         assert(i >= 0 && std::size_t(i) < elems.size());
         return;
     }
@@ -75,17 +86,17 @@ void Array::remove(int i)
 
 Object Array::get(int i, int recursion) const
 {
-    if (i < 0 || std::size_t(i) >= elems.size()) {
-        return Object(objNull);
+    if (i < 0 || static_cast<std::size_t>(i) >= elems.size()) {
+        return Object::null();
     }
     return elems[i].fetch(xref, recursion);
 }
 
 Object Array::get(int i, Ref *returnRef, int recursion) const
 {
-    if (i < 0 || std::size_t(i) >= elems.size()) {
+    if (i < 0 || static_cast<std::size_t>(i) >= elems.size()) {
         *returnRef = Ref::INVALID();
-        return Object(objNull);
+        return Object::null();
     }
     if (elems[i].getType() == objRef) {
         *returnRef = elems[i].getRef();
@@ -97,8 +108,8 @@ Object Array::get(int i, Ref *returnRef, int recursion) const
 
 const Object &Array::getNF(int i) const
 {
-    if (i < 0 || std::size_t(i) >= elems.size()) {
-        static Object nullObj(objNull);
+    if (i < 0 || static_cast<std::size_t>(i) >= elems.size()) {
+        static Object nullObj = Object::null();
         return nullObj;
     }
     return elems[i];
@@ -111,7 +122,6 @@ bool Array::getString(int i, GooString *string) const
         string->clear();
         string->append(obj.getString());
         return true;
-    } else {
-        return false;
     }
+    return false;
 }

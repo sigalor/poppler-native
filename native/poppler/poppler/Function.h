@@ -13,11 +13,13 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2009, 2010, 2018, 2019 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009, 2010, 2018, 2019, 2021, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2010 Christian Feuersänger <cfeuersaenger@googlemail.com>
 // Copyright (C) 2011 Andrea Canciani <ranma42@gmail.com>
 // Copyright (C) 2012 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2012 Adam Reichold <adamreichold@myopera.com>
+// Copyright (C) 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -27,13 +29,18 @@
 #ifndef FUNCTION_H
 #define FUNCTION_H
 
-#include "Object.h"
-#include <set>
+#include "poppler_private_export.h"
+
+#include <array>
+#include <memory>
+#include <vector>
 
 class Dict;
+class Object;
 class Stream;
 struct PSObject;
 class PSStack;
+struct RefRecursionChecker;
 
 //------------------------------------------------------------------------
 // Function
@@ -54,20 +61,23 @@ public:
     Function &operator=(const Function &other) = delete;
 
     // Construct a function.  Returns NULL if unsuccessful.
-    static Function *parse(Object *funcObj);
+    static std::unique_ptr<Function> parse(Object *funcObj);
 
     // Initialize the entries common to all function types.
     bool init(Dict *dict);
 
-    virtual Function *copy() const = 0;
+    virtual std::unique_ptr<Function> copy() const = 0;
 
-    // Return the function type:
-    //   -1 : identity
-    //    0 : sampled
-    //    2 : exponential
-    //    3 : stitching
-    //    4 : PostScript
-    virtual int getType() const = 0;
+    enum class Type
+    {
+        Identity,
+        Sampled,
+        Exponential,
+        Stitching,
+        PostScript
+    };
+
+    virtual Type getType() const = 0;
 
     // Return size of input and output tuples.
     int getInputSize() const { return m; }
@@ -78,7 +88,7 @@ public:
     double getRangeMin(int i) const { return range[i][0]; }
     double getRangeMax(int i) const { return range[i][1]; }
     bool getHasRange() const { return hasRange; }
-    virtual bool hasDifferentResultSet(const Function *func) const { return false; }
+    virtual bool hasDifferentResultSet(const Function * /*func*/) const { return false; }
 
     // Transform an input tuple into an output tuple.
     virtual void transform(const double *in, double *out) const = 0;
@@ -86,9 +96,9 @@ public:
     virtual bool isOk() const = 0;
 
 protected:
-    static Function *parse(Object *funcObj, std::set<int> *usedParents);
+    static std::unique_ptr<Function> parse(Object *funcObj, RefRecursionChecker &usedParents);
 
-    Function(const Function *func);
+    explicit Function(const Function *func);
 
     int m, n; // size of input and output tuples
     double // min and max values for function domain
@@ -107,8 +117,8 @@ class IdentityFunction : public Function
 public:
     IdentityFunction();
     ~IdentityFunction() override;
-    Function *copy() const override { return new IdentityFunction(); }
-    int getType() const override { return -1; }
+    std::unique_ptr<Function> copy() const override { return std::make_unique<IdentityFunction>(); }
+    Type getType() const override { return Type::Identity; }
     void transform(const double *in, double *out) const override;
     bool isOk() const override { return true; }
 
@@ -121,11 +131,15 @@ private:
 
 class SampledFunction : public Function
 {
+    class PrivateTag
+    {
+    };
+
 public:
     SampledFunction(Object *funcObj, Dict *dict);
     ~SampledFunction() override;
-    Function *copy() const override { return new SampledFunction(this); }
-    int getType() const override { return 0; }
+    std::unique_ptr<Function> copy() const override { return std::make_unique<SampledFunction>(this); }
+    Type getType() const override { return Type::Sampled; }
     void transform(const double *in, double *out) const override;
     bool isOk() const override { return ok; }
     bool hasDifferentResultSet(const Function *func) const override;
@@ -138,9 +152,9 @@ public:
     const double *getSamples() const { return samples; }
     int getSampleNumber() const { return nSamples; }
 
-private:
-    SampledFunction(const SampledFunction *func);
+    explicit SampledFunction(const SampledFunction *func, PrivateTag /*unused*/ = {});
 
+private:
     int // number of samples for each domain element
             sampleSize[funcMaxInputs];
     double // min and max values for domain encoder
@@ -164,11 +178,15 @@ private:
 
 class ExponentialFunction : public Function
 {
+    class PrivateTag
+    {
+    };
+
 public:
-    ExponentialFunction(Object *funcObj, Dict *dict);
+    explicit ExponentialFunction(Dict *dict);
     ~ExponentialFunction() override;
-    Function *copy() const override { return new ExponentialFunction(this); }
-    int getType() const override { return 2; }
+    std::unique_ptr<Function> copy() const override { return std::make_unique<ExponentialFunction>(this); }
+    Type getType() const override { return Type::Exponential; }
     void transform(const double *in, double *out) const override;
     bool isOk() const override { return ok; }
 
@@ -176,9 +194,9 @@ public:
     const double *getC1() const { return c1; }
     double getE() const { return e; }
 
-private:
-    ExponentialFunction(const ExponentialFunction *func);
+    explicit ExponentialFunction(const ExponentialFunction *func, PrivateTag /*unused*/ = {});
 
+private:
     double c0[funcMaxOutputs];
     double c1[funcMaxOutputs];
     double e;
@@ -192,25 +210,28 @@ private:
 
 class StitchingFunction : public Function
 {
+    class PrivateTag
+    {
+    };
+
 public:
-    StitchingFunction(Object *funcObj, Dict *dict, std::set<int> *usedParents);
+    StitchingFunction(Dict *dict, RefRecursionChecker &usedParents);
     ~StitchingFunction() override;
-    Function *copy() const override { return new StitchingFunction(this); }
-    int getType() const override { return 3; }
+    std::unique_ptr<Function> copy() const override { return std::make_unique<StitchingFunction>(this); }
+    Type getType() const override { return Type::Stitching; }
     void transform(const double *in, double *out) const override;
     bool isOk() const override { return ok; }
 
-    int getNumFuncs() const { return k; }
-    const Function *getFunc(int i) const { return funcs[i]; }
+    int getNumFuncs() const { return funcs.size(); }
+    const Function *getFunc(int i) const { return funcs[i].get(); }
     const double *getBounds() const { return bounds; }
     const double *getEncode() const { return encode; }
     const double *getScale() const { return scale; }
 
-private:
-    StitchingFunction(const StitchingFunction *func);
+    explicit StitchingFunction(const StitchingFunction *func, PrivateTag /*unused*/ = {});
 
-    int k;
-    Function **funcs;
+private:
+    std::vector<std::unique_ptr<Function>> funcs;
     double *bounds;
     double *encode;
     double *scale;
@@ -223,28 +244,32 @@ private:
 
 class PostScriptFunction : public Function
 {
+    class PrivateTag
+    {
+    };
+
 public:
     PostScriptFunction(Object *funcObj, Dict *dict);
     ~PostScriptFunction() override;
-    Function *copy() const override { return new PostScriptFunction(this); }
-    int getType() const override { return 4; }
+    std::unique_ptr<Function> copy() const override { return std::make_unique<PostScriptFunction>(this); }
+    Type getType() const override { return Type::PostScript; }
     void transform(const double *in, double *out) const override;
     bool isOk() const override { return ok; }
 
-    const GooString *getCodeString() const { return codeString; }
+    const std::string &getCodeString() const { return codeString; }
+
+    explicit PostScriptFunction(const PostScriptFunction *func, PrivateTag /*unused*/ = {});
 
 private:
-    PostScriptFunction(const PostScriptFunction *func);
-    bool parseCode(Stream *str, int *codePtr);
-    GooString getToken(Stream *str);
+    bool parseCode(Stream *str, int *codePtr, int &recursionCounter);
+    std::string getToken(Stream *str);
     void resizeCode(int newSize);
     void exec(PSStack *stack, int codePtr) const;
 
-    GooString *codeString;
-    PSObject *code;
-    int codeSize;
-    mutable double cacheIn[funcMaxInputs];
-    mutable double cacheOut[funcMaxOutputs];
+    std::string codeString;
+    std::vector<PSObject> code;
+    mutable std::array<double, funcMaxInputs> cacheIn;
+    mutable std::array<double, funcMaxOutputs> cacheOut;
     bool ok;
 };
 

@@ -16,10 +16,10 @@
 // Copyright (C) 2005 Jonathan Blandford <jrb@redhat.com>
 // Copyright (C) 2006 Thorkild Stray <thorkild@ifi.uio.no>
 // Copyright (C) 2007 Jeff Muizelaar <jeff@infidigm.net>
-// Copyright (C) 2007, 2011, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2007, 2011, 2017, 2021, 2023 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2009-2013, 2015 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2009, 2011 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright (C) 2009, 2012, 2013, 2018, 2019, 2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009, 2012, 2013, 2018, 2019, 2021, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2010 Christian Feuersänger <cfeuersaenger@googlemail.com>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2012 William Bader <williambader@hotmail.com>
@@ -27,6 +27,9 @@
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020 Philipp Knechtges <philipp-dev@knechtges.com>
+// Copyright (C) 2024 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -49,7 +52,6 @@
 
 class Annot;
 class Dict;
-class GooString;
 class Gfx;
 class Stream;
 class Links;
@@ -87,7 +89,7 @@ public:
 
     // Does this device support specific shading types?
     // see gouraudTriangleShadedFill() and patchMeshShadedFill()
-    virtual bool useShadedFills(int type) { return false; }
+    virtual bool useShadedFills(int /*type*/) { return false; }
 
     // Does this device use FillColorStop()?
     virtual bool useFillColorStop() { return false; }
@@ -111,23 +113,27 @@ public:
     // box is the crop box?
     virtual bool needClipToCropBox() { return false; }
 
+    // Does this device supports transparency (alpha channel) in JPX streams?
+    virtual bool supportJPXtransparency() { return false; }
+
     //----- initialization and control
 
     // Set default transform matrix.
-    virtual void setDefaultCTM(const double *ctm);
+    virtual void setDefaultCTM(const std::array<double, 6> &ctm);
 
     // Check to see if a page slice should be displayed.  If this
     // returns false, the page display is aborted.  Typically, an
     // OutputDev will use some alternate means to display the page
     // before returning false.
-    virtual bool checkPageSlice(Page *page, double hDPI, double vDPI, int rotate, bool useMediaBox, bool crop, int sliceX, int sliceY, int sliceW, int sliceH, bool printing, bool (*abortCheckCbk)(void *data) = nullptr,
-                                void *abortCheckCbkData = nullptr, bool (*annotDisplayDecideCbk)(Annot *annot, void *user_data) = nullptr, void *annotDisplayDecideCbkData = nullptr)
+    virtual bool checkPageSlice(Page * /*page*/, double /*hDPI*/, double /*vDPI*/, int /*rotate*/, bool /*useMediaBox*/, bool /*crop*/, int /*sliceX*/, int /*sliceY*/, int /*sliceW*/, int /*sliceH*/, bool /*printing*/,
+                                bool (* /*abortCheckCbk*/)(void *data) = nullptr, void * /*abortCheckCbkData */ = nullptr, bool (* /*annotDisplayDecideCbk*/)(Annot *annot, void *user_data) = nullptr,
+                                void * /*annotDisplayDecideCbkData*/ = nullptr)
     {
         return true;
     }
 
     // Start a page.
-    virtual void startPage(int pageNum, GfxState *state, XRef *xref) { }
+    virtual void startPage(int /*pageNum*/, GfxState * /*state*/, XRef * /*xref*/) { }
 
     // End a page.
     virtual void endPage() { }
@@ -137,44 +143,42 @@ public:
 
     virtual void initGfxState(GfxState *state)
     {
-#ifdef USE_CMS
+#if USE_CMS
         state->setDisplayProfile(displayprofile);
 
         auto invalidref = Ref::INVALID();
         if (defaultGrayProfile) {
-            auto cs = new GfxICCBasedColorSpace(1, new GfxDeviceGrayColorSpace(), &invalidref);
+            auto cs = std::make_unique<GfxICCBasedColorSpace>(1, std::make_unique<GfxDeviceGrayColorSpace>(), &invalidref);
 
             cs->setProfile(defaultGrayProfile);
             cs->buildTransforms(state); // needs to happen after state->setDisplayProfile has been called
-            state->setDefaultGrayColorSpace(cs);
+            state->setDefaultGrayColorSpace(std::move(cs));
         }
 
         if (defaultRGBProfile) {
-            auto cs = new GfxICCBasedColorSpace(3, new GfxDeviceRGBColorSpace(), &invalidref);
+            auto cs = std::make_unique<GfxICCBasedColorSpace>(3, std::make_unique<GfxDeviceRGBColorSpace>(), &invalidref);
 
             cs->setProfile(defaultRGBProfile);
             cs->buildTransforms(state); // needs to happen after state->setDisplayProfile has been called
-            state->setDefaultRGBColorSpace(cs);
+            state->setDefaultRGBColorSpace(std::move(cs));
         }
 
         if (defaultCMYKProfile) {
-            auto cs = new GfxICCBasedColorSpace(4, new GfxDeviceCMYKColorSpace(), &invalidref);
+            auto cs = std::make_unique<GfxICCBasedColorSpace>(4, std::make_unique<GfxDeviceCMYKColorSpace>(), &invalidref);
 
             cs->setProfile(defaultCMYKProfile);
             cs->buildTransforms(state); // needs to happen after state->setDisplayProfile has been called
-            state->setDefaultCMYKColorSpace(cs);
+            state->setDefaultCMYKColorSpace(std::move(cs));
         }
+#else
+        (void)state;
 #endif
     }
 
     //----- coordinate conversion
 
-    // Convert between device and user coordinates.
-    virtual void cvtDevToUser(double dx, double dy, double *ux, double *uy);
+    // Convert between user and device coordinates.
     virtual void cvtUserToDev(double ux, double uy, int *dx, int *dy);
-
-    const double *getDefCTM() const { return defCTM; }
-    const double *getDefICTM() const { return defICTM; }
 
     //----- save/restore graphics state
     virtual void saveState(GfxState * /*state*/) { }
@@ -230,7 +234,8 @@ public:
     virtual void stroke(GfxState * /*state*/) { }
     virtual void fill(GfxState * /*state*/) { }
     virtual void eoFill(GfxState * /*state*/) { }
-    virtual bool tilingPatternFill(GfxState * /*state*/, Gfx * /*gfx*/, Catalog * /*cat*/, GfxTilingPattern * /*tPat*/, const double * /*mat*/, int /*x0*/, int /*y0*/, int /*x1*/, int /*y1*/, double /*xStep*/, double /*yStep*/)
+    virtual bool tilingPatternFill(GfxState * /*state*/, Gfx * /*gfx*/, Catalog * /*cat*/, GfxTilingPattern * /*tPat*/, const std::array<double, 6> & /*mat*/, int /*x0*/, int /*y0*/, int /*x1*/, int /*y1*/, double /*xStep*/,
+                                   double /*yStep*/)
     {
         return false;
     }
@@ -239,8 +244,8 @@ public:
     virtual bool axialShadedSupportExtend(GfxState * /*state*/, GfxAxialShading * /*shading*/) { return false; }
     virtual bool radialShadedFill(GfxState * /*state*/, GfxRadialShading * /*shading*/, double /*sMin*/, double /*sMax*/) { return false; }
     virtual bool radialShadedSupportExtend(GfxState * /*state*/, GfxRadialShading * /*shading*/) { return false; }
-    virtual bool gouraudTriangleShadedFill(GfxState *state, GfxGouraudTriangleShading *shading) { return false; }
-    virtual bool patchMeshShadedFill(GfxState *state, GfxPatchMeshShading *shading) { return false; }
+    virtual bool gouraudTriangleShadedFill(GfxState * /*state*/, GfxGouraudTriangleShading * /*shading*/) { return false; }
+    virtual bool patchMeshShadedFill(GfxState * /*state*/, GfxPatchMeshShading * /*shading*/) { return false; }
 
     //----- path clipping
 
@@ -266,7 +271,7 @@ public:
     //----- text drawing
     virtual void beginStringOp(GfxState * /*state*/) { }
     virtual void endStringOp(GfxState * /*state*/) { }
-    virtual void beginString(GfxState * /*state*/, const GooString * /*s*/) { }
+    virtual void beginString(GfxState * /*state*/, const std::string & /*s*/) { }
     virtual void endString(GfxState * /*state*/) { }
 
     // Draw one glyph at a specified position
@@ -279,13 +284,13 @@ public:
     // int uLen: The number of unicode entries in u.  Usually '1', for a single character,
     //           but it may also have larger values, for example for ligatures.
     virtual void drawChar(GfxState * /*state*/, double /*x*/, double /*y*/, double /*dx*/, double /*dy*/, double /*originX*/, double /*originY*/, CharCode /*code*/, int /*nBytes*/, const Unicode * /*u*/, int /*uLen*/) { }
-    virtual void drawString(GfxState * /*state*/, const GooString * /*s*/) { }
+    virtual void drawString(GfxState * /*state*/, const std::string & /*s*/) { }
     virtual bool beginType3Char(GfxState * /*state*/, double /*x*/, double /*y*/, double /*dx*/, double /*dy*/, CharCode /*code*/, const Unicode * /*u*/, int /*uLen*/);
     virtual void endType3Char(GfxState * /*state*/) { }
     virtual void beginTextObject(GfxState * /*state*/) { }
     virtual void endTextObject(GfxState * /*state*/) { }
     virtual void incCharCount(int /*nChars*/) { }
-    virtual void beginActualText(GfxState * /*state*/, const GooString * /*text*/) { }
+    virtual void beginActualText(GfxState * /*state*/, const std::string & /*text*/) { }
     virtual void endActualText(GfxState * /*state*/) { }
 
     //----- image drawing
@@ -295,8 +300,11 @@ public:
     // If 'invert' is false, a sample value of 0 marks the page with the current color,
     // and a 1 leaves the previous contents unchanged. If 'invert' is true, these meanings are reversed.
     virtual void drawImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool interpolate, bool inlineImg);
-    virtual void setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool inlineImg, double *baseMatrix);
-    virtual void unsetSoftMaskFromImageMask(GfxState *state, double *baseMatrix);
+
+    // A call to setSoftMaskFromImageMask will be followed by a call to unsetSoftMaskFromImageMask unless setSoftMaskFromImageMask returns false.
+    virtual bool setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool inlineImg, std::array<double, 6> &baseMatrix);
+    virtual void unsetSoftMaskFromImageMask(GfxState *state, std::array<double, 6> &baseMatrix);
+
     virtual void drawImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, const int *maskColors, bool inlineImg);
     virtual void drawMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert, bool maskInterpolate);
     virtual void drawSoftMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream *maskStr, int maskWidth, int maskHeight, GfxImageColorMap *maskColorMap,
@@ -305,22 +313,22 @@ public:
     //----- grouping operators
 
     virtual void endMarkedContent(GfxState *state);
-    virtual void beginMarkedContent(const char *name, Dict *properties);
-    virtual void markPoint(const char *name);
-    virtual void markPoint(const char *name, Dict *properties);
+    virtual void beginMarkedContent(const std::string &name, Dict *properties);
+    virtual void markPoint(const std::string &name);
+    virtual void markPoint(const std::string &name, Dict *properties);
 
-#ifdef OPI_SUPPORT
     //----- OPI functions
-    virtual void opiBegin(GfxState *state, Dict *opiDict);
-    virtual void opiEnd(GfxState *state, Dict *opiDict);
-#endif
+    virtual void opiBegin(GfxState *state, const Dict &opiDict);
+    virtual void opiEnd(GfxState *state, const Dict &opiDict);
 
     //----- Type 3 font operators
     virtual void type3D0(GfxState * /*state*/, double /*wx*/, double /*wy*/) { }
     virtual void type3D1(GfxState * /*state*/, double /*wx*/, double /*wy*/, double /*llx*/, double /*lly*/, double /*urx*/, double /*ury*/) { }
 
     //----- form XObjects
+    virtual void beginForm(Object * /* obj */, Ref /*id*/) { }
     virtual void drawForm(Ref /*id*/) { }
+    virtual void endForm(Object * /* obj */, Ref /*id*/) { }
 
     //----- PostScript XObjects
     virtual void psXObject(Stream * /*psStream*/, Stream * /*level1Stream*/) { }
@@ -332,21 +340,19 @@ public:
 
     //----- transparency groups and soft masks
     virtual bool checkTransparencyGroup(GfxState * /*state*/, bool /*knockout*/) { return true; }
-    virtual void beginTransparencyGroup(GfxState * /*state*/, const double * /*bbox*/, GfxColorSpace * /*blendingColorSpace*/, bool /*isolated*/, bool /*knockout*/, bool /*forSoftMask*/) { }
+    virtual void beginTransparencyGroup(GfxState * /*state*/, const std::array<double, 4> & /*bbox*/, GfxColorSpace * /*blendingColorSpace*/, bool /*isolated*/, bool /*knockout*/, bool /*forSoftMask*/) { }
     virtual void endTransparencyGroup(GfxState * /*state*/) { }
-    virtual void paintTransparencyGroup(GfxState * /*state*/, const double * /*bbox*/) { }
-    virtual void setSoftMask(GfxState * /*state*/, const double * /*bbox*/, bool /*alpha*/, Function * /*transferFunc*/, GfxColor * /*backdropColor*/) { }
+    virtual void paintTransparencyGroup(GfxState * /*state*/, const std::array<double, 4> & /*bbox*/) { }
+    virtual void setSoftMask(GfxState * /*state*/, const std::array<double, 4> & /*bbox*/, bool /*alpha*/, Function * /*transferFunc*/, const GfxColor & /*backdropColor*/) { }
     virtual void clearSoftMask(GfxState * /*state*/) { }
 
     //----- links
     virtual void processLink(AnnotLink * /*link*/) { }
 
-#if 1 //~tmp: turn off anti-aliasing temporarily
     virtual bool getVectorAntialias() { return false; }
     virtual void setVectorAntialias(bool /*vaa*/) { }
-#endif
 
-#ifdef USE_CMS
+#if USE_CMS
     void setDisplayProfile(const GfxLCMSProfilePtr &profile) { displayprofile = profile; }
     GfxLCMSProfilePtr getDisplayProfile() const { return displayprofile; }
     void setDefaultGrayProfile(const GfxLCMSProfilePtr &profile) { defaultGrayProfile = profile; }
@@ -360,11 +366,10 @@ public:
 #endif
 
 private:
-    double defCTM[6]; // default coordinate transform matrix
-    double defICTM[6]; // inverse of default CTM
+    std::array<double, 6> defCTM; // default coordinate transform matrix
     std::unique_ptr<std::unordered_map<std::string, ProfileData>> profileHash;
 
-#ifdef USE_CMS
+#if USE_CMS
     GfxLCMSProfilePtr displayprofile;
     GfxLCMSProfilePtr defaultGrayProfile;
     GfxLCMSProfilePtr defaultRGBProfile;

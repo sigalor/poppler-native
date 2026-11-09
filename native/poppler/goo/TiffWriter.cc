@@ -5,7 +5,7 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright (C) 2010, 2012 William Bader <williambader@hotmail.com>
-// Copyright (C) 2012 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2012, 2021, 2022, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2012, 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2012 Pino Toscano <pino@kde.org>
 // Copyright (C) 2014 Steven Lee <roc.sky@gmail.com>
@@ -14,7 +14,7 @@
 
 #include "TiffWriter.h"
 
-#ifdef ENABLE_LIBTIFF
+#if ENABLE_LIBTIFF
 
 #    include <cstring>
 
@@ -25,6 +25,8 @@
 extern "C" {
 #    include <tiffio.h>
 }
+
+#    include <cstdint>
 
 struct TiffWriterPrivate
 {
@@ -59,36 +61,36 @@ void TiffWriter::setCompressionString(const char *compressionStringArg)
 
 // Write a TIFF file.
 
-bool TiffWriter::init(FILE *openedFile, int width, int height, int hDPI, int vDPI)
+bool TiffWriter::init(FILE *openedFile, int width, int height, double hDPI, double vDPI)
 {
     unsigned int compression;
-    uint16 photometric = 0;
-    uint32 rowsperstrip = (uint32)-1;
+    uint16_t photometric = 0;
+    auto rowsperstrip = static_cast<uint32_t>(-1);
     int bitspersample;
-    uint16 samplesperpixel = 0;
+    uint16_t samplesperpixel = 0;
     const struct compression_name_tag
     {
         const char *compressionName; // name of the compression option from the command line
         unsigned int compressionCode; // internal libtiff code
         const char *compressionDescription; // descriptive name
-    } compressionList[] = { { "none", COMPRESSION_NONE, "no compression" },
-                            { "ccittrle", COMPRESSION_CCITTRLE, "CCITT modified Huffman RLE" },
-                            { "ccittfax3", COMPRESSION_CCITTFAX3, "CCITT Group 3 fax encoding" },
-                            { "ccittt4", COMPRESSION_CCITT_T4, "CCITT T.4 (TIFF 6 name)" },
-                            { "ccittfax4", COMPRESSION_CCITTFAX4, "CCITT Group 4 fax encoding" },
-                            { "ccittt6", COMPRESSION_CCITT_T6, "CCITT T.6 (TIFF 6 name)" },
-                            { "lzw", COMPRESSION_LZW, "Lempel-Ziv  & Welch" },
-                            { "ojpeg", COMPRESSION_OJPEG, "!6.0 JPEG" },
-                            { "jpeg", COMPRESSION_JPEG, "%JPEG DCT compression" },
-                            { "next", COMPRESSION_NEXT, "NeXT 2-bit RLE" },
-                            { "packbits", COMPRESSION_PACKBITS, "Macintosh RLE" },
-                            { "ccittrlew", COMPRESSION_CCITTRLEW, "CCITT modified Huffman RLE w/ word alignment" },
-                            { "deflate", COMPRESSION_DEFLATE, "Deflate compression" },
-                            { "adeflate", COMPRESSION_ADOBE_DEFLATE, "Deflate compression, as recognized by Adobe" },
-                            { "dcs", COMPRESSION_DCS, "Kodak DCS encoding" },
-                            { "jbig", COMPRESSION_JBIG, "ISO JBIG" },
-                            { "jp2000", COMPRESSION_JP2000, "Leadtools JPEG2000" },
-                            { nullptr, 0, nullptr } };
+    } compressionList[] = { { .compressionName = "none", .compressionCode = COMPRESSION_NONE, .compressionDescription = "no compression" },
+                            { .compressionName = "ccittrle", .compressionCode = COMPRESSION_CCITTRLE, .compressionDescription = "CCITT modified Huffman RLE" },
+                            { .compressionName = "ccittfax3", .compressionCode = COMPRESSION_CCITTFAX3, .compressionDescription = "CCITT Group 3 fax encoding" },
+                            { .compressionName = "ccittt4", .compressionCode = COMPRESSION_CCITT_T4, .compressionDescription = "CCITT T.4 (TIFF 6 name)" },
+                            { .compressionName = "ccittfax4", .compressionCode = COMPRESSION_CCITTFAX4, .compressionDescription = "CCITT Group 4 fax encoding" },
+                            { .compressionName = "ccittt6", .compressionCode = COMPRESSION_CCITT_T6, .compressionDescription = "CCITT T.6 (TIFF 6 name)" },
+                            { .compressionName = "lzw", .compressionCode = COMPRESSION_LZW, .compressionDescription = "Lempel-Ziv  & Welch" },
+                            { .compressionName = "ojpeg", .compressionCode = COMPRESSION_OJPEG, .compressionDescription = "!6.0 JPEG" },
+                            { .compressionName = "jpeg", .compressionCode = COMPRESSION_JPEG, .compressionDescription = "%JPEG DCT compression" },
+                            { .compressionName = "next", .compressionCode = COMPRESSION_NEXT, .compressionDescription = "NeXT 2-bit RLE" },
+                            { .compressionName = "packbits", .compressionCode = COMPRESSION_PACKBITS, .compressionDescription = "Macintosh RLE" },
+                            { .compressionName = "ccittrlew", .compressionCode = COMPRESSION_CCITTRLEW, .compressionDescription = "CCITT modified Huffman RLE w/ word alignment" },
+                            { .compressionName = "deflate", .compressionCode = COMPRESSION_DEFLATE, .compressionDescription = "Deflate compression" },
+                            { .compressionName = "adeflate", .compressionCode = COMPRESSION_ADOBE_DEFLATE, .compressionDescription = "Deflate compression, as recognized by Adobe" },
+                            { .compressionName = "dcs", .compressionCode = COMPRESSION_DCS, .compressionDescription = "Kodak DCS encoding" },
+                            { .compressionName = "jbig", .compressionCode = COMPRESSION_JBIG, .compressionDescription = "ISO JBIG" },
+                            { .compressionName = "jp2000", .compressionCode = COMPRESSION_JP2000, .compressionDescription = "Leadtools JPEG2000" },
+                            { .compressionName = nullptr, .compressionCode = 0, .compressionDescription = nullptr } };
 
     // Initialize
 
@@ -182,14 +184,14 @@ bool TiffWriter::init(FILE *openedFile, int width, int height, int hDPI, int vDP
     TIFFSetField(priv->f, TIFFTAG_BITSPERSAMPLE, bitspersample);
     TIFFSetField(priv->f, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
     TIFFSetField(priv->f, TIFFTAG_PHOTOMETRIC, photometric);
-    TIFFSetField(priv->f, TIFFTAG_COMPRESSION, (uint16)compression);
+    TIFFSetField(priv->f, TIFFTAG_COMPRESSION, static_cast<uint16_t>(compression));
     TIFFSetField(priv->f, TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(priv->f, rowsperstrip));
-    TIFFSetField(priv->f, TIFFTAG_XRESOLUTION, (double)hDPI);
-    TIFFSetField(priv->f, TIFFTAG_YRESOLUTION, (double)vDPI);
+    TIFFSetField(priv->f, TIFFTAG_XRESOLUTION, hDPI);
+    TIFFSetField(priv->f, TIFFTAG_YRESOLUTION, vDPI);
     TIFFSetField(priv->f, TIFFTAG_RESOLUTIONUNIT, RESUNIT_INCH);
 
     if (priv->format == RGBA_PREMULTIPLIED) {
-        uint16 extra = EXTRASAMPLE_ASSOCALPHA;
+        uint16_t extra = EXTRASAMPLE_ASSOCALPHA;
         TIFFSetField(priv->f, TIFFTAG_EXTRASAMPLES, 1, &extra);
     }
 

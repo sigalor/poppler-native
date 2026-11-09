@@ -7,9 +7,13 @@
 // Copyright 2015 André Guerreiro <aguerreiro1985@gmail.com>
 // Copyright 2015 André Esser <bepandre@hotmail.com>
 // Copyright 2017 Hans-Ulrich Jüttner <huj@froreich-bioscientia.de>
-// Copyright 2017-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright 2017-2020, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright 2018 Chinmoy Ranjan Pradhan <chinmoyrp65@protonmail.com>
 // Copyright 2018 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright 2021 Georgiy Sgibnev <georgiy@sgibnev.com>. Work sponsored by lab50.net.
+// Copyright 2021 André Guerreiro <aguerreiro1985@gmail.com>
+// Copyright 2021 Marek Kasik <mkasik@redhat.com>
+// Copyright 2023-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 //========================================================================
 
@@ -17,53 +21,11 @@
 
 #include "SignatureInfo.h"
 #include "CertificateInfo.h"
-#include "goo/gmem.h"
-#include <cstdlib>
-#include <cstring>
-
-#ifdef ENABLE_NSS3
-#    include <hasht.h>
-#else
-static const int HASH_AlgNULL = -1;
-#endif
 
 /* Constructor & Destructor */
 
-SignatureInfo::SignatureInfo()
-{
-    sig_status = SIGNATURE_NOT_VERIFIED;
-    cert_status = CERTIFICATE_NOT_VERIFIED;
-    cert_info = nullptr;
-    signer_name = nullptr;
-    subject_dn = nullptr;
-    location = nullptr;
-    reason = nullptr;
-    hash_type = HASH_AlgNULL;
-    signing_time = 0;
-    sig_subfilter_supported = false;
-}
-
-SignatureInfo::SignatureInfo(SignatureValidationStatus sig_val_status, CertificateValidationStatus cert_val_status)
-{
-    sig_status = sig_val_status;
-    cert_status = cert_val_status;
-    cert_info = nullptr;
-    signer_name = nullptr;
-    subject_dn = nullptr;
-    location = nullptr;
-    reason = nullptr;
-    hash_type = HASH_AlgNULL;
-    signing_time = 0;
-    sig_subfilter_supported = false;
-}
-
-SignatureInfo::~SignatureInfo()
-{
-    free(location);
-    free(reason);
-    free(signer_name);
-    free(subject_dn);
-}
+SignatureInfo::~SignatureInfo() = default;
+SignatureInfo::SignatureInfo() = default;
 
 /* GETTERS */
 
@@ -72,32 +34,27 @@ SignatureValidationStatus SignatureInfo::getSignatureValStatus() const
     return sig_status;
 }
 
-CertificateValidationStatus SignatureInfo::getCertificateValStatus() const
-{
-    return cert_status;
-}
-
-const char *SignatureInfo::getSignerName() const
+const std::string &SignatureInfo::getSignerName() const
 {
     return signer_name;
 }
 
-const char *SignatureInfo::getSubjectDN() const
+const std::string &SignatureInfo::getSubjectDN() const
 {
     return subject_dn;
 }
 
-const char *SignatureInfo::getLocation() const
+const std::string &SignatureInfo::getLocation() const
 {
     return location;
 }
 
-const char *SignatureInfo::getReason() const
+const std::string &SignatureInfo::getReason() const
 {
     return reason;
 }
 
-int SignatureInfo::getHashAlgorithm() const
+HashAlgorithm SignatureInfo::getHashAlgorithm() const
 {
     return hash_type;
 }
@@ -119,36 +76,27 @@ void SignatureInfo::setSignatureValStatus(enum SignatureValidationStatus sig_val
     sig_status = sig_val_status;
 }
 
-void SignatureInfo::setCertificateValStatus(enum CertificateValidationStatus cert_val_status)
+void SignatureInfo::setSignerName(const std::string &signerName)
 {
-    cert_status = cert_val_status;
-}
-
-void SignatureInfo::setSignerName(char *signerName)
-{
-    free(signer_name);
     signer_name = signerName;
 }
 
-void SignatureInfo::setSubjectDN(const char *subjectDN)
+void SignatureInfo::setSubjectDN(const std::string &subjectDN)
 {
-    free(subject_dn);
-    subject_dn = subjectDN ? strdup(subjectDN) : nullptr;
+    subject_dn = subjectDN;
 }
 
-void SignatureInfo::setLocation(const char *loc)
+void SignatureInfo::setLocation(const std::string &loc)
 {
-    free(location);
-    location = strdup(loc);
+    location = loc;
 }
 
-void SignatureInfo::setReason(const char *signingReason)
+void SignatureInfo::setReason(const std::string &signingReason)
 {
-    free(reason);
-    reason = strdup(signingReason);
+    reason = signingReason;
 }
 
-void SignatureInfo::setHashAlgorithm(int type)
+void SignatureInfo::setHashAlgorithm(HashAlgorithm type)
 {
     hash_type = type;
 }

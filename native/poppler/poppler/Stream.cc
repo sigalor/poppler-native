@@ -14,7 +14,7 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2005 Jeff Muizelaar <jeff@infidigm.net>
-// Copyright (C) 2006-2010, 2012-2014, 2016-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006-2010, 2012-2014, 2016-2021, 2023-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2007 Krzysztof Kowalczyk <kkowalczyk@gmail.com>
 // Copyright (C) 2008 Julien Rebetez <julien@fhtagn.net>
 // Copyright (C) 2009 Carlos Garcia Campos <carlosgc@gnome.org>
@@ -26,7 +26,7 @@
 // Copyright (C) 2012, 2013, 2020 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2012, 2021 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
-// Copyright (C) 2012 Even Rouault <even.rouault@mines-paris.org>
+// Copyright (C) 2012, 2024 Even Rouault <even.rouault@spatialys.com>
 // Copyright (C) 2013, 2017, 2018 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2013, 2018 Adam Reichold <adamreichold@myopera.com>
 // Copyright (C) 2013 Pino Toscano <pino@kde.org>
@@ -39,6 +39,13 @@
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
 // Copyright (C) 2019 Alexander Volkov <a.volkov@rusbitech.ru>
 // Copyright (C) 2020 Philipp Knechtges <philipp-dev@knechtges.com>
+// Copyright (C) 2021 Hubert Figuiere <hub@figuiere.net>
+// Copyright (C) 2021 Georgiy Sgibnev <georgiy@sgibnev.com>. Work sponsored by lab50.net.
+// Copyright (C) 2024-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2025 Martin Emrich <dev@martinemrich.me>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -51,9 +58,6 @@
 #include <cstdlib>
 #include <cstddef>
 #include <climits>
-#ifdef HAVE_UNISTD_H
-#    include <unistd.h>
-#endif
 #include <cstring>
 #include <cctype>
 #include "goo/gmem.h"
@@ -69,36 +73,29 @@
 #include "Stream-CCITT.h"
 #include "CachedFile.h"
 
-#ifdef HAVE_SPLASH
-#    include "splash/SplashBitmap.h"
+#if ENABLE_BROTLI
+#    include "BrotliStream.h"
 #endif
 
-#ifdef ENABLE_LIBJPEG
+#include "splash/SplashBitmap.h"
+
+#if ENABLE_LIBJPEG
 #    include "DCTStream.h"
 #endif
 
-#ifdef ENABLE_ZLIB_UNCOMPRESS
+#if ENABLE_ZLIB_UNCOMPRESS
 #    include "FlateStream.h"
 #endif
 
-#ifdef ENABLE_LIBOPENJPEG
+#if ENABLE_LIBOPENJPEG
 #    include "JPEG2000Stream.h"
-#else
-#    include "JPXStream.h"
-#endif
-
-#ifdef __DJGPP__
-static bool setDJSYSFLAGS = false;
 #endif
 
 //------------------------------------------------------------------------
 // Stream (base class)
 //------------------------------------------------------------------------
 
-Stream::Stream()
-{
-    ref = 1;
-}
+Stream::Stream() = default;
 
 Stream::~Stream() = default;
 
@@ -110,13 +107,13 @@ int Stream::getRawChar()
     return EOF;
 }
 
-int Stream::getChars(int nChars, unsigned char *buffer)
+int Stream::getChars(int /*nChars*/, unsigned char * /*buffer*/)
 {
     error(errInternal, -1, "Internal: called getChars() on non-predictor stream");
     return 0;
 }
 
-void Stream::getRawChars(int nChars, int *buffer)
+void Stream::getRawChars(int /*nChars*/, int * /*buffer*/)
 {
     error(errInternal, -1, "Internal: called getRawChars() on non-predictor stream");
 }
@@ -126,15 +123,18 @@ char *Stream::getLine(char *buf, int size)
     int i;
     int c;
 
-    if (lookChar() == EOF || size < 0)
+    if (lookChar() == EOF || size < 0) {
         return nullptr;
+    }
     for (i = 0; i < size - 1; ++i) {
         c = getChar();
-        if (c == EOF || c == '\n')
+        if (c == EOF || c == '\n') {
             break;
+        }
         if (c == '\r') {
-            if ((c = lookChar()) == '\n')
+            if ((c = lookChar()) == '\n') {
                 getChar();
+            }
             break;
         }
         buf[i] = c;
@@ -151,9 +151,9 @@ unsigned int Stream::discardChars(unsigned int n)
     count = 0;
     while (count < n) {
         if ((i = n - count) > sizeof(buf)) {
-            i = (unsigned int)sizeof(buf);
+            i = static_cast<unsigned int>(sizeof(buf));
         }
-        j = (unsigned int)doGetChars((int)i, buf);
+        j = static_cast<unsigned int>(doGetChars(static_cast<int>(i), buf));
         count += j;
         if (j != i) {
             break;
@@ -162,29 +162,26 @@ unsigned int Stream::discardChars(unsigned int n)
     return count;
 }
 
-GooString *Stream::getPSFilter(int psLevel, const char *indent)
+std::optional<std::string> Stream::getPSFilter(int /*psLevel*/, const char * /*indent*/)
 {
-    return new GooString();
+    return std::string {};
 }
 
-static Stream *wrapEOFStream(Stream *str)
+static std::unique_ptr<Stream> wrapEOFStream(std::unique_ptr<Stream> str)
 {
-    if (dynamic_cast<EOFStream *>(str)) {
+    if (dynamic_cast<EOFStream *>(str.get())) {
         // str is already a EOFStream, no need to wrap it in another EOFStream
         return str;
-    } else {
-        return new EOFStream(str);
     }
+    return std::make_unique<EOFStream>(std::move(str));
 }
 
-Stream *Stream::addFilters(Dict *dict, int recursion)
+std::unique_ptr<Stream> Stream::addFilters(std::unique_ptr<Stream> str, Dict *dict, int recursion)
 {
     Object obj, obj2;
     Object params, params2;
-    Stream *str;
     int i;
 
-    str = this;
     obj = dict->lookup("Filter", recursion);
     if (obj.isNull()) {
         obj = dict->lookup("F", recursion);
@@ -194,23 +191,24 @@ Stream *Stream::addFilters(Dict *dict, int recursion)
         params = dict->lookup("DP", recursion);
     }
     if (obj.isName()) {
-        str = makeFilter(obj.getName(), str, &params, recursion, dict);
+        str = makeFilter(obj.getNameString(), std::move(str), &params, recursion, dict);
     } else if (obj.isArray()) {
         for (i = 0; i < obj.arrayGetLength(); ++i) {
             obj2 = obj.arrayGet(i, recursion);
-            if (params.isArray())
+            if (params.isArray()) {
                 params2 = params.arrayGet(i, recursion);
-            else
-                params2.setToNull();
-            if (obj2.isName()) {
-                str = makeFilter(obj2.getName(), str, &params2, recursion);
             } else {
-                error(errSyntaxError, getPos(), "Bad filter name");
-                str = wrapEOFStream(str);
+                params2.setToNull();
+            }
+            if (obj2.isName()) {
+                str = makeFilter(obj2.getNameString(), std::move(str), &params2, recursion);
+            } else {
+                error(errSyntaxError, -1, "Bad filter name");
+                str = wrapEOFStream(std::move(str));
             }
         }
     } else if (!obj.isNull()) {
-        error(errSyntaxError, getPos(), "Bad 'Filter' attribute in stream");
+        error(errSyntaxError, -1, "Bad 'Filter' attribute in stream");
     }
 
     return str;
@@ -219,8 +217,9 @@ Stream *Stream::addFilters(Dict *dict, int recursion)
 bool Stream::isEncrypted() const
 {
     for (const Stream *str = this; str != nullptr; str = str->getNextStream()) {
-        if (str->getKind() == strCrypt)
+        if (str->getKind() == strCrypt) {
             return true;
+        }
     }
     return false;
 }
@@ -228,16 +227,16 @@ bool Stream::isEncrypted() const
 class BaseStreamStream : public Stream
 {
 public:
-    BaseStreamStream(Stream *strA) : str(strA) { }
+    explicit BaseStreamStream(std::unique_ptr<Stream> strA) : str(std::move(strA)) { }
     ~BaseStreamStream() override;
 
     StreamKind getKind() const override { return str->getBaseStream()->getKind(); }
-    void reset() override { str->getBaseStream()->reset(); }
+    [[nodiscard]] bool rewind() override { return str->getBaseStream()->rewind(); }
     int getChar() override { return str->getBaseStream()->getChar(); }
     int lookChar() override { return str->getBaseStream()->lookChar(); }
-    bool isBinary(bool last = true) override { return str->getBaseStream()->isBinary(); }
+    bool isBinary(bool /*last*/ = true) const override { return str->getBaseStream()->isBinary(); }
     int getUnfilteredChar() override { return str->getBaseStream()->getUnfilteredChar(); }
-    void unfilteredReset() override { str->getBaseStream()->unfilteredReset(); }
+    [[nodiscard]] bool unfilteredRewind() override { return str->getBaseStream()->unfilteredRewind(); }
     Goffset getPos() override { return str->getBaseStream()->getPos(); }
     void setPos(Goffset pos, int dir) override { str->getBaseStream()->setPos(pos, dir); }
     BaseStream *getBaseStream() override { return str->getBaseStream()->getBaseStream(); }
@@ -251,7 +250,7 @@ private:
 
 BaseStreamStream::~BaseStreamStream() = default;
 
-Stream *Stream::makeFilter(const char *name, Stream *str, Object *params, int recursion, Dict *dict)
+std::unique_ptr<Stream> Stream::makeFilter(const std::string &name, std::unique_ptr<Stream> str, Object *params, int recursion, Dict *dict)
 {
     int pred; // parameters
     int colors;
@@ -262,11 +261,11 @@ Stream *Stream::makeFilter(const char *name, Stream *str, Object *params, int re
     int columns, rows;
     Object obj;
 
-    if (!strcmp(name, "ASCIIHexDecode") || !strcmp(name, "AHx")) {
-        str = new ASCIIHexStream(str);
-    } else if (!strcmp(name, "ASCII85Decode") || !strcmp(name, "A85")) {
-        str = new ASCII85Stream(str);
-    } else if (!strcmp(name, "LZWDecode") || !strcmp(name, "LZW")) {
+    if (name == "ASCIIHexDecode" || name == "AHx") {
+        str = std::make_unique<ASCIIHexStream>(std::move(str));
+    } else if (name == "ASCII85Decode" || name == "A85") {
+        str = std::make_unique<ASCII85Stream>(std::move(str));
+    } else if (name == "LZWDecode" || name == "LZW") {
         pred = 1;
         columns = 1;
         colors = 1;
@@ -274,25 +273,30 @@ Stream *Stream::makeFilter(const char *name, Stream *str, Object *params, int re
         early = 1;
         if (params->isDict()) {
             obj = params->dictLookup("Predictor", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 pred = obj.getInt();
+            }
             obj = params->dictLookup("Columns", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 columns = obj.getInt();
+            }
             obj = params->dictLookup("Colors", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 colors = obj.getInt();
+            }
             obj = params->dictLookup("BitsPerComponent", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 bits = obj.getInt();
+            }
             obj = params->dictLookup("EarlyChange", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 early = obj.getInt();
+            }
         }
-        str = new LZWStream(str, pred, columns, colors, bits, early);
-    } else if (!strcmp(name, "RunLengthDecode") || !strcmp(name, "RL")) {
-        str = new RunLengthStream(str);
-    } else if (!strcmp(name, "CCITTFaxDecode") || !strcmp(name, "CCF")) {
+        str = std::make_unique<LZWStream>(std::move(str), pred, columns, colors, bits, early);
+    } else if (name == "RunLengthDecode" || name == "RL") {
+        str = std::make_unique<RunLengthStream>(std::move(str));
+    } else if (name == "CCITTFaxDecode" || name == "CCF") {
         encoding = 0;
         endOfLine = false;
         byteAlign = false;
@@ -335,9 +339,9 @@ Stream *Stream::makeFilter(const char *name, Stream *str, Object *params, int re
                 damagedRowsBeforeError = obj.getInt();
             }
         }
-        str = new CCITTFaxStream(str, encoding, endOfLine, byteAlign, columns, rows, endOfBlock, black, damagedRowsBeforeError);
-    } else if (!strcmp(name, "DCTDecode") || !strcmp(name, "DCT")) {
-#ifdef HAVE_DCT_DECODER
+        str = std::make_unique<CCITTFaxStream>(std::move(str), encoding, endOfLine, byteAlign, columns, rows, endOfBlock, black, damagedRowsBeforeError);
+    } else if (name == "DCTDecode" || name == "DCT") {
+#if ENABLE_LIBJPEG
         int colorXform = -1;
         if (params->isDict()) {
             obj = params->dictLookup("ColorTransform", recursion);
@@ -345,55 +349,68 @@ Stream *Stream::makeFilter(const char *name, Stream *str, Object *params, int re
                 colorXform = obj.getInt();
             }
         }
-        str = new DCTStream(str, colorXform, dict, recursion);
+        str = std::make_unique<DCTStream>(std::move(str), colorXform, dict, recursion);
 #else
-        error(errSyntaxError, getPos(), "Unknown filter '{0:s}'", name);
-        str = wrapEOFStream(str);
+        (void)dict;
+        error(errSyntaxError, str->getPos(), "Unknown filter '{0:r}'", &name);
+        str = wrapEOFStream(std::move(str));
 #endif
-    } else if (!strcmp(name, "FlateDecode") || !strcmp(name, "Fl")) {
+    } else if (name == "FlateDecode" || name == "Fl") {
         pred = 1;
         columns = 1;
         colors = 1;
         bits = 8;
         if (params->isDict()) {
             obj = params->dictLookup("Predictor", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 pred = obj.getInt();
+            }
             obj = params->dictLookup("Columns", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 columns = obj.getInt();
+            }
             obj = params->dictLookup("Colors", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 colors = obj.getInt();
+            }
             obj = params->dictLookup("BitsPerComponent", recursion);
-            if (obj.isInt())
+            if (obj.isInt()) {
                 bits = obj.getInt();
+            }
         }
-        str = new FlateStream(str, pred, columns, colors, bits);
-    } else if (!strcmp(name, "JBIG2Decode")) {
+        str = std::make_unique<FlateStream>(std::move(str), pred, columns, colors, bits);
+    } else if (name == "BrotliDecode") {
+#if ENABLE_BROTLI
+        str = std::make_unique<BrotliStream>(std::move(str));
+#else
+        error(errSyntaxError, str->getPos(), "Brotli unsuppported in this poppler");
+        str = wrapEOFStream(std::move(str));
+#endif
+
+    } else if (name == "JBIG2Decode") {
         Object globals;
         if (params->isDict()) {
             XRef *xref = params->getDict()->getXRef();
             obj = params->dictLookupNF("JBIG2Globals").copy();
             globals = obj.fetch(xref, recursion);
         }
-        str = new JBIG2Stream(str, std::move(globals), &obj);
-    } else if (!strcmp(name, "JPXDecode")) {
-#ifdef HAVE_JPX_DECODER
-        str = new JPXStream(str);
+        str = std::make_unique<JBIG2Stream>(std::move(str), std::move(globals), &obj);
+    } else if (name == "JPXDecode") {
+#if ENABLE_LIBOPENJPEG
+        str = std::make_unique<JPXStream>(std::move(str));
 #else
-        error(errSyntaxError, getPos(), "Unknown filter '{0:s}'", name);
-        str = wrapEOFStream(str);
+        error(errSyntaxError, str->getPos(), "Unknown filter '{0:r}'", &name);
+        str = wrapEOFStream(std::move(str));
 #endif
-    } else if (!strcmp(name, "Crypt")) {
+    } else if (name == "Crypt") {
         if (str->getKind() == strCrypt) {
-            str = new BaseStreamStream(str);
+            str = std::make_unique<BaseStreamStream>(std::move(str));
         } else {
-            error(errSyntaxError, getPos(), "Can't revert non decrypt streams");
+            error(errSyntaxError, str->getPos(), "Can't revert non decrypt streams");
         }
     } else {
-        error(errSyntaxError, getPos(), "Unknown filter '{0:s}'", name);
-        str = wrapEOFStream(str);
+        error(errSyntaxError, str->getPos(), "Unknown filter '{0:r}'", &name);
+        str = wrapEOFStream(std::move(str));
     }
     return str;
 }
@@ -401,9 +418,9 @@ Stream *Stream::makeFilter(const char *name, Stream *str, Object *params, int re
 //------------------------------------------------------------------------
 // OutStream
 //------------------------------------------------------------------------
-OutStream::OutStream() { }
+OutStream::OutStream() = default;
 
-OutStream::~OutStream() { }
+OutStream::~OutStream() = default;
 
 //------------------------------------------------------------------------
 // FileOutStream
@@ -431,6 +448,11 @@ void FileOutStream::put(char c)
     fputc(c, f);
 }
 
+size_t FileOutStream::write(std::span<const unsigned char> data)
+{
+    return fwrite(data.data(), sizeof(decltype(data)::element_type), data.size(), f);
+}
+
 void FileOutStream::printf(const char *format, ...)
 {
     va_list argptr;
@@ -449,32 +471,32 @@ BaseStream::BaseStream(Object &&dictA, Goffset lengthA)
     length = lengthA;
 }
 
-BaseStream::~BaseStream() { }
+BaseStream::~BaseStream() = default;
 
 //------------------------------------------------------------------------
 // BaseStream
 //------------------------------------------------------------------------
 
-BaseSeekInputStream::BaseSeekInputStream(Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA)
-    : BaseStream(std::move(dictA), lengthA), start(startA), limited(limitedA), bufPtr(buf), bufEnd(buf), bufPos(start), savePos(0), saved(false)
-{
-}
+BaseSeekInputStream::BaseSeekInputStream(Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA) : BaseStream(std::move(dictA), lengthA), start(startA), limited(limitedA), bufPtr(buf), bufEnd(buf), bufPos(start) { }
 
-BaseSeekInputStream::~BaseSeekInputStream() { }
+BaseSeekInputStream::~BaseSeekInputStream() = default;
 
-void BaseSeekInputStream::reset()
+bool BaseSeekInputStream::rewind()
 {
     savePos = currentPos();
     setCurrentPos(start);
     saved = true;
     bufPtr = bufEnd = buf;
     bufPos = start;
+
+    return true;
 }
 
 void BaseSeekInputStream::close()
 {
-    if (!saved)
+    if (!saved) {
         return;
+    }
     setCurrentPos(savePos);
     saved = false;
 }
@@ -485,8 +507,9 @@ void BaseSeekInputStream::setPos(Goffset pos, int dir)
         setCurrentPos(pos);
         bufPos = pos;
     } else {
-        if (pos > length)
+        if (pos > length) {
             pos = length;
+        }
 
         bufPos = length - pos;
         setCurrentPos(bufPos);
@@ -519,11 +542,7 @@ bool BaseSeekInputStream::fillBuf()
 
     n = read(buf, n);
     bufEnd = buf + n;
-    if (bufPtr >= bufEnd) {
-        return false;
-    }
-
-    return true;
+    return bufPtr < bufEnd;
 }
 
 int BaseSeekInputStream::getChars(int nChars, unsigned char *buffer)
@@ -537,7 +556,7 @@ int BaseSeekInputStream::getChars(int nChars, unsigned char *buffer)
                 break;
             }
         }
-        m = (int)(bufEnd - bufPtr);
+        m = static_cast<int>(bufEnd - bufPtr);
         if (m > nChars - n) {
             m = nChars - n;
         }
@@ -548,6 +567,10 @@ int BaseSeekInputStream::getChars(int nChars, unsigned char *buffer)
     return n;
 }
 
+OwnedFilterStream::OwnedFilterStream(std::unique_ptr<Stream> strA) : FilterStream(strA.get()), ownedStream(std::move(strA)) { }
+
+OwnedFilterStream::~OwnedFilterStream() = default;
+
 //------------------------------------------------------------------------
 // FilterStream
 //------------------------------------------------------------------------
@@ -557,14 +580,14 @@ FilterStream::FilterStream(Stream *strA)
     str = strA;
 }
 
-FilterStream::~FilterStream() { }
+FilterStream::~FilterStream() = default;
 
 void FilterStream::close()
 {
     str->close();
 }
 
-void FilterStream::setPos(Goffset pos, int dir)
+void FilterStream::setPos(Goffset /*pos*/, int /*dir*/)
 {
     error(errInternal, -1, "Internal: called setPos() on FilterStream");
 }
@@ -587,9 +610,9 @@ ImageStream::ImageStream(Stream *strA, int widthA, int nCompsA, int nBitsA)
     if (nComps <= 0 || nBits <= 0 || nVals > INT_MAX / nBits - 7 || width > INT_MAX / nComps) {
         inputLineSize = -1;
     }
-    inputLine = (unsigned char *)gmallocn_checkoverflow(inputLineSize, sizeof(char));
+    inputLine = static_cast<unsigned char *>(gmallocn_checkoverflow(inputLineSize, sizeof(char)));
     if (nBits == 8) {
-        imgLine = (unsigned char *)inputLine;
+        imgLine = inputLine;
     } else {
         if (nBits == 1) {
             imgLineSize = (nVals + 7) & ~7;
@@ -599,22 +622,22 @@ ImageStream::ImageStream(Stream *strA, int widthA, int nCompsA, int nBitsA)
         if (nComps <= 0 || width > INT_MAX / nComps) {
             imgLineSize = -1;
         }
-        imgLine = (unsigned char *)gmallocn_checkoverflow(imgLineSize, sizeof(unsigned char));
+        imgLine = static_cast<unsigned char *>(gmallocn_checkoverflow(imgLineSize, sizeof(unsigned char)));
     }
     imgIdx = nVals;
 }
 
 ImageStream::~ImageStream()
 {
-    if (imgLine != (unsigned char *)inputLine) {
+    if (imgLine != inputLine) {
         gfree(imgLine);
     }
     gfree(inputLine);
 }
 
-void ImageStream::reset()
+bool ImageStream::rewind()
 {
-    str->reset();
+    return str->rewind();
 }
 
 void ImageStream::close()
@@ -640,7 +663,7 @@ bool ImageStream::getPixel(unsigned char *pix)
 
 unsigned char *ImageStream::getLine()
 {
-    if (unlikely(inputLine == nullptr)) {
+    if (unlikely(inputLine == nullptr || imgLine == nullptr)) {
         return nullptr;
     }
 
@@ -648,20 +671,21 @@ unsigned char *ImageStream::getLine()
     if (unlikely(readChars == -1)) {
         readChars = 0;
     }
-    for (; readChars < inputLineSize; readChars++)
+    for (; readChars < inputLineSize; readChars++) {
         inputLine[readChars] = EOF;
+    }
     if (nBits == 1) {
         unsigned char *p = inputLine;
         for (int i = 0; i < nVals; i += 8) {
             const int c = *p++;
-            imgLine[i + 0] = (unsigned char)((c >> 7) & 1);
-            imgLine[i + 1] = (unsigned char)((c >> 6) & 1);
-            imgLine[i + 2] = (unsigned char)((c >> 5) & 1);
-            imgLine[i + 3] = (unsigned char)((c >> 4) & 1);
-            imgLine[i + 4] = (unsigned char)((c >> 3) & 1);
-            imgLine[i + 5] = (unsigned char)((c >> 2) & 1);
-            imgLine[i + 6] = (unsigned char)((c >> 1) & 1);
-            imgLine[i + 7] = (unsigned char)(c & 1);
+            imgLine[i + 0] = static_cast<unsigned char>((c >> 7) & 1);
+            imgLine[i + 1] = static_cast<unsigned char>((c >> 6) & 1);
+            imgLine[i + 2] = static_cast<unsigned char>((c >> 5) & 1);
+            imgLine[i + 3] = static_cast<unsigned char>((c >> 4) & 1);
+            imgLine[i + 4] = static_cast<unsigned char>((c >> 3) & 1);
+            imgLine[i + 5] = static_cast<unsigned char>((c >> 2) & 1);
+            imgLine[i + 6] = static_cast<unsigned char>((c >> 1) & 1);
+            imgLine[i + 7] = static_cast<unsigned char>(c & 1);
         }
     } else if (nBits == 8) {
         // special case: imgLine == inputLine
@@ -685,7 +709,7 @@ unsigned char *ImageStream::getLine()
                 buf = (buf << 8) | (*p++ & 0xff);
                 bits += 8;
             }
-            imgLine[i] = (unsigned char)((buf >> (bits - nBits)) & bitMask);
+            imgLine[i] = static_cast<unsigned char>((buf >> (bits - nBits)) & bitMask);
             bits -= nBits;
         }
     }
@@ -711,14 +735,15 @@ StreamPredictor::StreamPredictor(Stream *strA, int predictorA, int widthA, int n
     predLine = nullptr;
     ok = false;
 
-    nVals = width * nComps;
-    if (width <= 0 || nComps <= 0 || nBits <= 0 || nComps > gfxColorMaxComps || nBits > 16 || width >= INT_MAX / nComps || // check for overflow in nVals
-        nVals >= (INT_MAX - 7) / nBits) { // check for overflow in rowBytes
+    if (checkedMultiply(width, nComps, &nVals)) {
+        return;
+    }
+    if (width <= 0 || nComps <= 0 || nBits <= 0 || nComps > gfxColorMaxComps || nBits > 16 || nVals >= (INT_MAX - 7) / nBits) { // check for overflow in rowBytes
         return;
     }
     pixBytes = (nComps * nBits + 7) >> 3;
     rowBytes = ((nVals * nBits + 7) >> 3) + pixBytes;
-    predLine = (unsigned char *)gmalloc(rowBytes);
+    predLine = static_cast<unsigned char *>(gmalloc(rowBytes));
     memset(predLine, 0, rowBytes);
     predIdx = rowBytes;
 
@@ -813,35 +838,39 @@ bool StreamPredictor::getNextLine()
         }
         switch (curPred) {
         case 11: // PNG sub
-            predLine[i] = predLine[i - pixBytes] + (unsigned char)c;
+            predLine[i] = predLine[i - pixBytes] + static_cast<unsigned char>(c);
             break;
         case 12: // PNG up
-            predLine[i] = predLine[i] + (unsigned char)c;
+            predLine[i] = predLine[i] + static_cast<unsigned char>(c);
             break;
         case 13: // PNG average
-            predLine[i] = ((predLine[i - pixBytes] + predLine[i]) >> 1) + (unsigned char)c;
+            predLine[i] = ((predLine[i - pixBytes] + predLine[i]) >> 1) + static_cast<unsigned char>(c);
             break;
         case 14: // PNG Paeth
             left = predLine[i - pixBytes];
             up = predLine[i];
             upLeft = upLeftBuf[pixBytes];
             p = left + up - upLeft;
-            if ((pa = p - left) < 0)
+            if ((pa = p - left) < 0) {
                 pa = -pa;
-            if ((pb = p - up) < 0)
+            }
+            if ((pb = p - up) < 0) {
                 pb = -pb;
-            if ((pc = p - upLeft) < 0)
+            }
+            if ((pc = p - upLeft) < 0) {
                 pc = -pc;
-            if (pa <= pb && pa <= pc)
-                predLine[i] = left + (unsigned char)c;
-            else if (pb <= pc)
-                predLine[i] = up + (unsigned char)c;
-            else
-                predLine[i] = upLeft + (unsigned char)c;
+            }
+            if (pa <= pb && pa <= pc) {
+                predLine[i] = left + static_cast<unsigned char>(c);
+            } else if (pb <= pc) {
+                predLine[i] = up + static_cast<unsigned char>(c);
+            } else {
+                predLine[i] = upLeft + static_cast<unsigned char>(c);
+            }
             break;
         case 10: // PNG none
         default: // no predictor or TIFF predictor
-            predLine[i] = (unsigned char)c;
+            predLine[i] = static_cast<unsigned char>(c);
             break;
         }
     }
@@ -875,23 +904,23 @@ bool StreamPredictor::getNextLine()
                         inBuf = (inBuf << 8) | (predLine[j++] & 0xff);
                         inBits += 8;
                     }
-                    upLeftBuf[kk] = (unsigned char)((upLeftBuf[kk] + (inBuf >> (inBits - nBits))) & bitMask);
+                    upLeftBuf[kk] = static_cast<unsigned char>((upLeftBuf[kk] + (inBuf >> (inBits - nBits))) & bitMask);
                     inBits -= nBits;
                     outBuf = (outBuf << nBits) | upLeftBuf[kk];
                     outBits += nBits;
                     if (outBits >= 8) {
-                        predLine[k++] = (unsigned char)(outBuf >> (outBits - 8));
+                        predLine[k++] = static_cast<unsigned char>(outBuf >> (outBits - 8));
                         outBits -= 8;
                     }
                 }
             }
             if (outBits > 0) {
-                predLine[k++] = (unsigned char)((outBuf << (8 - outBits)) + (inBuf & ((1 << (8 - outBits)) - 1)));
+                predLine[k++] = static_cast<unsigned char>((outBuf << (8 - outBits)) + (inBuf & ((1 << (8 - outBits)) - 1)));
             }
         }
     }
 
-    // reset to start of line
+    // rewind to start of line
     predIdx = pixBytes;
 
     return true;
@@ -919,23 +948,25 @@ FileStream::~FileStream()
     close();
 }
 
-BaseStream *FileStream::copy()
+std::unique_ptr<BaseStream> FileStream::copy()
 {
-    return new FileStream(file, start, limited, length, dict.copy());
+    return std::make_unique<FileStream>(file, start, limited, length, dict.copy());
 }
 
-Stream *FileStream::makeSubStream(Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA)
+std::unique_ptr<Stream> FileStream::makeSubStream(Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA)
 {
-    return new FileStream(file, startA, limitedA, lengthA, std::move(dictA));
+    return std::make_unique<FileStream>(file, startA, limitedA, lengthA, std::move(dictA));
 }
 
-void FileStream::reset()
+bool FileStream::rewind()
 {
     savePos = offset;
     offset = start;
     saved = true;
     bufPtr = bufEnd = buf;
     bufPos = start;
+
+    return true;
 }
 
 void FileStream::close()
@@ -966,10 +997,7 @@ bool FileStream::fillBuf()
     }
     offset += n;
     bufEnd = buf + n;
-    if (bufPtr >= bufEnd) {
-        return false;
-    }
-    return true;
+    return bufPtr < bufEnd;
 }
 
 void FileStream::setPos(Goffset pos, int dir)
@@ -980,8 +1008,9 @@ void FileStream::setPos(Goffset pos, int dir)
         offset = bufPos = pos;
     } else {
         size = file->size();
-        if (pos > size)
+        if (pos > size) {
             pos = size;
+        }
         offset = size - pos;
         bufPos = offset;
     }
@@ -999,9 +1028,9 @@ void FileStream::moveStart(Goffset delta)
 // CachedFileStream
 //------------------------------------------------------------------------
 
-CachedFileStream::CachedFileStream(CachedFile *ccA, Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA) : BaseStream(std::move(dictA), lengthA)
+CachedFileStream::CachedFileStream(std::shared_ptr<CachedFile> ccA, Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA) : BaseStream(std::move(dictA), lengthA)
 {
-    cc = ccA;
+    cc = std::move(ccA);
     start = startA;
     limited = limitedA;
     length = lengthA;
@@ -1014,29 +1043,28 @@ CachedFileStream::CachedFileStream(CachedFile *ccA, Goffset startA, bool limited
 CachedFileStream::~CachedFileStream()
 {
     close();
-    cc->decRefCnt();
 }
 
-BaseStream *CachedFileStream::copy()
+std::unique_ptr<BaseStream> CachedFileStream::copy()
 {
-    cc->incRefCnt();
-    return new CachedFileStream(cc, start, limited, length, dict.copy());
+    return std::make_unique<CachedFileStream>(cc, start, limited, length, dict.copy());
 }
 
-Stream *CachedFileStream::makeSubStream(Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA)
+std::unique_ptr<Stream> CachedFileStream::makeSubStream(Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA)
 {
-    cc->incRefCnt();
-    return new CachedFileStream(cc, startA, limitedA, lengthA, std::move(dictA));
+    return std::make_unique<CachedFileStream>(cc, startA, limitedA, lengthA, std::move(dictA));
 }
 
-void CachedFileStream::reset()
+bool CachedFileStream::rewind()
 {
-    savePos = (unsigned int)cc->tell();
+    savePos = static_cast<unsigned int>(cc->tell());
     cc->seek(start, SEEK_SET);
 
     saved = true;
     bufPtr = bufEnd = buf;
     bufPos = start;
+
+    return true;
 }
 
 void CachedFileStream::close()
@@ -1063,10 +1091,7 @@ bool CachedFileStream::fillBuf()
     }
     n = cc->read(buf, 1, n);
     bufEnd = buf + n;
-    if (bufPtr >= bufEnd) {
-        return false;
-    }
-    return true;
+    return bufPtr < bufEnd;
 }
 
 void CachedFileStream::setPos(Goffset pos, int dir)
@@ -1074,17 +1099,23 @@ void CachedFileStream::setPos(Goffset pos, int dir)
     unsigned int size;
 
     if (dir >= 0) {
-        cc->seek(pos, SEEK_SET);
-        bufPos = pos;
+        if (cc->seek(pos, SEEK_SET) == 0) {
+            bufPos = pos;
+        } else {
+            cc->seek(0, SEEK_END);
+            bufPos = pos = static_cast<unsigned int>(cc->tell());
+            error(errInternal, pos, "CachedFileStream: Seek beyond end attempted, capped to file size");
+        }
     } else {
         cc->seek(0, SEEK_END);
-        size = (unsigned int)cc->tell();
+        size = static_cast<unsigned int>(cc->tell());
 
-        if (pos > size)
-            pos = (unsigned int)size;
+        if (pos > size) {
+            pos = size;
+        }
 
-        cc->seek(-(int)pos, SEEK_END);
-        bufPos = (unsigned int)cc->tell();
+        cc->seek(-static_cast<int>(pos), SEEK_END);
+        bufPos = static_cast<unsigned int>(cc->tell());
     }
 
     bufPtr = bufEnd = buf;
@@ -1099,163 +1130,155 @@ void CachedFileStream::moveStart(Goffset delta)
 
 MemStream::~MemStream() = default;
 
-AutoFreeMemStream::~AutoFreeMemStream()
+AutoFreeMemStream::~AutoFreeMemStream() = default;
+
+bool AutoFreeMemStream::isFilterRemovalForbidden() const
 {
-    gfree(buf);
+    return filterRemovalForbidden;
+}
+
+void AutoFreeMemStream::setFilterRemovalForbidden(bool forbidden)
+{
+    filterRemovalForbidden = forbidden;
 }
 
 //------------------------------------------------------------------------
 // EmbedStream
 //------------------------------------------------------------------------
 
-EmbedStream::EmbedStream(Stream *strA, Object &&dictA, bool limitedA, Goffset lengthA, bool reusableA) : BaseStream(std::move(dictA), lengthA)
+EmbedStream::EmbedStream(Stream *strA, Object &&dictA, bool limitedA, Goffset lengthA, bool reusableA) : BaseStream(std::move(dictA), lengthA), limited(limitedA), reusable(reusableA), initialLength(length)
 {
     str = strA;
-    limited = limitedA;
     length = lengthA;
-    reusable = reusableA;
-    record = false;
     replay = false;
-    start = str->getPos();
     if (reusable) {
-        bufData = (unsigned char *)gmalloc(16384);
+        bufData = static_cast<unsigned char *>(gmalloc(16384));
         bufMax = 16384;
         bufLen = 0;
-        record = true;
     }
 }
 
 EmbedStream::~EmbedStream()
 {
-    if (reusable)
+    if (reusable) {
         gfree(bufData);
-}
-
-void EmbedStream::reset()
-{
-    if (str->getPos() != start) {
-        str->reset();
-        // Might be a FilterStream that does not support str->setPos(start)
-        while (str->getPos() < start) {
-            if (str->getChar() == EOF) {
-                break;
-            }
-        }
-        if (str->getPos() != start) {
-            error(errInternal, -1, "Failed to reset EmbedStream");
-        }
     }
-    record = false;
-    replay = false;
-    bufPos = 0;
 }
 
-BaseStream *EmbedStream::copy()
+bool EmbedStream::rewind()
+{
+    if (length == initialLength) {
+        // In general one can't rewind EmbedStream
+        // but if we have not read anything yet, that's fine
+        return true;
+    }
+
+    if (reusable) {
+        // If the EmbedStream is reusable, rewinding switches back to reading the recorded data
+        replay = true;
+        bufPos = 0;
+        return true;
+    }
+
+    return false;
+}
+
+std::unique_ptr<BaseStream> EmbedStream::copy()
 {
     error(errInternal, -1, "Called copy() on EmbedStream");
     return nullptr;
 }
 
-Stream *EmbedStream::makeSubStream(Goffset startA, bool limitedA, Goffset lengthA, Object &&dictA)
+std::unique_ptr<Stream> EmbedStream::makeSubStream(Goffset /*startA*/, bool /*limitedA*/, Goffset /*lengthA*/, Object && /*dictA*/)
 {
     error(errInternal, -1, "Called makeSubStream() on EmbedStream");
     return nullptr;
 }
 
-void EmbedStream::rewind()
-{
-    record = false;
-    replay = true;
-    bufPos = 0;
-}
-
-void EmbedStream::restore()
-{
-    replay = false;
-}
-
 Goffset EmbedStream::getPos()
 {
-    if (replay)
+    if (replay) {
         return bufPos;
-    else
-        return str->getPos();
+    }
+    return str->getPos();
 }
 
 int EmbedStream::getChar()
 {
     if (replay) {
-        if (bufPos < bufLen)
+        if (bufPos < bufLen) {
             return bufData[bufPos++];
-        else
-            return EOF;
-    } else {
-        if (limited && !length) {
-            return EOF;
         }
-        int c = str->getChar();
-        --length;
-        if (record) {
-            bufData[bufLen] = c;
-            bufLen++;
-            if (bufLen >= bufMax) {
-                bufMax *= 2;
-                bufData = (unsigned char *)grealloc(bufData, bufMax);
-            }
-        }
-        return c;
+        replay = false;
+        return EOF;
     }
+    if (limited && !length) {
+        return EOF;
+    }
+    int c = str->getChar();
+    --length;
+    if (reusable) {
+        bufData[bufLen] = c;
+        bufLen++;
+        if (bufLen >= bufMax) {
+            bufMax *= 2;
+            bufData = static_cast<unsigned char *>(grealloc(bufData, bufMax));
+        }
+    }
+    return c;
 }
 
 int EmbedStream::lookChar()
 {
     if (replay) {
-        if (bufPos < bufLen)
+        if (bufPos < bufLen) {
             return bufData[bufPos];
-        else
-            return EOF;
-    } else {
-        if (limited && !length) {
-            return EOF;
         }
-        return str->lookChar();
+        return EOF;
     }
+    if (limited && !length) {
+        return EOF;
+    }
+    return str->lookChar();
 }
 
 int EmbedStream::getChars(int nChars, unsigned char *buffer)
 {
-    int len;
-
     if (nChars <= 0) {
         return 0;
     }
     if (replay) {
-        if (bufPos >= bufLen)
+        if (bufPos >= bufLen) {
+            replay = false;
             return EOF;
-        len = bufLen - bufPos;
-        if (nChars > len)
+        }
+        const long len = bufLen - bufPos;
+        if (nChars > len) {
             nChars = len;
-        memcpy(buffer, bufData, nChars);
-        return len;
-    } else {
-        if (limited && length < nChars) {
-            nChars = length;
         }
-        len = str->doGetChars(nChars, buffer);
-        if (record) {
-            if (bufLen + len >= bufMax) {
-                while (bufLen + len >= bufMax)
-                    bufMax *= 2;
-                bufData = (unsigned char *)grealloc(bufData, bufMax);
+        memcpy(buffer, &bufData[bufPos], nChars);
+        bufPos += nChars;
+        return nChars;
+    }
+    if (limited && length < nChars) {
+        nChars = length;
+    }
+    const int len = str->doGetChars(nChars, buffer);
+    length -= len;
+    if (reusable) {
+        if (bufLen + len >= bufMax) {
+            while (bufLen + len >= bufMax) {
+                bufMax *= 2;
             }
-            memcpy(bufData + bufLen, buffer, len);
-            bufLen += len;
+            bufData = static_cast<unsigned char *>(grealloc(bufData, bufMax));
         }
+        memcpy(bufData + bufLen, buffer, len);
+        bufLen += len;
     }
     return len;
 }
 
-void EmbedStream::setPos(Goffset pos, int dir)
+void EmbedStream::setPos(Goffset /*pos*/, int /*dir*/)
 {
     error(errInternal, -1, "Internal: called setPos() on EmbedStream");
 }
@@ -1266,7 +1289,7 @@ Goffset EmbedStream::getStart()
     return 0;
 }
 
-void EmbedStream::moveStart(Goffset delta)
+void EmbedStream::moveStart(Goffset /*delta*/)
 {
     error(errInternal, -1, "Internal: called moveStart() on EmbedStream");
 }
@@ -1275,30 +1298,29 @@ void EmbedStream::moveStart(Goffset delta)
 // ASCIIHexStream
 //------------------------------------------------------------------------
 
-ASCIIHexStream::ASCIIHexStream(Stream *strA) : FilterStream(strA)
+ASCIIHexStream::ASCIIHexStream(std::unique_ptr<Stream> strA) : OwnedFilterStream(std::move(strA))
 {
     buf = EOF;
     eof = false;
 }
 
-ASCIIHexStream::~ASCIIHexStream()
-{
-    delete str;
-}
+ASCIIHexStream::~ASCIIHexStream() = default;
 
-void ASCIIHexStream::reset()
+bool ASCIIHexStream::rewind()
 {
-    str->reset();
     buf = EOF;
     eof = false;
+
+    return str->rewind();
 }
 
 int ASCIIHexStream::lookChar()
 {
     int c1, c2, x;
 
-    if (buf != EOF)
+    if (buf != EOF) {
         return buf;
+    }
     if (eof) {
         buf = EOF;
         return EOF;
@@ -1347,21 +1369,21 @@ int ASCIIHexStream::lookChar()
     return buf;
 }
 
-GooString *ASCIIHexStream::getPSFilter(int psLevel, const char *indent)
+std::optional<std::string> ASCIIHexStream::getPSFilter(int psLevel, const char *indent)
 {
-    GooString *s;
+    std::optional<std::string> s;
 
     if (psLevel < 2) {
-        return nullptr;
+        return {};
     }
     if (!(s = str->getPSFilter(psLevel, indent))) {
-        return nullptr;
+        return {};
     }
-    s->append(indent)->append("/ASCIIHexDecode filter\n");
+    s->append(indent).append("/ASCIIHexDecode filter\n");
     return s;
 }
 
-bool ASCIIHexStream::isBinary(bool last)
+bool ASCIIHexStream::isBinary(bool /*last*/) const
 {
     return str->isBinary(false);
 }
@@ -1370,22 +1392,20 @@ bool ASCIIHexStream::isBinary(bool last)
 // ASCII85Stream
 //------------------------------------------------------------------------
 
-ASCII85Stream::ASCII85Stream(Stream *strA) : FilterStream(strA)
+ASCII85Stream::ASCII85Stream(std::unique_ptr<Stream> strA) : OwnedFilterStream(std::move(strA))
 {
     index = n = 0;
     eof = false;
 }
 
-ASCII85Stream::~ASCII85Stream()
-{
-    delete str;
-}
+ASCII85Stream::~ASCII85Stream() = default;
 
-void ASCII85Stream::reset()
+bool ASCII85Stream::rewind()
 {
-    str->reset();
     index = n = 0;
     eof = false;
+
+    return str->rewind();
 }
 
 int ASCII85Stream::lookChar()
@@ -1394,8 +1414,9 @@ int ASCII85Stream::lookChar()
     unsigned long t;
 
     if (index >= n) {
-        if (eof)
+        if (eof) {
             return EOF;
+        }
         index = 0;
         do {
             c[0] = str->getChar();
@@ -1404,7 +1425,8 @@ int ASCII85Stream::lookChar()
             eof = true;
             n = 0;
             return EOF;
-        } else if (c[0] == 'z') {
+        }
+        if (c[0] == 'z') {
             b[0] = b[1] = b[2] = b[3] = 0;
             n = 4;
         } else {
@@ -1412,20 +1434,23 @@ int ASCII85Stream::lookChar()
                 do {
                     c[k] = str->getChar();
                 } while (Lexer::isSpace(c[k]));
-                if (c[k] == '~' || c[k] == EOF)
+                if (c[k] == '~' || c[k] == EOF) {
                     break;
+                }
             }
             n = k - 1;
             if (k < 5 && (c[k] == '~' || c[k] == EOF)) {
-                for (++k; k < 5; ++k)
+                for (++k; k < 5; ++k) {
                     c[k] = 0x21 + 84;
+                }
                 eof = true;
             }
             t = 0;
-            for (k = 0; k < 5; ++k)
+            for (k = 0; k < 5; ++k) {
                 t = t * 85 + (c[k] - 0x21);
+            }
             for (k = 3; k >= 0; --k) {
-                b[k] = (int)(t & 0xff);
+                b[k] = static_cast<int>(t & 0xff);
                 t >>= 8;
             }
         }
@@ -1433,21 +1458,21 @@ int ASCII85Stream::lookChar()
     return b[index];
 }
 
-GooString *ASCII85Stream::getPSFilter(int psLevel, const char *indent)
+std::optional<std::string> ASCII85Stream::getPSFilter(int psLevel, const char *indent)
 {
-    GooString *s;
+    std::optional<std::string> s;
 
     if (psLevel < 2) {
-        return nullptr;
+        return {};
     }
     if (!(s = str->getPSFilter(psLevel, indent))) {
-        return nullptr;
+        return {};
     }
-    s->append(indent)->append("/ASCII85Decode filter\n");
+    s->append(indent).append("/ASCII85Decode filter\n");
     return s;
 }
 
-bool ASCII85Stream::isBinary(bool last)
+bool ASCII85Stream::isBinary(bool /*last*/) const
 {
     return str->isBinary(false);
 }
@@ -1456,7 +1481,7 @@ bool ASCII85Stream::isBinary(bool last)
 // LZWStream
 //------------------------------------------------------------------------
 
-LZWStream::LZWStream(Stream *strA, int predictor, int columns, int colors, int bits, int earlyA) : FilterStream(strA)
+LZWStream::LZWStream(std::unique_ptr<Stream> strA, int predictor, int columns, int colors, int bits, int earlyA) : OwnedFilterStream(std::move(strA))
 {
     if (predictor != 1) {
         pred = new StreamPredictor(this, predictor, columns, colors, bits);
@@ -1475,10 +1500,7 @@ LZWStream::LZWStream(Stream *strA, int predictor, int columns, int colors, int b
 
 LZWStream::~LZWStream()
 {
-    if (pred) {
-        delete pred;
-    }
-    delete str;
+    delete pred;
 }
 
 int LZWStream::getChar()
@@ -1515,8 +1537,9 @@ int LZWStream::lookChar()
 
 void LZWStream::getRawChars(int nChars, int *buffer)
 {
-    for (int i = 0; i < nChars; ++i)
+    for (int i = 0; i < nChars; ++i) {
         buffer[i] = doGetRawChar();
+    }
 }
 
 int LZWStream::getRawChar()
@@ -1552,12 +1575,14 @@ int LZWStream::getChars(int nChars, unsigned char *buffer)
     return n;
 }
 
-void LZWStream::reset()
+bool LZWStream::rewind()
 {
-    str->reset();
+    bool success = str->rewind();
     eof = false;
     inputBits = 0;
     clearTable();
+
+    return success;
 }
 
 bool LZWStream::processNextCode()
@@ -1613,16 +1638,17 @@ start:
             table[nextCode].tail = newChar;
             ++nextCode;
         }
-        if (nextCode + early == 512)
+        if (nextCode + early == 512) {
             nextBits = 10;
-        else if (nextCode + early == 1024)
+        } else if (nextCode + early == 1024) {
             nextBits = 11;
-        else if (nextCode + early == 2048)
+        } else if (nextCode + early == 2048) {
             nextBits = 12;
+        }
     }
     prevCode = code;
 
-    // reset buffer
+    // rewind buffer
     seqIndex = 0;
 
     return true;
@@ -1643,8 +1669,9 @@ int LZWStream::getCode()
     int code;
 
     while (inputBits < nextBits) {
-        if ((c = str->getChar()) == EOF)
+        if ((c = str->getChar()) == EOF) {
             return EOF;
+        }
         inputBuf = (inputBuf << 8) | static_cast<unsigned>(c & 0xff);
         inputBits += 8;
     }
@@ -1653,17 +1680,17 @@ int LZWStream::getCode()
     return code;
 }
 
-GooString *LZWStream::getPSFilter(int psLevel, const char *indent)
+std::optional<std::string> LZWStream::getPSFilter(int psLevel, const char *indent)
 {
-    GooString *s;
+    std::optional<std::string> s;
 
     if (psLevel < 2 || pred) {
-        return nullptr;
+        return {};
     }
     if (!(s = str->getPSFilter(psLevel, indent))) {
-        return nullptr;
+        return {};
     }
-    s->append(indent)->append("<< ");
+    s->append(indent).append("<< ");
     if (!early) {
         s->append("/EarlyChange 0 ");
     }
@@ -1671,7 +1698,7 @@ GooString *LZWStream::getPSFilter(int psLevel, const char *indent)
     return s;
 }
 
-bool LZWStream::isBinary(bool last)
+bool LZWStream::isBinary(bool /*last*/) const
 {
     return str->isBinary(true);
 }
@@ -1680,22 +1707,20 @@ bool LZWStream::isBinary(bool last)
 // RunLengthStream
 //------------------------------------------------------------------------
 
-RunLengthStream::RunLengthStream(Stream *strA) : FilterStream(strA)
+RunLengthStream::RunLengthStream(std::unique_ptr<Stream> strA) : OwnedFilterStream(std::move(strA))
 {
     bufPtr = bufEnd = buf;
     eof = false;
 }
 
-RunLengthStream::~RunLengthStream()
-{
-    delete str;
-}
+RunLengthStream::~RunLengthStream() = default;
 
-void RunLengthStream::reset()
+bool RunLengthStream::rewind()
 {
-    str->reset();
     bufPtr = bufEnd = buf;
     eof = false;
+
+    return str->rewind();
 }
 
 int RunLengthStream::getChars(int nChars, unsigned char *buffer)
@@ -1709,7 +1734,7 @@ int RunLengthStream::getChars(int nChars, unsigned char *buffer)
                 break;
             }
         }
-        m = (int)(bufEnd - bufPtr);
+        m = static_cast<int>(bufEnd - bufPtr);
         if (m > nChars - n) {
             m = nChars - n;
         }
@@ -1720,21 +1745,21 @@ int RunLengthStream::getChars(int nChars, unsigned char *buffer)
     return n;
 }
 
-GooString *RunLengthStream::getPSFilter(int psLevel, const char *indent)
+std::optional<std::string> RunLengthStream::getPSFilter(int psLevel, const char *indent)
 {
-    GooString *s;
+    std::optional<std::string> s;
 
     if (psLevel < 2) {
-        return nullptr;
+        return {};
     }
     if (!(s = str->getPSFilter(psLevel, indent))) {
-        return nullptr;
+        return {};
     }
-    s->append(indent)->append("/RunLengthDecode filter\n");
+    s->append(indent).append("/RunLengthDecode filter\n");
     return s;
 }
 
-bool RunLengthStream::isBinary(bool last)
+bool RunLengthStream::isBinary(bool /*last*/) const
 {
     return str->isBinary(true);
 }
@@ -1744,8 +1769,9 @@ bool RunLengthStream::fillBuf()
     int c;
     int n, i;
 
-    if (eof)
+    if (eof) {
         return false;
+    }
     c = str->getChar();
     if (c == 0x80 || c == EOF) {
         eof = true;
@@ -1753,13 +1779,15 @@ bool RunLengthStream::fillBuf()
     }
     if (c < 0x80) {
         n = c + 1;
-        for (i = 0; i < n; ++i)
-            buf[i] = (char)str->getChar();
+        for (i = 0; i < n; ++i) {
+            buf[i] = static_cast<char>(str->getChar());
+        }
     } else {
         n = 0x101 - c;
         c = str->getChar();
-        for (i = 0; i < n; ++i)
-            buf[i] = (char)c;
+        for (i = 0; i < n; ++i) {
+            buf[i] = static_cast<char>(c);
+        }
     }
     bufPtr = buf;
     bufEnd = buf + n;
@@ -1770,7 +1798,7 @@ bool RunLengthStream::fillBuf()
 // CCITTFaxStream
 //------------------------------------------------------------------------
 
-CCITTFaxStream::CCITTFaxStream(Stream *strA, int encodingA, bool endOfLineA, bool byteAlignA, int columnsA, int rowsA, bool endOfBlockA, bool blackA, int damagedRowsBeforeErrorA) : FilterStream(strA)
+CCITTFaxStream::CCITTFaxStream(std::unique_ptr<Stream> strA, int encodingA, bool endOfLineA, bool byteAlignA, int columnsA, int rowsA, bool endOfBlockA, bool blackA, int damagedRowsBeforeErrorA) : OwnedFilterStream(std::move(strA))
 {
     encoding = encodingA;
     endOfLine = endOfLineA;
@@ -1789,8 +1817,8 @@ CCITTFaxStream::CCITTFaxStream(Stream *strA, int encodingA, bool endOfLineA, boo
     // ---> max codingLine size = columns + 1
     // refLine has one extra guard entry at the end
     // ---> max refLine size = columns + 2
-    codingLine = (int *)gmallocn_checkoverflow(columns + 1, sizeof(int));
-    refLine = (int *)gmallocn_checkoverflow(columns + 2, sizeof(int));
+    codingLine = static_cast<int *>(gmallocn_checkoverflow(columns + 1, sizeof(int)));
+    refLine = static_cast<int *>(gmallocn_checkoverflow(columns + 2, sizeof(int)));
 
     if (codingLine != nullptr && refLine != nullptr) {
         eof = false;
@@ -1809,36 +1837,35 @@ CCITTFaxStream::CCITTFaxStream(Stream *strA, int encodingA, bool endOfLineA, boo
 
 CCITTFaxStream::~CCITTFaxStream()
 {
-    delete str;
     gfree(refLine);
     gfree(codingLine);
 }
 
-void CCITTFaxStream::ccittReset(bool unfiltered)
+bool CCITTFaxStream::ccittRewind(bool unfiltered)
 {
-    if (unfiltered)
-        str->unfilteredReset();
-    else
-        str->reset();
-
     row = 0;
     nextLine2D = encoding < 0;
     inputBits = 0;
     a0i = 0;
     outputBits = 0;
     buf = EOF;
+
+    if (unfiltered) {
+        return str->unfilteredRewind();
+    }
+    return str->rewind();
 }
 
-void CCITTFaxStream::unfilteredReset()
+bool CCITTFaxStream::unfilteredRewind()
 {
-    ccittReset(true);
+    return ccittRewind(true);
 }
 
-void CCITTFaxStream::reset()
+bool CCITTFaxStream::rewind()
 {
     int code1;
 
-    ccittReset(false);
+    bool rewindSuccess = ccittRewind(false);
 
     if (codingLine != nullptr && refLine != nullptr) {
         eof = false;
@@ -1860,6 +1887,8 @@ void CCITTFaxStream::reset()
         nextLine2D = !lookBits(1);
         eatBits(1);
     }
+
+    return rewindSuccess;
 }
 
 inline void CCITTFaxStream::addPixels(int a1, int blackPixels)
@@ -2520,18 +2549,18 @@ short CCITTFaxStream::lookBits(int n)
     return (inputBuf >> (inputBits - n)) & (0xffffffff >> (32 - n));
 }
 
-GooString *CCITTFaxStream::getPSFilter(int psLevel, const char *indent)
+std::optional<std::string> CCITTFaxStream::getPSFilter(int psLevel, const char *indent)
 {
-    GooString *s;
+    std::optional<std::string> s;
     char s1[50];
 
     if (psLevel < 2) {
-        return nullptr;
+        return {};
     }
     if (!(s = str->getPSFilter(psLevel, indent))) {
-        return nullptr;
+        return {};
     }
-    s->append(indent)->append("<< ");
+    s->append(indent).append("<< ");
     if (encoding != 0) {
         sprintf(s1, "/K %d ", encoding);
         s->append(s1);
@@ -2558,1543 +2587,111 @@ GooString *CCITTFaxStream::getPSFilter(int psLevel, const char *indent)
     return s;
 }
 
-bool CCITTFaxStream::isBinary(bool last)
+bool CCITTFaxStream::isBinary(bool /*last*/) const
 {
     return str->isBinary(true);
 }
 
-#ifndef ENABLE_LIBJPEG
-
-//------------------------------------------------------------------------
-// DCTStream
-//------------------------------------------------------------------------
-
-// IDCT constants (20.12 fixed point format)
-#    define dctCos1 4017 // cos(pi/16)
-#    define dctSin1 799 // sin(pi/16)
-#    define dctCos3 3406 // cos(3*pi/16)
-#    define dctSin3 2276 // sin(3*pi/16)
-#    define dctCos6 1567 // cos(6*pi/16)
-#    define dctSin6 3784 // sin(6*pi/16)
-#    define dctSqrt2 5793 // sqrt(2)
-#    define dctSqrt1d2 2896 // sqrt(2) / 2
-
-// color conversion parameters (16.16 fixed point format)
-#    define dctCrToR 91881 //  1.4020
-#    define dctCbToG -22553 // -0.3441363
-#    define dctCrToG -46802 // -0.71413636
-#    define dctCbToB 116130 //  1.772
-
-// clip [-256,511] --> [0,255]
-#    define dctClipOffset 256
-#    define dctClipLength 768
-static unsigned char dctClip[dctClipLength];
-static int dctClipInit = 0;
-
-// zig zag decode map
-static const int dctZigZag[64] = { 0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25, 18, 11, 4,  5,  12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6,  7,  14, 21, 28,
-                                   35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63 };
-
-DCTStream::DCTStream(Stream *strA, int colorXformA, Dict *dict, int recursion) : FilterStream(strA)
-{
-    int i, j;
-
-    colorXform = colorXformA;
-    progressive = interleaved = false;
-    width = height = 0;
-    mcuWidth = mcuHeight = 0;
-    numComps = 0;
-    comp = 0;
-    x = y = dy = 0;
-    for (i = 0; i < 4; ++i) {
-        for (j = 0; j < 32; ++j) {
-            rowBuf[i][j] = nullptr;
-        }
-        frameBuf[i] = nullptr;
-    }
-
-    if (!dctClipInit) {
-        for (i = -256; i < 0; ++i)
-            dctClip[dctClipOffset + i] = 0;
-        for (i = 0; i < 256; ++i)
-            dctClip[dctClipOffset + i] = i;
-        for (i = 256; i < 512; ++i)
-            dctClip[dctClipOffset + i] = 255;
-        dctClipInit = 1;
-    }
-}
-
-DCTStream::~DCTStream()
-{
-    close();
-    delete str;
-}
-
-void DCTStream::dctReset(bool unfiltered)
-{
-    if (unfiltered)
-        str->unfilteredReset();
-    else
-        str->reset();
-
-    progressive = interleaved = false;
-    width = height = 0;
-    numComps = 0;
-    numQuantTables = 0;
-    numDCHuffTables = 0;
-    numACHuffTables = 0;
-    gotJFIFMarker = false;
-    gotAdobeMarker = false;
-    restartInterval = 0;
-}
-
-void DCTStream::unfilteredReset()
-{
-    dctReset(true);
-}
-
-void DCTStream::reset()
-{
-    int i, j;
-
-    dctReset(false);
-
-    if (!readHeader()) {
-        y = height;
-        return;
-    }
-
-    // compute MCU size
-    if (numComps == 1) {
-        compInfo[0].hSample = compInfo[0].vSample = 1;
-    }
-    mcuWidth = compInfo[0].hSample;
-    mcuHeight = compInfo[0].vSample;
-    for (i = 1; i < numComps; ++i) {
-        if (compInfo[i].hSample > mcuWidth) {
-            mcuWidth = compInfo[i].hSample;
-        }
-        if (compInfo[i].vSample > mcuHeight) {
-            mcuHeight = compInfo[i].vSample;
-        }
-    }
-    mcuWidth *= 8;
-    mcuHeight *= 8;
-
-    // figure out color transform
-    if (colorXform == -1) {
-        if (numComps == 3) {
-            if (gotJFIFMarker) {
-                colorXform = 1;
-            } else if (compInfo[0].id == 82 && compInfo[1].id == 71 && compInfo[2].id == 66) { // ASCII "RGB"
-                colorXform = 0;
-            } else {
-                colorXform = 1;
-            }
-        } else {
-            colorXform = 0;
-        }
-    }
-
-    if (progressive || !interleaved) {
-
-        // allocate a buffer for the whole image
-        bufWidth = ((width + mcuWidth - 1) / mcuWidth) * mcuWidth;
-        bufHeight = ((height + mcuHeight - 1) / mcuHeight) * mcuHeight;
-        if (bufWidth <= 0 || bufHeight <= 0 || bufWidth > INT_MAX / bufWidth / (int)sizeof(int)) {
-            error(errSyntaxError, getPos(), "Invalid image size in DCT stream");
-            y = height;
-            return;
-        }
-        for (i = 0; i < numComps; ++i) {
-            frameBuf[i] = (int *)gmallocn(bufWidth * bufHeight, sizeof(int));
-            memset(frameBuf[i], 0, bufWidth * bufHeight * sizeof(int));
-        }
-
-        // read the image data
-        do {
-            restartMarker = 0xd0;
-            restart();
-            readScan();
-        } while (readHeader());
-
-        // decode
-        decodeImage();
-
-        // initialize counters
-        comp = 0;
-        x = 0;
-        y = 0;
-
-    } else {
-
-        // allocate a buffer for one row of MCUs
-        bufWidth = ((width + mcuWidth - 1) / mcuWidth) * mcuWidth;
-        for (i = 0; i < numComps; ++i) {
-            for (j = 0; j < mcuHeight; ++j) {
-                rowBuf[i][j] = (unsigned char *)gmallocn(bufWidth, sizeof(unsigned char));
-            }
-        }
-
-        // initialize counters
-        comp = 0;
-        x = 0;
-        y = 0;
-        dy = mcuHeight;
-
-        restartMarker = 0xd0;
-        restart();
-    }
-}
-
-void DCTStream::close()
-{
-    int i, j;
-
-    for (i = 0; i < 4; ++i) {
-        for (j = 0; j < 32; ++j) {
-            gfree(rowBuf[i][j]);
-            rowBuf[i][j] = nullptr;
-        }
-        gfree(frameBuf[i]);
-        frameBuf[i] = nullptr;
-    }
-    FilterStream::close();
-}
-
-int DCTStream::getChar()
-{
-    int c;
-
-    if (y >= height) {
-        return EOF;
-    }
-    if (progressive || !interleaved) {
-        c = frameBuf[comp][y * bufWidth + x];
-        if (++comp == numComps) {
-            comp = 0;
-            if (++x == width) {
-                x = 0;
-                ++y;
-            }
-        }
-    } else {
-        if (dy >= mcuHeight) {
-            if (!readMCURow()) {
-                y = height;
-                return EOF;
-            }
-            comp = 0;
-            x = 0;
-            dy = 0;
-        }
-        c = rowBuf[comp][dy][x];
-        if (++comp == numComps) {
-            comp = 0;
-            if (++x == width) {
-                x = 0;
-                ++y;
-                ++dy;
-                if (y == height) {
-                    readTrailer();
-                }
-            }
-        }
-    }
-    return c;
-}
-
-int DCTStream::lookChar()
-{
-    if (y >= height) {
-        return EOF;
-    }
-    if (progressive || !interleaved) {
-        return frameBuf[comp][y * bufWidth + x];
-    } else {
-        if (dy >= mcuHeight) {
-            if (!readMCURow()) {
-                y = height;
-                return EOF;
-            }
-            comp = 0;
-            x = 0;
-            dy = 0;
-        }
-        return rowBuf[comp][dy][x];
-    }
-}
-
-void DCTStream::restart()
-{
-    int i;
-
-    inputBits = 0;
-    restartCtr = restartInterval;
-    for (i = 0; i < numComps; ++i) {
-        compInfo[i].prevDC = 0;
-    }
-    eobRun = 0;
-}
-
-// Read one row of MCUs from a sequential JPEG stream.
-bool DCTStream::readMCURow()
-{
-    int data1[64];
-    unsigned char data2[64];
-    unsigned char *p1, *p2;
-    int pY, pCb, pCr, pR, pG, pB;
-    int h, v, horiz, vert, hSub, vSub;
-    int x1, x2, y2, x3, y3, x4, y4, x5, y5, cc, i;
-    int c;
-
-    for (x1 = 0; x1 < width; x1 += mcuWidth) {
-
-        // deal with restart marker
-        if (restartInterval > 0 && restartCtr == 0) {
-            c = readMarker();
-            if (c != restartMarker) {
-                error(errSyntaxError, getPos(), "Bad DCT data: incorrect restart marker");
-                return false;
-            }
-            if (++restartMarker == 0xd8)
-                restartMarker = 0xd0;
-            restart();
-        }
-
-        // read one MCU
-        for (cc = 0; cc < numComps; ++cc) {
-            h = compInfo[cc].hSample;
-            v = compInfo[cc].vSample;
-            horiz = mcuWidth / h;
-            vert = mcuHeight / v;
-            hSub = horiz / 8;
-            vSub = vert / 8;
-            for (y2 = 0; y2 < mcuHeight; y2 += vert) {
-                for (x2 = 0; x2 < mcuWidth; x2 += horiz) {
-                    if (unlikely(scanInfo.dcHuffTable[cc] >= 4) || unlikely(scanInfo.acHuffTable[cc] >= 4)) {
-                        return false;
-                    }
-                    if (!readDataUnit(&dcHuffTables[scanInfo.dcHuffTable[cc]], &acHuffTables[scanInfo.acHuffTable[cc]], &compInfo[cc].prevDC, data1)) {
-                        return false;
-                    }
-                    transformDataUnit(quantTables[compInfo[cc].quantTable], data1, data2);
-                    if (hSub == 1 && vSub == 1) {
-                        for (y3 = 0, i = 0; y3 < 8; ++y3, i += 8) {
-                            p1 = &rowBuf[cc][y2 + y3][x1 + x2];
-                            p1[0] = data2[i];
-                            p1[1] = data2[i + 1];
-                            p1[2] = data2[i + 2];
-                            p1[3] = data2[i + 3];
-                            p1[4] = data2[i + 4];
-                            p1[5] = data2[i + 5];
-                            p1[6] = data2[i + 6];
-                            p1[7] = data2[i + 7];
-                        }
-                    } else if (hSub == 2 && vSub == 2) {
-                        for (y3 = 0, i = 0; y3 < 16; y3 += 2, i += 8) {
-                            p1 = &rowBuf[cc][y2 + y3][x1 + x2];
-                            p2 = &rowBuf[cc][y2 + y3 + 1][x1 + x2];
-                            p1[0] = p1[1] = p2[0] = p2[1] = data2[i];
-                            p1[2] = p1[3] = p2[2] = p2[3] = data2[i + 1];
-                            p1[4] = p1[5] = p2[4] = p2[5] = data2[i + 2];
-                            p1[6] = p1[7] = p2[6] = p2[7] = data2[i + 3];
-                            p1[8] = p1[9] = p2[8] = p2[9] = data2[i + 4];
-                            p1[10] = p1[11] = p2[10] = p2[11] = data2[i + 5];
-                            p1[12] = p1[13] = p2[12] = p2[13] = data2[i + 6];
-                            p1[14] = p1[15] = p2[14] = p2[15] = data2[i + 7];
-                        }
-                    } else {
-                        i = 0;
-                        for (y3 = 0, y4 = 0; y3 < 8; ++y3, y4 += vSub) {
-                            for (x3 = 0, x4 = 0; x3 < 8; ++x3, x4 += hSub) {
-                                for (y5 = 0; y5 < vSub; ++y5)
-                                    for (x5 = 0; x5 < hSub; ++x5)
-                                        rowBuf[cc][y2 + y4 + y5][x1 + x2 + x4 + x5] = data2[i];
-                                ++i;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        --restartCtr;
-
-        // color space conversion
-        if (colorXform) {
-            // convert YCbCr to RGB
-            if (numComps == 3) {
-                for (y2 = 0; y2 < mcuHeight; ++y2) {
-                    for (x2 = 0; x2 < mcuWidth; ++x2) {
-                        pY = rowBuf[0][y2][x1 + x2];
-                        pCb = rowBuf[1][y2][x1 + x2] - 128;
-                        pCr = rowBuf[2][y2][x1 + x2] - 128;
-                        pR = ((pY << 16) + dctCrToR * pCr + 32768) >> 16;
-                        rowBuf[0][y2][x1 + x2] = dctClip[dctClipOffset + pR];
-                        pG = ((pY << 16) + dctCbToG * pCb + dctCrToG * pCr + 32768) >> 16;
-                        rowBuf[1][y2][x1 + x2] = dctClip[dctClipOffset + pG];
-                        pB = ((pY << 16) + dctCbToB * pCb + 32768) >> 16;
-                        rowBuf[2][y2][x1 + x2] = dctClip[dctClipOffset + pB];
-                    }
-                }
-                // convert YCbCrK to CMYK (K is passed through unchanged)
-            } else if (numComps == 4) {
-                for (y2 = 0; y2 < mcuHeight; ++y2) {
-                    for (x2 = 0; x2 < mcuWidth; ++x2) {
-                        pY = rowBuf[0][y2][x1 + x2];
-                        pCb = rowBuf[1][y2][x1 + x2] - 128;
-                        pCr = rowBuf[2][y2][x1 + x2] - 128;
-                        pR = ((pY << 16) + dctCrToR * pCr + 32768) >> 16;
-                        rowBuf[0][y2][x1 + x2] = 255 - dctClip[dctClipOffset + pR];
-                        pG = ((pY << 16) + dctCbToG * pCb + dctCrToG * pCr + 32768) >> 16;
-                        rowBuf[1][y2][x1 + x2] = 255 - dctClip[dctClipOffset + pG];
-                        pB = ((pY << 16) + dctCbToB * pCb + 32768) >> 16;
-                        rowBuf[2][y2][x1 + x2] = 255 - dctClip[dctClipOffset + pB];
-                    }
-                }
-            }
-        }
-    }
-    return true;
-}
-
-// Read one scan from a progressive or non-interleaved JPEG stream.
-void DCTStream::readScan()
-{
-    int data[64];
-    int x1, y1, dx1, dy1, x2, y2, y3, cc, i;
-    int h, v, horiz, vert, vSub;
-    int *p1;
-    int c;
-
-    if (scanInfo.numComps == 1) {
-        for (cc = 0; cc < numComps; ++cc) {
-            if (scanInfo.comp[cc]) {
-                break;
-            }
-        }
-        dx1 = mcuWidth / compInfo[cc].hSample;
-        dy1 = mcuHeight / compInfo[cc].vSample;
-    } else {
-        dx1 = mcuWidth;
-        dy1 = mcuHeight;
-    }
-
-    for (y1 = 0; y1 < height; y1 += dy1) {
-        for (x1 = 0; x1 < width; x1 += dx1) {
-
-            // deal with restart marker
-            if (restartInterval > 0 && restartCtr == 0) {
-                c = readMarker();
-                if (c != restartMarker) {
-                    error(errSyntaxError, getPos(), "Bad DCT data: incorrect restart marker");
-                    return;
-                }
-                if (++restartMarker == 0xd8) {
-                    restartMarker = 0xd0;
-                }
-                restart();
-            }
-
-            // read one MCU
-            for (cc = 0; cc < numComps; ++cc) {
-                if (!scanInfo.comp[cc]) {
-                    continue;
-                }
-
-                h = compInfo[cc].hSample;
-                v = compInfo[cc].vSample;
-                horiz = mcuWidth / h;
-                vert = mcuHeight / v;
-                vSub = vert / 8;
-                for (y2 = 0; y2 < dy1; y2 += vert) {
-                    for (x2 = 0; x2 < dx1; x2 += horiz) {
-
-                        // pull out the current values
-                        p1 = &frameBuf[cc][(y1 + y2) * bufWidth + (x1 + x2)];
-                        for (y3 = 0, i = 0; y3 < 8; ++y3, i += 8) {
-                            data[i] = p1[0];
-                            data[i + 1] = p1[1];
-                            data[i + 2] = p1[2];
-                            data[i + 3] = p1[3];
-                            data[i + 4] = p1[4];
-                            data[i + 5] = p1[5];
-                            data[i + 6] = p1[6];
-                            data[i + 7] = p1[7];
-                            p1 += bufWidth * vSub;
-                        }
-
-                        // read one data unit
-                        if (progressive) {
-                            if (!readProgressiveDataUnit(&dcHuffTables[scanInfo.dcHuffTable[cc]], &acHuffTables[scanInfo.acHuffTable[cc]], &compInfo[cc].prevDC, data)) {
-                                return;
-                            }
-                        } else {
-                            if (!readDataUnit(&dcHuffTables[scanInfo.dcHuffTable[cc]], &acHuffTables[scanInfo.acHuffTable[cc]], &compInfo[cc].prevDC, data)) {
-                                return;
-                            }
-                        }
-
-                        // add the data unit into frameBuf
-                        p1 = &frameBuf[cc][(y1 + y2) * bufWidth + (x1 + x2)];
-                        for (y3 = 0, i = 0; y3 < 8; ++y3, i += 8) {
-                            p1[0] = data[i];
-                            p1[1] = data[i + 1];
-                            p1[2] = data[i + 2];
-                            p1[3] = data[i + 3];
-                            p1[4] = data[i + 4];
-                            p1[5] = data[i + 5];
-                            p1[6] = data[i + 6];
-                            p1[7] = data[i + 7];
-                            p1 += bufWidth * vSub;
-                        }
-                    }
-                }
-            }
-            --restartCtr;
-        }
-    }
-}
-
-// Read one data unit from a sequential JPEG stream.
-bool DCTStream::readDataUnit(DCTHuffTable *dcHuffTable, DCTHuffTable *acHuffTable, int *prevDC, int data[64])
-{
-    int run, size, amp;
-    int c;
-    int i, j;
-
-    if ((size = readHuffSym(dcHuffTable)) == 9999) {
-        return false;
-    }
-    if (size > 0) {
-        if ((amp = readAmp(size)) == 9999) {
-            return false;
-        }
-    } else {
-        amp = 0;
-    }
-    data[0] = *prevDC += amp;
-    for (i = 1; i < 64; ++i) {
-        data[i] = 0;
-    }
-    i = 1;
-    while (i < 64) {
-        run = 0;
-        while ((c = readHuffSym(acHuffTable)) == 0xf0 && run < 0x30) {
-            run += 0x10;
-        }
-        if (c == 9999) {
-            return false;
-        }
-        if (c == 0x00) {
-            break;
-        } else {
-            run += (c >> 4) & 0x0f;
-            size = c & 0x0f;
-            amp = readAmp(size);
-            if (amp == 9999) {
-                return false;
-            }
-            i += run;
-            if (i < 64) {
-                j = dctZigZag[i++];
-                data[j] = amp;
-            }
-        }
-    }
-    return true;
-}
-
-// Read one data unit from a sequential JPEG stream.
-bool DCTStream::readProgressiveDataUnit(DCTHuffTable *dcHuffTable, DCTHuffTable *acHuffTable, int *prevDC, int data[64])
-{
-    int run, size, amp, bit, c;
-    int i, j, k;
-
-    // get the DC coefficient
-    i = scanInfo.firstCoeff;
-    if (i == 0) {
-        if (scanInfo.ah == 0) {
-            if ((size = readHuffSym(dcHuffTable)) == 9999) {
-                return false;
-            }
-            if (size > 0) {
-                if ((amp = readAmp(size)) == 9999) {
-                    return false;
-                }
-            } else {
-                amp = 0;
-            }
-            data[0] += (*prevDC += amp) << scanInfo.al;
-        } else {
-            if ((bit = readBit()) == 9999) {
-                return false;
-            }
-            data[0] += bit << scanInfo.al;
-        }
-        ++i;
-    }
-    if (scanInfo.lastCoeff == 0) {
-        return true;
-    }
-
-    // check for an EOB run
-    if (eobRun > 0) {
-        while (i <= scanInfo.lastCoeff) {
-            j = dctZigZag[i++];
-            if (data[j] != 0) {
-                if ((bit = readBit()) == EOF) {
-                    return false;
-                }
-                if (bit) {
-                    data[j] += 1 << scanInfo.al;
-                }
-            }
-        }
-        --eobRun;
-        return true;
-    }
-
-    // read the AC coefficients
-    while (i <= scanInfo.lastCoeff) {
-        if ((c = readHuffSym(acHuffTable)) == 9999) {
-            return false;
-        }
-
-        // ZRL
-        if (c == 0xf0) {
-            k = 0;
-            while (k < 16 && i <= scanInfo.lastCoeff) {
-                j = dctZigZag[i++];
-                if (data[j] == 0) {
-                    ++k;
-                } else {
-                    if ((bit = readBit()) == EOF) {
-                        return false;
-                    }
-                    if (bit) {
-                        data[j] += 1 << scanInfo.al;
-                    }
-                }
-            }
-
-            // EOB run
-        } else if ((c & 0x0f) == 0x00) {
-            j = c >> 4;
-            eobRun = 0;
-            for (k = 0; k < j; ++k) {
-                if ((bit = readBit()) == EOF) {
-                    return false;
-                }
-                eobRun = (eobRun << 1) | bit;
-            }
-            eobRun += 1 << j;
-            while (i <= scanInfo.lastCoeff) {
-                j = dctZigZag[i++];
-                if (data[j] != 0) {
-                    if ((bit = readBit()) == EOF) {
-                        return false;
-                    }
-                    if (bit) {
-                        data[j] += 1 << scanInfo.al;
-                    }
-                }
-            }
-            --eobRun;
-            break;
-
-            // zero run and one AC coefficient
-        } else {
-            run = (c >> 4) & 0x0f;
-            size = c & 0x0f;
-            if ((amp = readAmp(size)) == 9999) {
-                return false;
-            }
-            j = 0; // make gcc happy
-            for (k = 0; k <= run && i <= scanInfo.lastCoeff; ++k) {
-                j = dctZigZag[i++];
-                while (data[j] != 0 && i <= scanInfo.lastCoeff) {
-                    if ((bit = readBit()) == EOF) {
-                        return false;
-                    }
-                    if (bit) {
-                        data[j] += 1 << scanInfo.al;
-                    }
-                    j = dctZigZag[i++];
-                }
-            }
-            data[j] = amp << scanInfo.al;
-        }
-    }
-
-    return true;
-}
-
-// Decode a progressive JPEG image.
-void DCTStream::decodeImage()
-{
-    int dataIn[64];
-    unsigned char dataOut[64];
-    unsigned short *quantTable;
-    int pY, pCb, pCr, pR, pG, pB;
-    int x1, y1, x2, y2, x3, y3, x4, y4, x5, y5, cc, i;
-    int h, v, horiz, vert, hSub, vSub;
-    int *p0, *p1, *p2;
-
-    for (y1 = 0; y1 < bufHeight; y1 += mcuHeight) {
-        for (x1 = 0; x1 < bufWidth; x1 += mcuWidth) {
-            for (cc = 0; cc < numComps; ++cc) {
-                quantTable = quantTables[compInfo[cc].quantTable];
-                h = compInfo[cc].hSample;
-                v = compInfo[cc].vSample;
-                horiz = mcuWidth / h;
-                vert = mcuHeight / v;
-                hSub = horiz / 8;
-                vSub = vert / 8;
-                for (y2 = 0; y2 < mcuHeight; y2 += vert) {
-                    for (x2 = 0; x2 < mcuWidth; x2 += horiz) {
-
-                        // pull out the coded data unit
-                        p1 = &frameBuf[cc][(y1 + y2) * bufWidth + (x1 + x2)];
-                        for (y3 = 0, i = 0; y3 < 8; ++y3, i += 8) {
-                            dataIn[i] = p1[0];
-                            dataIn[i + 1] = p1[1];
-                            dataIn[i + 2] = p1[2];
-                            dataIn[i + 3] = p1[3];
-                            dataIn[i + 4] = p1[4];
-                            dataIn[i + 5] = p1[5];
-                            dataIn[i + 6] = p1[6];
-                            dataIn[i + 7] = p1[7];
-                            p1 += bufWidth * vSub;
-                        }
-
-                        // transform
-                        transformDataUnit(quantTable, dataIn, dataOut);
-
-                        // store back into frameBuf, doing replication for
-                        // subsampled components
-                        p1 = &frameBuf[cc][(y1 + y2) * bufWidth + (x1 + x2)];
-                        if (hSub == 1 && vSub == 1) {
-                            for (y3 = 0, i = 0; y3 < 8; ++y3, i += 8) {
-                                p1[0] = dataOut[i] & 0xff;
-                                p1[1] = dataOut[i + 1] & 0xff;
-                                p1[2] = dataOut[i + 2] & 0xff;
-                                p1[3] = dataOut[i + 3] & 0xff;
-                                p1[4] = dataOut[i + 4] & 0xff;
-                                p1[5] = dataOut[i + 5] & 0xff;
-                                p1[6] = dataOut[i + 6] & 0xff;
-                                p1[7] = dataOut[i + 7] & 0xff;
-                                p1 += bufWidth;
-                            }
-                        } else if (hSub == 2 && vSub == 2) {
-                            p2 = p1 + bufWidth;
-                            for (y3 = 0, i = 0; y3 < 16; y3 += 2, i += 8) {
-                                p1[0] = p1[1] = p2[0] = p2[1] = dataOut[i] & 0xff;
-                                p1[2] = p1[3] = p2[2] = p2[3] = dataOut[i + 1] & 0xff;
-                                p1[4] = p1[5] = p2[4] = p2[5] = dataOut[i + 2] & 0xff;
-                                p1[6] = p1[7] = p2[6] = p2[7] = dataOut[i + 3] & 0xff;
-                                p1[8] = p1[9] = p2[8] = p2[9] = dataOut[i + 4] & 0xff;
-                                p1[10] = p1[11] = p2[10] = p2[11] = dataOut[i + 5] & 0xff;
-                                p1[12] = p1[13] = p2[12] = p2[13] = dataOut[i + 6] & 0xff;
-                                p1[14] = p1[15] = p2[14] = p2[15] = dataOut[i + 7] & 0xff;
-                                p1 += bufWidth * 2;
-                                p2 += bufWidth * 2;
-                            }
-                        } else {
-                            i = 0;
-                            for (y3 = 0, y4 = 0; y3 < 8; ++y3, y4 += vSub) {
-                                for (x3 = 0, x4 = 0; x3 < 8; ++x3, x4 += hSub) {
-                                    p2 = p1 + x4;
-                                    for (y5 = 0; y5 < vSub; ++y5) {
-                                        for (x5 = 0; x5 < hSub; ++x5) {
-                                            p2[x5] = dataOut[i] & 0xff;
-                                        }
-                                        p2 += bufWidth;
-                                    }
-                                    ++i;
-                                }
-                                p1 += bufWidth * vSub;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // color space conversion
-            if (colorXform) {
-                // convert YCbCr to RGB
-                if (numComps == 3) {
-                    for (y2 = 0; y2 < mcuHeight; ++y2) {
-                        p0 = &frameBuf[0][(y1 + y2) * bufWidth + x1];
-                        p1 = &frameBuf[1][(y1 + y2) * bufWidth + x1];
-                        p2 = &frameBuf[2][(y1 + y2) * bufWidth + x1];
-                        for (x2 = 0; x2 < mcuWidth; ++x2) {
-                            pY = *p0;
-                            pCb = *p1 - 128;
-                            pCr = *p2 - 128;
-                            pR = ((pY << 16) + dctCrToR * pCr + 32768) >> 16;
-                            *p0++ = dctClip[dctClipOffset + pR];
-                            pG = ((pY << 16) + dctCbToG * pCb + dctCrToG * pCr + 32768) >> 16;
-                            *p1++ = dctClip[dctClipOffset + pG];
-                            pB = ((pY << 16) + dctCbToB * pCb + 32768) >> 16;
-                            *p2++ = dctClip[dctClipOffset + pB];
-                        }
-                    }
-                    // convert YCbCrK to CMYK (K is passed through unchanged)
-                } else if (numComps == 4) {
-                    for (y2 = 0; y2 < mcuHeight; ++y2) {
-                        p0 = &frameBuf[0][(y1 + y2) * bufWidth + x1];
-                        p1 = &frameBuf[1][(y1 + y2) * bufWidth + x1];
-                        p2 = &frameBuf[2][(y1 + y2) * bufWidth + x1];
-                        for (x2 = 0; x2 < mcuWidth; ++x2) {
-                            pY = *p0;
-                            pCb = *p1 - 128;
-                            pCr = *p2 - 128;
-                            pR = ((pY << 16) + dctCrToR * pCr + 32768) >> 16;
-                            *p0++ = 255 - dctClip[dctClipOffset + pR];
-                            pG = ((pY << 16) + dctCbToG * pCb + dctCrToG * pCr + 32768) >> 16;
-                            *p1++ = 255 - dctClip[dctClipOffset + pG];
-                            pB = ((pY << 16) + dctCbToB * pCb + 32768) >> 16;
-                            *p2++ = 255 - dctClip[dctClipOffset + pB];
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// Transform one data unit -- this performs the dequantization and
-// IDCT steps.  This IDCT algorithm is taken from:
-//   Christoph Loeffler, Adriaan Ligtenberg, George S. Moschytz,
-//   "Practical Fast 1-D DCT Algorithms with 11 Multiplications",
-//   IEEE Intl. Conf. on Acoustics, Speech & Signal Processing, 1989,
-//   988-991.
-// The stage numbers mentioned in the comments refer to Figure 1 in this
-// paper.
-void DCTStream::transformDataUnit(unsigned short *quantTable, int dataIn[64], unsigned char dataOut[64])
-{
-    int v0, v1, v2, v3, v4, v5, v6, v7, t;
-    int *p;
-    int i;
-
-    // dequant
-    for (i = 0; i < 64; ++i) {
-        dataIn[i] *= quantTable[i];
-    }
-
-    // inverse DCT on rows
-    for (i = 0; i < 64; i += 8) {
-        p = dataIn + i;
-
-        // check for all-zero AC coefficients
-        if (p[1] == 0 && p[2] == 0 && p[3] == 0 && p[4] == 0 && p[5] == 0 && p[6] == 0 && p[7] == 0) {
-            t = (dctSqrt2 * p[0] + 512) >> 10;
-            p[0] = t;
-            p[1] = t;
-            p[2] = t;
-            p[3] = t;
-            p[4] = t;
-            p[5] = t;
-            p[6] = t;
-            p[7] = t;
-            continue;
-        }
-
-        // stage 4
-        v0 = (dctSqrt2 * p[0] + 128) >> 8;
-        v1 = (dctSqrt2 * p[4] + 128) >> 8;
-        v2 = p[2];
-        v3 = p[6];
-        v4 = (dctSqrt1d2 * (p[1] - p[7]) + 128) >> 8;
-        v7 = (dctSqrt1d2 * (p[1] + p[7]) + 128) >> 8;
-        v5 = p[3] << 4;
-        v6 = p[5] << 4;
-
-        // stage 3
-        t = (v0 - v1 + 1) >> 1;
-        v0 = (v0 + v1 + 1) >> 1;
-        v1 = t;
-        t = (v2 * dctSin6 + v3 * dctCos6 + 128) >> 8;
-        v2 = (v2 * dctCos6 - v3 * dctSin6 + 128) >> 8;
-        v3 = t;
-        t = (v4 - v6 + 1) >> 1;
-        v4 = (v4 + v6 + 1) >> 1;
-        v6 = t;
-        t = (v7 + v5 + 1) >> 1;
-        v5 = (v7 - v5 + 1) >> 1;
-        v7 = t;
-
-        // stage 2
-        t = (v0 - v3 + 1) >> 1;
-        v0 = (v0 + v3 + 1) >> 1;
-        v3 = t;
-        t = (v1 - v2 + 1) >> 1;
-        v1 = (v1 + v2 + 1) >> 1;
-        v2 = t;
-        t = (v4 * dctSin3 + v7 * dctCos3 + 2048) >> 12;
-        v4 = (v4 * dctCos3 - v7 * dctSin3 + 2048) >> 12;
-        v7 = t;
-        t = (v5 * dctSin1 + v6 * dctCos1 + 2048) >> 12;
-        v5 = (v5 * dctCos1 - v6 * dctSin1 + 2048) >> 12;
-        v6 = t;
-
-        // stage 1
-        p[0] = v0 + v7;
-        p[7] = v0 - v7;
-        p[1] = v1 + v6;
-        p[6] = v1 - v6;
-        p[2] = v2 + v5;
-        p[5] = v2 - v5;
-        p[3] = v3 + v4;
-        p[4] = v3 - v4;
-    }
-
-    // inverse DCT on columns
-    for (i = 0; i < 8; ++i) {
-        p = dataIn + i;
-
-        // check for all-zero AC coefficients
-        if (p[1 * 8] == 0 && p[2 * 8] == 0 && p[3 * 8] == 0 && p[4 * 8] == 0 && p[5 * 8] == 0 && p[6 * 8] == 0 && p[7 * 8] == 0) {
-            t = (dctSqrt2 * dataIn[i + 0] + 8192) >> 14;
-            p[0 * 8] = t;
-            p[1 * 8] = t;
-            p[2 * 8] = t;
-            p[3 * 8] = t;
-            p[4 * 8] = t;
-            p[5 * 8] = t;
-            p[6 * 8] = t;
-            p[7 * 8] = t;
-            continue;
-        }
-
-        // stage 4
-        v0 = (dctSqrt2 * p[0 * 8] + 2048) >> 12;
-        v1 = (dctSqrt2 * p[4 * 8] + 2048) >> 12;
-        v2 = p[2 * 8];
-        v3 = p[6 * 8];
-        v4 = (dctSqrt1d2 * (p[1 * 8] - p[7 * 8]) + 2048) >> 12;
-        v7 = (dctSqrt1d2 * (p[1 * 8] + p[7 * 8]) + 2048) >> 12;
-        v5 = p[3 * 8];
-        v6 = p[5 * 8];
-
-        // stage 3
-        t = (v0 - v1 + 1) >> 1;
-        v0 = (v0 + v1 + 1) >> 1;
-        v1 = t;
-        t = (v2 * dctSin6 + v3 * dctCos6 + 2048) >> 12;
-        v2 = (v2 * dctCos6 - v3 * dctSin6 + 2048) >> 12;
-        v3 = t;
-        t = (v4 - v6 + 1) >> 1;
-        v4 = (v4 + v6 + 1) >> 1;
-        v6 = t;
-        t = (v7 + v5 + 1) >> 1;
-        v5 = (v7 - v5 + 1) >> 1;
-        v7 = t;
-
-        // stage 2
-        t = (v0 - v3 + 1) >> 1;
-        v0 = (v0 + v3 + 1) >> 1;
-        v3 = t;
-        t = (v1 - v2 + 1) >> 1;
-        v1 = (v1 + v2 + 1) >> 1;
-        v2 = t;
-        t = (v4 * dctSin3 + v7 * dctCos3 + 2048) >> 12;
-        v4 = (v4 * dctCos3 - v7 * dctSin3 + 2048) >> 12;
-        v7 = t;
-        t = (v5 * dctSin1 + v6 * dctCos1 + 2048) >> 12;
-        v5 = (v5 * dctCos1 - v6 * dctSin1 + 2048) >> 12;
-        v6 = t;
-
-        // stage 1
-        p[0 * 8] = v0 + v7;
-        p[7 * 8] = v0 - v7;
-        p[1 * 8] = v1 + v6;
-        p[6 * 8] = v1 - v6;
-        p[2 * 8] = v2 + v5;
-        p[5 * 8] = v2 - v5;
-        p[3 * 8] = v3 + v4;
-        p[4 * 8] = v3 - v4;
-    }
-
-    // convert to 8-bit integers
-    for (i = 0; i < 64; ++i) {
-        const int ix = dctClipOffset + 128 + ((dataIn[i] + 8) >> 4);
-        if (unlikely(ix < 0 || ix >= dctClipLength)) {
-            dataOut[i] = 0;
-        } else {
-            dataOut[i] = dctClip[ix];
-        }
-    }
-}
-
-int DCTStream::readHuffSym(DCTHuffTable *table)
-{
-    unsigned short code;
-    int bit;
-    int codeBits;
-
-    code = 0;
-    codeBits = 0;
-    do {
-        // add a bit to the code
-        if ((bit = readBit()) == EOF) {
-            return 9999;
-        }
-        code = (code << 1) + bit;
-        ++codeBits;
-
-        // look up code
-        if (code < table->firstCode[codeBits]) {
-            break;
-        }
-        if (code - table->firstCode[codeBits] < table->numCodes[codeBits]) {
-            code -= table->firstCode[codeBits];
-            return table->sym[table->firstSym[codeBits] + code];
-        }
-    } while (codeBits < 16);
-
-    error(errSyntaxError, getPos(), "Bad Huffman code in DCT stream");
-    return 9999;
-}
-
-int DCTStream::readAmp(int size)
-{
-    int amp, bit;
-    int bits;
-
-    amp = 0;
-    for (bits = 0; bits < size; ++bits) {
-        if ((bit = readBit()) == EOF)
-            return 9999;
-        amp = (amp << 1) + bit;
-    }
-    if (amp < (1 << (size - 1)))
-        amp -= (1 << size) - 1;
-    return amp;
-}
-
-int DCTStream::readBit()
-{
-    int bit;
-    int c, c2;
-
-    if (inputBits == 0) {
-        if ((c = str->getChar()) == EOF)
-            return EOF;
-        if (c == 0xff) {
-            do {
-                c2 = str->getChar();
-            } while (c2 == 0xff);
-            if (c2 != 0x00) {
-                error(errSyntaxError, getPos(), "Bad DCT data: missing 00 after ff");
-                return EOF;
-            }
-        }
-        inputBuf = c;
-        inputBits = 8;
-    }
-    bit = (inputBuf >> (inputBits - 1)) & 1;
-    --inputBits;
-    return bit;
-}
-
-bool DCTStream::readHeader()
-{
-    bool doScan;
-    int n;
-    int c = 0;
-    int i;
-
-    // read headers
-    doScan = false;
-    while (!doScan) {
-        c = readMarker();
-        switch (c) {
-        case 0xc0: // SOF0 (sequential)
-        case 0xc1: // SOF1 (extended sequential)
-            if (!readBaselineSOF()) {
-                return false;
-            }
-            break;
-        case 0xc2: // SOF2 (progressive)
-            if (!readProgressiveSOF()) {
-                return false;
-            }
-            break;
-        case 0xc4: // DHT
-            if (!readHuffmanTables()) {
-                return false;
-            }
-            break;
-        case 0xd8: // SOI
-            break;
-        case 0xd9: // EOI
-            return false;
-        case 0xda: // SOS
-            if (!readScanInfo()) {
-                return false;
-            }
-            doScan = true;
-            break;
-        case 0xdb: // DQT
-            if (!readQuantTables()) {
-                return false;
-            }
-            break;
-        case 0xdd: // DRI
-            if (!readRestartInterval()) {
-                return false;
-            }
-            break;
-        case 0xe0: // APP0
-            if (!readJFIFMarker()) {
-                return false;
-            }
-            break;
-        case 0xee: // APP14
-            if (!readAdobeMarker()) {
-                return false;
-            }
-            break;
-        case EOF:
-            error(errSyntaxError, getPos(), "Bad DCT header");
-            return false;
-        default:
-            // skip APPn / COM / etc.
-            if (c >= 0xe0) {
-                n = read16() - 2;
-                for (i = 0; i < n; ++i) {
-                    str->getChar();
-                }
-            } else {
-                error(errSyntaxError, getPos(), "Unknown DCT marker <{0:02x}>", c);
-                return false;
-            }
-            break;
-        }
-    }
-
-    return true;
-}
-
-bool DCTStream::readBaselineSOF()
-{
-    int length;
-    int prec;
-    int i;
-    int c;
-
-    length = read16();
-    prec = str->getChar();
-    height = read16();
-    width = read16();
-    numComps = str->getChar();
-    if (numComps <= 0 || numComps > 4) {
-        error(errSyntaxError, getPos(), "Bad number of components in DCT stream");
-        numComps = 0;
-        return false;
-    }
-    if (prec != 8) {
-        error(errSyntaxError, getPos(), "Bad DCT precision {0:d}", prec);
-        return false;
-    }
-    for (i = 0; i < numComps; ++i) {
-        compInfo[i].id = str->getChar();
-        c = str->getChar();
-        compInfo[i].hSample = (c >> 4) & 0x0f;
-        compInfo[i].vSample = c & 0x0f;
-        compInfo[i].quantTable = str->getChar();
-        if (compInfo[i].hSample < 1 || compInfo[i].hSample > 4 || compInfo[i].vSample < 1 || compInfo[i].vSample > 4) {
-            error(errSyntaxError, getPos(), "Bad DCT sampling factor");
-            return false;
-        }
-        if (compInfo[i].quantTable < 0 || compInfo[i].quantTable > 3) {
-            error(errSyntaxError, getPos(), "Bad DCT quant table selector");
-            return false;
-        }
-    }
-    progressive = false;
-    return true;
-}
-
-bool DCTStream::readProgressiveSOF()
-{
-    int length;
-    int prec;
-    int i;
-    int c;
-
-    length = read16();
-    prec = str->getChar();
-    height = read16();
-    width = read16();
-    numComps = str->getChar();
-
-    if (numComps <= 0 || numComps > 4) {
-        error(errSyntaxError, getPos(), "Bad number of components in DCT stream");
-        numComps = 0;
-        return false;
-    }
-    if (prec != 8) {
-        error(errSyntaxError, getPos(), "Bad DCT precision {0:d}", prec);
-        return false;
-    }
-    for (i = 0; i < numComps; ++i) {
-        compInfo[i].id = str->getChar();
-        c = str->getChar();
-        compInfo[i].hSample = (c >> 4) & 0x0f;
-        compInfo[i].vSample = c & 0x0f;
-        compInfo[i].quantTable = str->getChar();
-        if (compInfo[i].hSample < 1 || compInfo[i].hSample > 4 || compInfo[i].vSample < 1 || compInfo[i].vSample > 4) {
-            error(errSyntaxError, getPos(), "Bad DCT sampling factor");
-            return false;
-        }
-        if (compInfo[i].quantTable < 0 || compInfo[i].quantTable > 3) {
-            error(errSyntaxError, getPos(), "Bad DCT quant table selector");
-            return false;
-        }
-    }
-    progressive = true;
-    return true;
-}
-
-bool DCTStream::readScanInfo()
-{
-    int length;
-    int id, c;
-    int i, j;
-
-    length = read16() - 2;
-    scanInfo.numComps = str->getChar();
-    if (scanInfo.numComps <= 0 || scanInfo.numComps > 4) {
-        error(errSyntaxError, getPos(), "Bad number of components in DCT stream");
-        scanInfo.numComps = 0;
-        return false;
-    }
-    --length;
-    if (length != 2 * scanInfo.numComps + 3) {
-        error(errSyntaxError, getPos(), "Bad DCT scan info block");
-        return false;
-    }
-    interleaved = scanInfo.numComps == numComps;
-    for (j = 0; j < numComps; ++j) {
-        scanInfo.comp[j] = false;
-        scanInfo.dcHuffTable[j] = 0;
-        scanInfo.acHuffTable[j] = 0;
-    }
-    for (i = 0; i < scanInfo.numComps; ++i) {
-        id = str->getChar();
-        // some (broken) DCT streams reuse ID numbers, but at least they
-        // keep the components in order, so we check compInfo[i] first to
-        // work around the problem
-        if (id == compInfo[i].id) {
-            j = i;
-        } else {
-            for (j = 0; j < numComps; ++j) {
-                if (id == compInfo[j].id) {
-                    break;
-                }
-            }
-            if (j == numComps) {
-                error(errSyntaxError, getPos(), "Bad DCT component ID in scan info block");
-                return false;
-            }
-        }
-        scanInfo.comp[j] = true;
-        c = str->getChar();
-        scanInfo.dcHuffTable[j] = (c >> 4) & 0x0f;
-        scanInfo.acHuffTable[j] = c & 0x0f;
-    }
-    scanInfo.firstCoeff = str->getChar();
-    scanInfo.lastCoeff = str->getChar();
-    if (scanInfo.firstCoeff < 0 || scanInfo.lastCoeff > 63 || scanInfo.firstCoeff > scanInfo.lastCoeff) {
-        error(errSyntaxError, getPos(), "Bad DCT coefficient numbers in scan info block");
-        return false;
-    }
-    c = str->getChar();
-    scanInfo.ah = (c >> 4) & 0x0f;
-    scanInfo.al = c & 0x0f;
-    return true;
-}
-
-bool DCTStream::readQuantTables()
-{
-    int length, prec, i, index;
-
-    length = read16() - 2;
-    while (length > 0) {
-        index = str->getChar();
-        prec = (index >> 4) & 0x0f;
-        index &= 0x0f;
-        if (prec > 1 || index >= 4) {
-            error(errSyntaxError, getPos(), "Bad DCT quantization table");
-            return false;
-        }
-        if (index == numQuantTables) {
-            numQuantTables = index + 1;
-        }
-        for (i = 0; i < 64; ++i) {
-            if (prec) {
-                quantTables[index][dctZigZag[i]] = read16();
-            } else {
-                quantTables[index][dctZigZag[i]] = str->getChar();
-            }
-        }
-        if (prec) {
-            length -= 129;
-        } else {
-            length -= 65;
-        }
-    }
-    return true;
-}
-
-bool DCTStream::readHuffmanTables()
-{
-    DCTHuffTable *tbl;
-    int length;
-    int index;
-    unsigned short code;
-    unsigned char sym;
-    int i;
-    int c;
-
-    length = read16() - 2;
-    while (length > 0) {
-        index = str->getChar();
-        --length;
-        if ((index & 0x0f) >= 4) {
-            error(errSyntaxError, getPos(), "Bad DCT Huffman table");
-            return false;
-        }
-        if (index & 0x10) {
-            index &= 0x0f;
-            if (index >= numACHuffTables)
-                numACHuffTables = index + 1;
-            tbl = &acHuffTables[index];
-        } else {
-            index &= 0x0f;
-            if (index >= numDCHuffTables)
-                numDCHuffTables = index + 1;
-            tbl = &dcHuffTables[index];
-        }
-        sym = 0;
-        code = 0;
-        for (i = 1; i <= 16; ++i) {
-            c = str->getChar();
-            tbl->firstSym[i] = sym;
-            tbl->firstCode[i] = code;
-            tbl->numCodes[i] = c;
-            sym += c;
-            code = (code + c) << 1;
-        }
-        length -= 16;
-        for (i = 0; i < sym; ++i)
-            tbl->sym[i] = str->getChar();
-        length -= sym;
-    }
-    return true;
-}
-
-bool DCTStream::readRestartInterval()
-{
-    int length;
-
-    length = read16();
-    if (length != 4) {
-        error(errSyntaxError, getPos(), "Bad DCT restart interval");
-        return false;
-    }
-    restartInterval = read16();
-    return true;
-}
-
-bool DCTStream::readJFIFMarker()
-{
-    int length, i;
-    char buf[5];
-    int c;
-
-    length = read16();
-    length -= 2;
-    if (length >= 5) {
-        for (i = 0; i < 5; ++i) {
-            if ((c = str->getChar()) == EOF) {
-                error(errSyntaxError, getPos(), "Bad DCT APP0 marker");
-                return false;
-            }
-            buf[i] = c;
-        }
-        length -= 5;
-        if (!memcmp(buf, "JFIF\0", 5)) {
-            gotJFIFMarker = true;
-        }
-    }
-    while (length > 0) {
-        if (str->getChar() == EOF) {
-            error(errSyntaxError, getPos(), "Bad DCT APP0 marker");
-            return false;
-        }
-        --length;
-    }
-    return true;
-}
-
-bool DCTStream::readAdobeMarker()
-{
-    int length, i;
-    char buf[12];
-    int c;
-
-    length = read16();
-    if (length < 14) {
-        goto err;
-    }
-    for (i = 0; i < 12; ++i) {
-        if ((c = str->getChar()) == EOF) {
-            goto err;
-        }
-        buf[i] = c;
-    }
-    if (strncmp(buf, "Adobe", 5)) {
-        goto err;
-    }
-    colorXform = buf[11];
-    gotAdobeMarker = true;
-    for (i = 14; i < length; ++i) {
-        if (str->getChar() == EOF) {
-            goto err;
-        }
-    }
-    return true;
-
-err:
-    error(errSyntaxError, getPos(), "Bad DCT Adobe APP14 marker");
-    return false;
-}
-
-bool DCTStream::readTrailer()
-{
-    int c;
-
-    c = readMarker();
-    if (c != 0xd9) { // EOI
-        error(errSyntaxError, getPos(), "Bad DCT trailer");
-        return false;
-    }
-    return true;
-}
-
-int DCTStream::readMarker()
-{
-    int c;
-
-    do {
-        do {
-            c = str->getChar();
-        } while (c != 0xff && c != EOF);
-        while (c == 0xff) {
-            c = str->getChar();
-        }
-    } while (c == 0x00);
-    return c;
-}
-
-int DCTStream::read16()
-{
-    int c1, c2;
-
-    if ((c1 = str->getChar()) == EOF)
-        return EOF;
-    if ((c2 = str->getChar()) == EOF)
-        return EOF;
-    return (c1 << 8) + c2;
-}
-
-GooString *DCTStream::getPSFilter(int psLevel, const char *indent)
-{
-    GooString *s;
-
-    if (psLevel < 2) {
-        return nullptr;
-    }
-    if (!(s = str->getPSFilter(psLevel, indent))) {
-        return nullptr;
-    }
-    s->append(indent)->append("<< >> /DCTDecode filter\n");
-    return s;
-}
-
-bool DCTStream::isBinary(bool last)
-{
-    return str->isBinary(true);
-}
-
-#endif
-
-#ifndef ENABLE_ZLIB_UNCOMPRESS
+#if !ENABLE_ZLIB_UNCOMPRESS
 //------------------------------------------------------------------------
 // FlateStream
 //------------------------------------------------------------------------
 
 const int FlateStream::codeLenCodeMap[flateMaxCodeLenCodes] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
 
-const FlateDecode FlateStream::lengthDecode[flateMaxLitCodes - 257] = { { 0, 3 },  { 0, 4 },   { 0, 5 },   { 0, 6 },   { 0, 7 },   { 0, 8 },   { 0, 9 },   { 0, 10 },  { 1, 11 }, { 1, 13 }, { 1, 15 },
-                                                                        { 1, 17 }, { 2, 19 },  { 2, 23 },  { 2, 27 },  { 2, 31 },  { 3, 35 },  { 3, 43 },  { 3, 51 },  { 3, 59 }, { 4, 67 }, { 4, 83 },
-                                                                        { 4, 99 }, { 4, 115 }, { 5, 131 }, { 5, 163 }, { 5, 195 }, { 5, 227 }, { 0, 258 }, { 0, 258 }, { 0, 258 } };
-
-const FlateDecode FlateStream::distDecode[flateMaxDistCodes] = { { 0, 1 },    { 0, 2 },    { 0, 3 },     { 0, 4 },     { 1, 5 },     { 1, 7 },     { 2, 9 },     { 2, 13 },     { 3, 17 },     { 3, 25 },
-                                                                 { 4, 33 },   { 4, 49 },   { 5, 65 },    { 5, 97 },    { 6, 129 },   { 6, 193 },   { 7, 257 },   { 7, 385 },    { 8, 513 },    { 8, 769 },
-                                                                 { 9, 1025 }, { 9, 1537 }, { 10, 2049 }, { 10, 3073 }, { 11, 4097 }, { 11, 6145 }, { 12, 8193 }, { 12, 12289 }, { 13, 16385 }, { 13, 24577 } };
-
-static const FlateCode flateFixedLitCodeTabCodes[512] = {
-    { 7, 0x0100 }, { 8, 0x0050 }, { 8, 0x0010 }, { 8, 0x0118 }, { 7, 0x0110 }, { 8, 0x0070 }, { 8, 0x0030 }, { 9, 0x00c0 }, { 7, 0x0108 }, { 8, 0x0060 }, { 8, 0x0020 }, { 9, 0x00a0 }, { 8, 0x0000 }, { 8, 0x0080 }, { 8, 0x0040 },
-    { 9, 0x00e0 }, { 7, 0x0104 }, { 8, 0x0058 }, { 8, 0x0018 }, { 9, 0x0090 }, { 7, 0x0114 }, { 8, 0x0078 }, { 8, 0x0038 }, { 9, 0x00d0 }, { 7, 0x010c }, { 8, 0x0068 }, { 8, 0x0028 }, { 9, 0x00b0 }, { 8, 0x0008 }, { 8, 0x0088 },
-    { 8, 0x0048 }, { 9, 0x00f0 }, { 7, 0x0102 }, { 8, 0x0054 }, { 8, 0x0014 }, { 8, 0x011c }, { 7, 0x0112 }, { 8, 0x0074 }, { 8, 0x0034 }, { 9, 0x00c8 }, { 7, 0x010a }, { 8, 0x0064 }, { 8, 0x0024 }, { 9, 0x00a8 }, { 8, 0x0004 },
-    { 8, 0x0084 }, { 8, 0x0044 }, { 9, 0x00e8 }, { 7, 0x0106 }, { 8, 0x005c }, { 8, 0x001c }, { 9, 0x0098 }, { 7, 0x0116 }, { 8, 0x007c }, { 8, 0x003c }, { 9, 0x00d8 }, { 7, 0x010e }, { 8, 0x006c }, { 8, 0x002c }, { 9, 0x00b8 },
-    { 8, 0x000c }, { 8, 0x008c }, { 8, 0x004c }, { 9, 0x00f8 }, { 7, 0x0101 }, { 8, 0x0052 }, { 8, 0x0012 }, { 8, 0x011a }, { 7, 0x0111 }, { 8, 0x0072 }, { 8, 0x0032 }, { 9, 0x00c4 }, { 7, 0x0109 }, { 8, 0x0062 }, { 8, 0x0022 },
-    { 9, 0x00a4 }, { 8, 0x0002 }, { 8, 0x0082 }, { 8, 0x0042 }, { 9, 0x00e4 }, { 7, 0x0105 }, { 8, 0x005a }, { 8, 0x001a }, { 9, 0x0094 }, { 7, 0x0115 }, { 8, 0x007a }, { 8, 0x003a }, { 9, 0x00d4 }, { 7, 0x010d }, { 8, 0x006a },
-    { 8, 0x002a }, { 9, 0x00b4 }, { 8, 0x000a }, { 8, 0x008a }, { 8, 0x004a }, { 9, 0x00f4 }, { 7, 0x0103 }, { 8, 0x0056 }, { 8, 0x0016 }, { 8, 0x011e }, { 7, 0x0113 }, { 8, 0x0076 }, { 8, 0x0036 }, { 9, 0x00cc }, { 7, 0x010b },
-    { 8, 0x0066 }, { 8, 0x0026 }, { 9, 0x00ac }, { 8, 0x0006 }, { 8, 0x0086 }, { 8, 0x0046 }, { 9, 0x00ec }, { 7, 0x0107 }, { 8, 0x005e }, { 8, 0x001e }, { 9, 0x009c }, { 7, 0x0117 }, { 8, 0x007e }, { 8, 0x003e }, { 9, 0x00dc },
-    { 7, 0x010f }, { 8, 0x006e }, { 8, 0x002e }, { 9, 0x00bc }, { 8, 0x000e }, { 8, 0x008e }, { 8, 0x004e }, { 9, 0x00fc }, { 7, 0x0100 }, { 8, 0x0051 }, { 8, 0x0011 }, { 8, 0x0119 }, { 7, 0x0110 }, { 8, 0x0071 }, { 8, 0x0031 },
-    { 9, 0x00c2 }, { 7, 0x0108 }, { 8, 0x0061 }, { 8, 0x0021 }, { 9, 0x00a2 }, { 8, 0x0001 }, { 8, 0x0081 }, { 8, 0x0041 }, { 9, 0x00e2 }, { 7, 0x0104 }, { 8, 0x0059 }, { 8, 0x0019 }, { 9, 0x0092 }, { 7, 0x0114 }, { 8, 0x0079 },
-    { 8, 0x0039 }, { 9, 0x00d2 }, { 7, 0x010c }, { 8, 0x0069 }, { 8, 0x0029 }, { 9, 0x00b2 }, { 8, 0x0009 }, { 8, 0x0089 }, { 8, 0x0049 }, { 9, 0x00f2 }, { 7, 0x0102 }, { 8, 0x0055 }, { 8, 0x0015 }, { 8, 0x011d }, { 7, 0x0112 },
-    { 8, 0x0075 }, { 8, 0x0035 }, { 9, 0x00ca }, { 7, 0x010a }, { 8, 0x0065 }, { 8, 0x0025 }, { 9, 0x00aa }, { 8, 0x0005 }, { 8, 0x0085 }, { 8, 0x0045 }, { 9, 0x00ea }, { 7, 0x0106 }, { 8, 0x005d }, { 8, 0x001d }, { 9, 0x009a },
-    { 7, 0x0116 }, { 8, 0x007d }, { 8, 0x003d }, { 9, 0x00da }, { 7, 0x010e }, { 8, 0x006d }, { 8, 0x002d }, { 9, 0x00ba }, { 8, 0x000d }, { 8, 0x008d }, { 8, 0x004d }, { 9, 0x00fa }, { 7, 0x0101 }, { 8, 0x0053 }, { 8, 0x0013 },
-    { 8, 0x011b }, { 7, 0x0111 }, { 8, 0x0073 }, { 8, 0x0033 }, { 9, 0x00c6 }, { 7, 0x0109 }, { 8, 0x0063 }, { 8, 0x0023 }, { 9, 0x00a6 }, { 8, 0x0003 }, { 8, 0x0083 }, { 8, 0x0043 }, { 9, 0x00e6 }, { 7, 0x0105 }, { 8, 0x005b },
-    { 8, 0x001b }, { 9, 0x0096 }, { 7, 0x0115 }, { 8, 0x007b }, { 8, 0x003b }, { 9, 0x00d6 }, { 7, 0x010d }, { 8, 0x006b }, { 8, 0x002b }, { 9, 0x00b6 }, { 8, 0x000b }, { 8, 0x008b }, { 8, 0x004b }, { 9, 0x00f6 }, { 7, 0x0103 },
-    { 8, 0x0057 }, { 8, 0x0017 }, { 8, 0x011f }, { 7, 0x0113 }, { 8, 0x0077 }, { 8, 0x0037 }, { 9, 0x00ce }, { 7, 0x010b }, { 8, 0x0067 }, { 8, 0x0027 }, { 9, 0x00ae }, { 8, 0x0007 }, { 8, 0x0087 }, { 8, 0x0047 }, { 9, 0x00ee },
-    { 7, 0x0107 }, { 8, 0x005f }, { 8, 0x001f }, { 9, 0x009e }, { 7, 0x0117 }, { 8, 0x007f }, { 8, 0x003f }, { 9, 0x00de }, { 7, 0x010f }, { 8, 0x006f }, { 8, 0x002f }, { 9, 0x00be }, { 8, 0x000f }, { 8, 0x008f }, { 8, 0x004f },
-    { 9, 0x00fe }, { 7, 0x0100 }, { 8, 0x0050 }, { 8, 0x0010 }, { 8, 0x0118 }, { 7, 0x0110 }, { 8, 0x0070 }, { 8, 0x0030 }, { 9, 0x00c1 }, { 7, 0x0108 }, { 8, 0x0060 }, { 8, 0x0020 }, { 9, 0x00a1 }, { 8, 0x0000 }, { 8, 0x0080 },
-    { 8, 0x0040 }, { 9, 0x00e1 }, { 7, 0x0104 }, { 8, 0x0058 }, { 8, 0x0018 }, { 9, 0x0091 }, { 7, 0x0114 }, { 8, 0x0078 }, { 8, 0x0038 }, { 9, 0x00d1 }, { 7, 0x010c }, { 8, 0x0068 }, { 8, 0x0028 }, { 9, 0x00b1 }, { 8, 0x0008 },
-    { 8, 0x0088 }, { 8, 0x0048 }, { 9, 0x00f1 }, { 7, 0x0102 }, { 8, 0x0054 }, { 8, 0x0014 }, { 8, 0x011c }, { 7, 0x0112 }, { 8, 0x0074 }, { 8, 0x0034 }, { 9, 0x00c9 }, { 7, 0x010a }, { 8, 0x0064 }, { 8, 0x0024 }, { 9, 0x00a9 },
-    { 8, 0x0004 }, { 8, 0x0084 }, { 8, 0x0044 }, { 9, 0x00e9 }, { 7, 0x0106 }, { 8, 0x005c }, { 8, 0x001c }, { 9, 0x0099 }, { 7, 0x0116 }, { 8, 0x007c }, { 8, 0x003c }, { 9, 0x00d9 }, { 7, 0x010e }, { 8, 0x006c }, { 8, 0x002c },
-    { 9, 0x00b9 }, { 8, 0x000c }, { 8, 0x008c }, { 8, 0x004c }, { 9, 0x00f9 }, { 7, 0x0101 }, { 8, 0x0052 }, { 8, 0x0012 }, { 8, 0x011a }, { 7, 0x0111 }, { 8, 0x0072 }, { 8, 0x0032 }, { 9, 0x00c5 }, { 7, 0x0109 }, { 8, 0x0062 },
-    { 8, 0x0022 }, { 9, 0x00a5 }, { 8, 0x0002 }, { 8, 0x0082 }, { 8, 0x0042 }, { 9, 0x00e5 }, { 7, 0x0105 }, { 8, 0x005a }, { 8, 0x001a }, { 9, 0x0095 }, { 7, 0x0115 }, { 8, 0x007a }, { 8, 0x003a }, { 9, 0x00d5 }, { 7, 0x010d },
-    { 8, 0x006a }, { 8, 0x002a }, { 9, 0x00b5 }, { 8, 0x000a }, { 8, 0x008a }, { 8, 0x004a }, { 9, 0x00f5 }, { 7, 0x0103 }, { 8, 0x0056 }, { 8, 0x0016 }, { 8, 0x011e }, { 7, 0x0113 }, { 8, 0x0076 }, { 8, 0x0036 }, { 9, 0x00cd },
-    { 7, 0x010b }, { 8, 0x0066 }, { 8, 0x0026 }, { 9, 0x00ad }, { 8, 0x0006 }, { 8, 0x0086 }, { 8, 0x0046 }, { 9, 0x00ed }, { 7, 0x0107 }, { 8, 0x005e }, { 8, 0x001e }, { 9, 0x009d }, { 7, 0x0117 }, { 8, 0x007e }, { 8, 0x003e },
-    { 9, 0x00dd }, { 7, 0x010f }, { 8, 0x006e }, { 8, 0x002e }, { 9, 0x00bd }, { 8, 0x000e }, { 8, 0x008e }, { 8, 0x004e }, { 9, 0x00fd }, { 7, 0x0100 }, { 8, 0x0051 }, { 8, 0x0011 }, { 8, 0x0119 }, { 7, 0x0110 }, { 8, 0x0071 },
-    { 8, 0x0031 }, { 9, 0x00c3 }, { 7, 0x0108 }, { 8, 0x0061 }, { 8, 0x0021 }, { 9, 0x00a3 }, { 8, 0x0001 }, { 8, 0x0081 }, { 8, 0x0041 }, { 9, 0x00e3 }, { 7, 0x0104 }, { 8, 0x0059 }, { 8, 0x0019 }, { 9, 0x0093 }, { 7, 0x0114 },
-    { 8, 0x0079 }, { 8, 0x0039 }, { 9, 0x00d3 }, { 7, 0x010c }, { 8, 0x0069 }, { 8, 0x0029 }, { 9, 0x00b3 }, { 8, 0x0009 }, { 8, 0x0089 }, { 8, 0x0049 }, { 9, 0x00f3 }, { 7, 0x0102 }, { 8, 0x0055 }, { 8, 0x0015 }, { 8, 0x011d },
-    { 7, 0x0112 }, { 8, 0x0075 }, { 8, 0x0035 }, { 9, 0x00cb }, { 7, 0x010a }, { 8, 0x0065 }, { 8, 0x0025 }, { 9, 0x00ab }, { 8, 0x0005 }, { 8, 0x0085 }, { 8, 0x0045 }, { 9, 0x00eb }, { 7, 0x0106 }, { 8, 0x005d }, { 8, 0x001d },
-    { 9, 0x009b }, { 7, 0x0116 }, { 8, 0x007d }, { 8, 0x003d }, { 9, 0x00db }, { 7, 0x010e }, { 8, 0x006d }, { 8, 0x002d }, { 9, 0x00bb }, { 8, 0x000d }, { 8, 0x008d }, { 8, 0x004d }, { 9, 0x00fb }, { 7, 0x0101 }, { 8, 0x0053 },
-    { 8, 0x0013 }, { 8, 0x011b }, { 7, 0x0111 }, { 8, 0x0073 }, { 8, 0x0033 }, { 9, 0x00c7 }, { 7, 0x0109 }, { 8, 0x0063 }, { 8, 0x0023 }, { 9, 0x00a7 }, { 8, 0x0003 }, { 8, 0x0083 }, { 8, 0x0043 }, { 9, 0x00e7 }, { 7, 0x0105 },
-    { 8, 0x005b }, { 8, 0x001b }, { 9, 0x0097 }, { 7, 0x0115 }, { 8, 0x007b }, { 8, 0x003b }, { 9, 0x00d7 }, { 7, 0x010d }, { 8, 0x006b }, { 8, 0x002b }, { 9, 0x00b7 }, { 8, 0x000b }, { 8, 0x008b }, { 8, 0x004b }, { 9, 0x00f7 },
-    { 7, 0x0103 }, { 8, 0x0057 }, { 8, 0x0017 }, { 8, 0x011f }, { 7, 0x0113 }, { 8, 0x0077 }, { 8, 0x0037 }, { 9, 0x00cf }, { 7, 0x010b }, { 8, 0x0067 }, { 8, 0x0027 }, { 9, 0x00af }, { 8, 0x0007 }, { 8, 0x0087 }, { 8, 0x0047 },
-    { 9, 0x00ef }, { 7, 0x0107 }, { 8, 0x005f }, { 8, 0x001f }, { 9, 0x009f }, { 7, 0x0117 }, { 8, 0x007f }, { 8, 0x003f }, { 9, 0x00df }, { 7, 0x010f }, { 8, 0x006f }, { 8, 0x002f }, { 9, 0x00bf }, { 8, 0x000f }, { 8, 0x008f },
-    { 8, 0x004f }, { 9, 0x00ff }
+const FlateDecode FlateStream::lengthDecode[flateMaxLitCodes - 257] = {
+    { .bits = 0, .first = 3 },   { .bits = 0, .first = 4 },   { .bits = 0, .first = 5 },   { .bits = 0, .first = 6 },   { .bits = 0, .first = 7 },   { .bits = 0, .first = 8 },   { .bits = 0, .first = 9 },  { .bits = 0, .first = 10 },
+    { .bits = 1, .first = 11 },  { .bits = 1, .first = 13 },  { .bits = 1, .first = 15 },  { .bits = 1, .first = 17 },  { .bits = 2, .first = 19 },  { .bits = 2, .first = 23 },  { .bits = 2, .first = 27 }, { .bits = 2, .first = 31 },
+    { .bits = 3, .first = 35 },  { .bits = 3, .first = 43 },  { .bits = 3, .first = 51 },  { .bits = 3, .first = 59 },  { .bits = 4, .first = 67 },  { .bits = 4, .first = 83 },  { .bits = 4, .first = 99 }, { .bits = 4, .first = 115 },
+    { .bits = 5, .first = 131 }, { .bits = 5, .first = 163 }, { .bits = 5, .first = 195 }, { .bits = 5, .first = 227 }, { .bits = 0, .first = 258 }, { .bits = 0, .first = 258 }, { .bits = 0, .first = 258 }
 };
 
-FlateHuffmanTab FlateStream::fixedLitCodeTab = { flateFixedLitCodeTabCodes, 9 };
+const FlateDecode FlateStream::distDecode[flateMaxDistCodes] = { { .bits = 0, .first = 1 },     { .bits = 0, .first = 2 },     { .bits = 0, .first = 3 },      { .bits = 0, .first = 4 },      { .bits = 1, .first = 5 },
+                                                                 { .bits = 1, .first = 7 },     { .bits = 2, .first = 9 },     { .bits = 2, .first = 13 },     { .bits = 3, .first = 17 },     { .bits = 3, .first = 25 },
+                                                                 { .bits = 4, .first = 33 },    { .bits = 4, .first = 49 },    { .bits = 5, .first = 65 },     { .bits = 5, .first = 97 },     { .bits = 6, .first = 129 },
+                                                                 { .bits = 6, .first = 193 },   { .bits = 7, .first = 257 },   { .bits = 7, .first = 385 },    { .bits = 8, .first = 513 },    { .bits = 8, .first = 769 },
+                                                                 { .bits = 9, .first = 1025 },  { .bits = 9, .first = 1537 },  { .bits = 10, .first = 2049 },  { .bits = 10, .first = 3073 },  { .bits = 11, .first = 4097 },
+                                                                 { .bits = 11, .first = 6145 }, { .bits = 12, .first = 8193 }, { .bits = 12, .first = 12289 }, { .bits = 13, .first = 16385 }, { .bits = 13, .first = 24577 } };
 
-static const FlateCode flateFixedDistCodeTabCodes[32] = { { 5, 0x0000 }, { 5, 0x0010 }, { 5, 0x0008 }, { 5, 0x0018 }, { 5, 0x0004 }, { 5, 0x0014 }, { 5, 0x000c }, { 5, 0x001c }, { 5, 0x0002 }, { 5, 0x0012 }, { 5, 0x000a },
-                                                          { 5, 0x001a }, { 5, 0x0006 }, { 5, 0x0016 }, { 5, 0x000e }, { 0, 0x0000 }, { 5, 0x0001 }, { 5, 0x0011 }, { 5, 0x0009 }, { 5, 0x0019 }, { 5, 0x0005 }, { 5, 0x0015 },
-                                                          { 5, 0x000d }, { 5, 0x001d }, { 5, 0x0003 }, { 5, 0x0013 }, { 5, 0x000b }, { 5, 0x001b }, { 5, 0x0007 }, { 5, 0x0017 }, { 5, 0x000f }, { 0, 0x0000 } };
+static const FlateCode flateFixedLitCodeTabCodes[512] = {
+    { .len = 7, .val = 0x0100 }, { .len = 8, .val = 0x0050 }, { .len = 8, .val = 0x0010 }, { .len = 8, .val = 0x0118 }, { .len = 7, .val = 0x0110 }, { .len = 8, .val = 0x0070 }, { .len = 8, .val = 0x0030 }, { .len = 9, .val = 0x00c0 },
+    { .len = 7, .val = 0x0108 }, { .len = 8, .val = 0x0060 }, { .len = 8, .val = 0x0020 }, { .len = 9, .val = 0x00a0 }, { .len = 8, .val = 0x0000 }, { .len = 8, .val = 0x0080 }, { .len = 8, .val = 0x0040 }, { .len = 9, .val = 0x00e0 },
+    { .len = 7, .val = 0x0104 }, { .len = 8, .val = 0x0058 }, { .len = 8, .val = 0x0018 }, { .len = 9, .val = 0x0090 }, { .len = 7, .val = 0x0114 }, { .len = 8, .val = 0x0078 }, { .len = 8, .val = 0x0038 }, { .len = 9, .val = 0x00d0 },
+    { .len = 7, .val = 0x010c }, { .len = 8, .val = 0x0068 }, { .len = 8, .val = 0x0028 }, { .len = 9, .val = 0x00b0 }, { .len = 8, .val = 0x0008 }, { .len = 8, .val = 0x0088 }, { .len = 8, .val = 0x0048 }, { .len = 9, .val = 0x00f0 },
+    { .len = 7, .val = 0x0102 }, { .len = 8, .val = 0x0054 }, { .len = 8, .val = 0x0014 }, { .len = 8, .val = 0x011c }, { .len = 7, .val = 0x0112 }, { .len = 8, .val = 0x0074 }, { .len = 8, .val = 0x0034 }, { .len = 9, .val = 0x00c8 },
+    { .len = 7, .val = 0x010a }, { .len = 8, .val = 0x0064 }, { .len = 8, .val = 0x0024 }, { .len = 9, .val = 0x00a8 }, { .len = 8, .val = 0x0004 }, { .len = 8, .val = 0x0084 }, { .len = 8, .val = 0x0044 }, { .len = 9, .val = 0x00e8 },
+    { .len = 7, .val = 0x0106 }, { .len = 8, .val = 0x005c }, { .len = 8, .val = 0x001c }, { .len = 9, .val = 0x0098 }, { .len = 7, .val = 0x0116 }, { .len = 8, .val = 0x007c }, { .len = 8, .val = 0x003c }, { .len = 9, .val = 0x00d8 },
+    { .len = 7, .val = 0x010e }, { .len = 8, .val = 0x006c }, { .len = 8, .val = 0x002c }, { .len = 9, .val = 0x00b8 }, { .len = 8, .val = 0x000c }, { .len = 8, .val = 0x008c }, { .len = 8, .val = 0x004c }, { .len = 9, .val = 0x00f8 },
+    { .len = 7, .val = 0x0101 }, { .len = 8, .val = 0x0052 }, { .len = 8, .val = 0x0012 }, { .len = 8, .val = 0x011a }, { .len = 7, .val = 0x0111 }, { .len = 8, .val = 0x0072 }, { .len = 8, .val = 0x0032 }, { .len = 9, .val = 0x00c4 },
+    { .len = 7, .val = 0x0109 }, { .len = 8, .val = 0x0062 }, { .len = 8, .val = 0x0022 }, { .len = 9, .val = 0x00a4 }, { .len = 8, .val = 0x0002 }, { .len = 8, .val = 0x0082 }, { .len = 8, .val = 0x0042 }, { .len = 9, .val = 0x00e4 },
+    { .len = 7, .val = 0x0105 }, { .len = 8, .val = 0x005a }, { .len = 8, .val = 0x001a }, { .len = 9, .val = 0x0094 }, { .len = 7, .val = 0x0115 }, { .len = 8, .val = 0x007a }, { .len = 8, .val = 0x003a }, { .len = 9, .val = 0x00d4 },
+    { .len = 7, .val = 0x010d }, { .len = 8, .val = 0x006a }, { .len = 8, .val = 0x002a }, { .len = 9, .val = 0x00b4 }, { .len = 8, .val = 0x000a }, { .len = 8, .val = 0x008a }, { .len = 8, .val = 0x004a }, { .len = 9, .val = 0x00f4 },
+    { .len = 7, .val = 0x0103 }, { .len = 8, .val = 0x0056 }, { .len = 8, .val = 0x0016 }, { .len = 8, .val = 0x011e }, { .len = 7, .val = 0x0113 }, { .len = 8, .val = 0x0076 }, { .len = 8, .val = 0x0036 }, { .len = 9, .val = 0x00cc },
+    { .len = 7, .val = 0x010b }, { .len = 8, .val = 0x0066 }, { .len = 8, .val = 0x0026 }, { .len = 9, .val = 0x00ac }, { .len = 8, .val = 0x0006 }, { .len = 8, .val = 0x0086 }, { .len = 8, .val = 0x0046 }, { .len = 9, .val = 0x00ec },
+    { .len = 7, .val = 0x0107 }, { .len = 8, .val = 0x005e }, { .len = 8, .val = 0x001e }, { .len = 9, .val = 0x009c }, { .len = 7, .val = 0x0117 }, { .len = 8, .val = 0x007e }, { .len = 8, .val = 0x003e }, { .len = 9, .val = 0x00dc },
+    { .len = 7, .val = 0x010f }, { .len = 8, .val = 0x006e }, { .len = 8, .val = 0x002e }, { .len = 9, .val = 0x00bc }, { .len = 8, .val = 0x000e }, { .len = 8, .val = 0x008e }, { .len = 8, .val = 0x004e }, { .len = 9, .val = 0x00fc },
+    { .len = 7, .val = 0x0100 }, { .len = 8, .val = 0x0051 }, { .len = 8, .val = 0x0011 }, { .len = 8, .val = 0x0119 }, { .len = 7, .val = 0x0110 }, { .len = 8, .val = 0x0071 }, { .len = 8, .val = 0x0031 }, { .len = 9, .val = 0x00c2 },
+    { .len = 7, .val = 0x0108 }, { .len = 8, .val = 0x0061 }, { .len = 8, .val = 0x0021 }, { .len = 9, .val = 0x00a2 }, { .len = 8, .val = 0x0001 }, { .len = 8, .val = 0x0081 }, { .len = 8, .val = 0x0041 }, { .len = 9, .val = 0x00e2 },
+    { .len = 7, .val = 0x0104 }, { .len = 8, .val = 0x0059 }, { .len = 8, .val = 0x0019 }, { .len = 9, .val = 0x0092 }, { .len = 7, .val = 0x0114 }, { .len = 8, .val = 0x0079 }, { .len = 8, .val = 0x0039 }, { .len = 9, .val = 0x00d2 },
+    { .len = 7, .val = 0x010c }, { .len = 8, .val = 0x0069 }, { .len = 8, .val = 0x0029 }, { .len = 9, .val = 0x00b2 }, { .len = 8, .val = 0x0009 }, { .len = 8, .val = 0x0089 }, { .len = 8, .val = 0x0049 }, { .len = 9, .val = 0x00f2 },
+    { .len = 7, .val = 0x0102 }, { .len = 8, .val = 0x0055 }, { .len = 8, .val = 0x0015 }, { .len = 8, .val = 0x011d }, { .len = 7, .val = 0x0112 }, { .len = 8, .val = 0x0075 }, { .len = 8, .val = 0x0035 }, { .len = 9, .val = 0x00ca },
+    { .len = 7, .val = 0x010a }, { .len = 8, .val = 0x0065 }, { .len = 8, .val = 0x0025 }, { .len = 9, .val = 0x00aa }, { .len = 8, .val = 0x0005 }, { .len = 8, .val = 0x0085 }, { .len = 8, .val = 0x0045 }, { .len = 9, .val = 0x00ea },
+    { .len = 7, .val = 0x0106 }, { .len = 8, .val = 0x005d }, { .len = 8, .val = 0x001d }, { .len = 9, .val = 0x009a }, { .len = 7, .val = 0x0116 }, { .len = 8, .val = 0x007d }, { .len = 8, .val = 0x003d }, { .len = 9, .val = 0x00da },
+    { .len = 7, .val = 0x010e }, { .len = 8, .val = 0x006d }, { .len = 8, .val = 0x002d }, { .len = 9, .val = 0x00ba }, { .len = 8, .val = 0x000d }, { .len = 8, .val = 0x008d }, { .len = 8, .val = 0x004d }, { .len = 9, .val = 0x00fa },
+    { .len = 7, .val = 0x0101 }, { .len = 8, .val = 0x0053 }, { .len = 8, .val = 0x0013 }, { .len = 8, .val = 0x011b }, { .len = 7, .val = 0x0111 }, { .len = 8, .val = 0x0073 }, { .len = 8, .val = 0x0033 }, { .len = 9, .val = 0x00c6 },
+    { .len = 7, .val = 0x0109 }, { .len = 8, .val = 0x0063 }, { .len = 8, .val = 0x0023 }, { .len = 9, .val = 0x00a6 }, { .len = 8, .val = 0x0003 }, { .len = 8, .val = 0x0083 }, { .len = 8, .val = 0x0043 }, { .len = 9, .val = 0x00e6 },
+    { .len = 7, .val = 0x0105 }, { .len = 8, .val = 0x005b }, { .len = 8, .val = 0x001b }, { .len = 9, .val = 0x0096 }, { .len = 7, .val = 0x0115 }, { .len = 8, .val = 0x007b }, { .len = 8, .val = 0x003b }, { .len = 9, .val = 0x00d6 },
+    { .len = 7, .val = 0x010d }, { .len = 8, .val = 0x006b }, { .len = 8, .val = 0x002b }, { .len = 9, .val = 0x00b6 }, { .len = 8, .val = 0x000b }, { .len = 8, .val = 0x008b }, { .len = 8, .val = 0x004b }, { .len = 9, .val = 0x00f6 },
+    { .len = 7, .val = 0x0103 }, { .len = 8, .val = 0x0057 }, { .len = 8, .val = 0x0017 }, { .len = 8, .val = 0x011f }, { .len = 7, .val = 0x0113 }, { .len = 8, .val = 0x0077 }, { .len = 8, .val = 0x0037 }, { .len = 9, .val = 0x00ce },
+    { .len = 7, .val = 0x010b }, { .len = 8, .val = 0x0067 }, { .len = 8, .val = 0x0027 }, { .len = 9, .val = 0x00ae }, { .len = 8, .val = 0x0007 }, { .len = 8, .val = 0x0087 }, { .len = 8, .val = 0x0047 }, { .len = 9, .val = 0x00ee },
+    { .len = 7, .val = 0x0107 }, { .len = 8, .val = 0x005f }, { .len = 8, .val = 0x001f }, { .len = 9, .val = 0x009e }, { .len = 7, .val = 0x0117 }, { .len = 8, .val = 0x007f }, { .len = 8, .val = 0x003f }, { .len = 9, .val = 0x00de },
+    { .len = 7, .val = 0x010f }, { .len = 8, .val = 0x006f }, { .len = 8, .val = 0x002f }, { .len = 9, .val = 0x00be }, { .len = 8, .val = 0x000f }, { .len = 8, .val = 0x008f }, { .len = 8, .val = 0x004f }, { .len = 9, .val = 0x00fe },
+    { .len = 7, .val = 0x0100 }, { .len = 8, .val = 0x0050 }, { .len = 8, .val = 0x0010 }, { .len = 8, .val = 0x0118 }, { .len = 7, .val = 0x0110 }, { .len = 8, .val = 0x0070 }, { .len = 8, .val = 0x0030 }, { .len = 9, .val = 0x00c1 },
+    { .len = 7, .val = 0x0108 }, { .len = 8, .val = 0x0060 }, { .len = 8, .val = 0x0020 }, { .len = 9, .val = 0x00a1 }, { .len = 8, .val = 0x0000 }, { .len = 8, .val = 0x0080 }, { .len = 8, .val = 0x0040 }, { .len = 9, .val = 0x00e1 },
+    { .len = 7, .val = 0x0104 }, { .len = 8, .val = 0x0058 }, { .len = 8, .val = 0x0018 }, { .len = 9, .val = 0x0091 }, { .len = 7, .val = 0x0114 }, { .len = 8, .val = 0x0078 }, { .len = 8, .val = 0x0038 }, { .len = 9, .val = 0x00d1 },
+    { .len = 7, .val = 0x010c }, { .len = 8, .val = 0x0068 }, { .len = 8, .val = 0x0028 }, { .len = 9, .val = 0x00b1 }, { .len = 8, .val = 0x0008 }, { .len = 8, .val = 0x0088 }, { .len = 8, .val = 0x0048 }, { .len = 9, .val = 0x00f1 },
+    { .len = 7, .val = 0x0102 }, { .len = 8, .val = 0x0054 }, { .len = 8, .val = 0x0014 }, { .len = 8, .val = 0x011c }, { .len = 7, .val = 0x0112 }, { .len = 8, .val = 0x0074 }, { .len = 8, .val = 0x0034 }, { .len = 9, .val = 0x00c9 },
+    { .len = 7, .val = 0x010a }, { .len = 8, .val = 0x0064 }, { .len = 8, .val = 0x0024 }, { .len = 9, .val = 0x00a9 }, { .len = 8, .val = 0x0004 }, { .len = 8, .val = 0x0084 }, { .len = 8, .val = 0x0044 }, { .len = 9, .val = 0x00e9 },
+    { .len = 7, .val = 0x0106 }, { .len = 8, .val = 0x005c }, { .len = 8, .val = 0x001c }, { .len = 9, .val = 0x0099 }, { .len = 7, .val = 0x0116 }, { .len = 8, .val = 0x007c }, { .len = 8, .val = 0x003c }, { .len = 9, .val = 0x00d9 },
+    { .len = 7, .val = 0x010e }, { .len = 8, .val = 0x006c }, { .len = 8, .val = 0x002c }, { .len = 9, .val = 0x00b9 }, { .len = 8, .val = 0x000c }, { .len = 8, .val = 0x008c }, { .len = 8, .val = 0x004c }, { .len = 9, .val = 0x00f9 },
+    { .len = 7, .val = 0x0101 }, { .len = 8, .val = 0x0052 }, { .len = 8, .val = 0x0012 }, { .len = 8, .val = 0x011a }, { .len = 7, .val = 0x0111 }, { .len = 8, .val = 0x0072 }, { .len = 8, .val = 0x0032 }, { .len = 9, .val = 0x00c5 },
+    { .len = 7, .val = 0x0109 }, { .len = 8, .val = 0x0062 }, { .len = 8, .val = 0x0022 }, { .len = 9, .val = 0x00a5 }, { .len = 8, .val = 0x0002 }, { .len = 8, .val = 0x0082 }, { .len = 8, .val = 0x0042 }, { .len = 9, .val = 0x00e5 },
+    { .len = 7, .val = 0x0105 }, { .len = 8, .val = 0x005a }, { .len = 8, .val = 0x001a }, { .len = 9, .val = 0x0095 }, { .len = 7, .val = 0x0115 }, { .len = 8, .val = 0x007a }, { .len = 8, .val = 0x003a }, { .len = 9, .val = 0x00d5 },
+    { .len = 7, .val = 0x010d }, { .len = 8, .val = 0x006a }, { .len = 8, .val = 0x002a }, { .len = 9, .val = 0x00b5 }, { .len = 8, .val = 0x000a }, { .len = 8, .val = 0x008a }, { .len = 8, .val = 0x004a }, { .len = 9, .val = 0x00f5 },
+    { .len = 7, .val = 0x0103 }, { .len = 8, .val = 0x0056 }, { .len = 8, .val = 0x0016 }, { .len = 8, .val = 0x011e }, { .len = 7, .val = 0x0113 }, { .len = 8, .val = 0x0076 }, { .len = 8, .val = 0x0036 }, { .len = 9, .val = 0x00cd },
+    { .len = 7, .val = 0x010b }, { .len = 8, .val = 0x0066 }, { .len = 8, .val = 0x0026 }, { .len = 9, .val = 0x00ad }, { .len = 8, .val = 0x0006 }, { .len = 8, .val = 0x0086 }, { .len = 8, .val = 0x0046 }, { .len = 9, .val = 0x00ed },
+    { .len = 7, .val = 0x0107 }, { .len = 8, .val = 0x005e }, { .len = 8, .val = 0x001e }, { .len = 9, .val = 0x009d }, { .len = 7, .val = 0x0117 }, { .len = 8, .val = 0x007e }, { .len = 8, .val = 0x003e }, { .len = 9, .val = 0x00dd },
+    { .len = 7, .val = 0x010f }, { .len = 8, .val = 0x006e }, { .len = 8, .val = 0x002e }, { .len = 9, .val = 0x00bd }, { .len = 8, .val = 0x000e }, { .len = 8, .val = 0x008e }, { .len = 8, .val = 0x004e }, { .len = 9, .val = 0x00fd },
+    { .len = 7, .val = 0x0100 }, { .len = 8, .val = 0x0051 }, { .len = 8, .val = 0x0011 }, { .len = 8, .val = 0x0119 }, { .len = 7, .val = 0x0110 }, { .len = 8, .val = 0x0071 }, { .len = 8, .val = 0x0031 }, { .len = 9, .val = 0x00c3 },
+    { .len = 7, .val = 0x0108 }, { .len = 8, .val = 0x0061 }, { .len = 8, .val = 0x0021 }, { .len = 9, .val = 0x00a3 }, { .len = 8, .val = 0x0001 }, { .len = 8, .val = 0x0081 }, { .len = 8, .val = 0x0041 }, { .len = 9, .val = 0x00e3 },
+    { .len = 7, .val = 0x0104 }, { .len = 8, .val = 0x0059 }, { .len = 8, .val = 0x0019 }, { .len = 9, .val = 0x0093 }, { .len = 7, .val = 0x0114 }, { .len = 8, .val = 0x0079 }, { .len = 8, .val = 0x0039 }, { .len = 9, .val = 0x00d3 },
+    { .len = 7, .val = 0x010c }, { .len = 8, .val = 0x0069 }, { .len = 8, .val = 0x0029 }, { .len = 9, .val = 0x00b3 }, { .len = 8, .val = 0x0009 }, { .len = 8, .val = 0x0089 }, { .len = 8, .val = 0x0049 }, { .len = 9, .val = 0x00f3 },
+    { .len = 7, .val = 0x0102 }, { .len = 8, .val = 0x0055 }, { .len = 8, .val = 0x0015 }, { .len = 8, .val = 0x011d }, { .len = 7, .val = 0x0112 }, { .len = 8, .val = 0x0075 }, { .len = 8, .val = 0x0035 }, { .len = 9, .val = 0x00cb },
+    { .len = 7, .val = 0x010a }, { .len = 8, .val = 0x0065 }, { .len = 8, .val = 0x0025 }, { .len = 9, .val = 0x00ab }, { .len = 8, .val = 0x0005 }, { .len = 8, .val = 0x0085 }, { .len = 8, .val = 0x0045 }, { .len = 9, .val = 0x00eb },
+    { .len = 7, .val = 0x0106 }, { .len = 8, .val = 0x005d }, { .len = 8, .val = 0x001d }, { .len = 9, .val = 0x009b }, { .len = 7, .val = 0x0116 }, { .len = 8, .val = 0x007d }, { .len = 8, .val = 0x003d }, { .len = 9, .val = 0x00db },
+    { .len = 7, .val = 0x010e }, { .len = 8, .val = 0x006d }, { .len = 8, .val = 0x002d }, { .len = 9, .val = 0x00bb }, { .len = 8, .val = 0x000d }, { .len = 8, .val = 0x008d }, { .len = 8, .val = 0x004d }, { .len = 9, .val = 0x00fb },
+    { .len = 7, .val = 0x0101 }, { .len = 8, .val = 0x0053 }, { .len = 8, .val = 0x0013 }, { .len = 8, .val = 0x011b }, { .len = 7, .val = 0x0111 }, { .len = 8, .val = 0x0073 }, { .len = 8, .val = 0x0033 }, { .len = 9, .val = 0x00c7 },
+    { .len = 7, .val = 0x0109 }, { .len = 8, .val = 0x0063 }, { .len = 8, .val = 0x0023 }, { .len = 9, .val = 0x00a7 }, { .len = 8, .val = 0x0003 }, { .len = 8, .val = 0x0083 }, { .len = 8, .val = 0x0043 }, { .len = 9, .val = 0x00e7 },
+    { .len = 7, .val = 0x0105 }, { .len = 8, .val = 0x005b }, { .len = 8, .val = 0x001b }, { .len = 9, .val = 0x0097 }, { .len = 7, .val = 0x0115 }, { .len = 8, .val = 0x007b }, { .len = 8, .val = 0x003b }, { .len = 9, .val = 0x00d7 },
+    { .len = 7, .val = 0x010d }, { .len = 8, .val = 0x006b }, { .len = 8, .val = 0x002b }, { .len = 9, .val = 0x00b7 }, { .len = 8, .val = 0x000b }, { .len = 8, .val = 0x008b }, { .len = 8, .val = 0x004b }, { .len = 9, .val = 0x00f7 },
+    { .len = 7, .val = 0x0103 }, { .len = 8, .val = 0x0057 }, { .len = 8, .val = 0x0017 }, { .len = 8, .val = 0x011f }, { .len = 7, .val = 0x0113 }, { .len = 8, .val = 0x0077 }, { .len = 8, .val = 0x0037 }, { .len = 9, .val = 0x00cf },
+    { .len = 7, .val = 0x010b }, { .len = 8, .val = 0x0067 }, { .len = 8, .val = 0x0027 }, { .len = 9, .val = 0x00af }, { .len = 8, .val = 0x0007 }, { .len = 8, .val = 0x0087 }, { .len = 8, .val = 0x0047 }, { .len = 9, .val = 0x00ef },
+    { .len = 7, .val = 0x0107 }, { .len = 8, .val = 0x005f }, { .len = 8, .val = 0x001f }, { .len = 9, .val = 0x009f }, { .len = 7, .val = 0x0117 }, { .len = 8, .val = 0x007f }, { .len = 8, .val = 0x003f }, { .len = 9, .val = 0x00df },
+    { .len = 7, .val = 0x010f }, { .len = 8, .val = 0x006f }, { .len = 8, .val = 0x002f }, { .len = 9, .val = 0x00bf }, { .len = 8, .val = 0x000f }, { .len = 8, .val = 0x008f }, { .len = 8, .val = 0x004f }, { .len = 9, .val = 0x00ff }
+};
 
-FlateHuffmanTab FlateStream::fixedDistCodeTab = { flateFixedDistCodeTabCodes, 5 };
+FlateHuffmanTab FlateStream::fixedLitCodeTab = { .codes = flateFixedLitCodeTabCodes, .maxLen = 9 };
 
-FlateStream::FlateStream(Stream *strA, int predictor, int columns, int colors, int bits) : FilterStream(strA)
+static const FlateCode flateFixedDistCodeTabCodes[32] = { { .len = 5, .val = 0x0000 }, { .len = 5, .val = 0x0010 }, { .len = 5, .val = 0x0008 }, { .len = 5, .val = 0x0018 }, { .len = 5, .val = 0x0004 }, { .len = 5, .val = 0x0014 },
+                                                          { .len = 5, .val = 0x000c }, { .len = 5, .val = 0x001c }, { .len = 5, .val = 0x0002 }, { .len = 5, .val = 0x0012 }, { .len = 5, .val = 0x000a }, { .len = 5, .val = 0x001a },
+                                                          { .len = 5, .val = 0x0006 }, { .len = 5, .val = 0x0016 }, { .len = 5, .val = 0x000e }, { .len = 0, .val = 0x0000 }, { .len = 5, .val = 0x0001 }, { .len = 5, .val = 0x0011 },
+                                                          { .len = 5, .val = 0x0009 }, { .len = 5, .val = 0x0019 }, { .len = 5, .val = 0x0005 }, { .len = 5, .val = 0x0015 }, { .len = 5, .val = 0x000d }, { .len = 5, .val = 0x001d },
+                                                          { .len = 5, .val = 0x0003 }, { .len = 5, .val = 0x0013 }, { .len = 5, .val = 0x000b }, { .len = 5, .val = 0x001b }, { .len = 5, .val = 0x0007 }, { .len = 5, .val = 0x0017 },
+                                                          { .len = 5, .val = 0x000f }, { .len = 0, .val = 0x0000 } };
+
+FlateHuffmanTab FlateStream::fixedDistCodeTab = { .codes = flateFixedDistCodeTabCodes, .maxLen = 5 };
+
+FlateStream::FlateStream(std::unique_ptr<Stream> strA, int predictor, int columns, int colors, int bits) : OwnedFilterStream(std::move(strA))
 {
     if (predictor != 1) {
         pred = new StreamPredictor(this, predictor, columns, colors, bits);
@@ -4118,19 +2715,11 @@ FlateStream::~FlateStream()
     if (distCodeTab.codes != fixedDistCodeTab.codes) {
         gfree(const_cast<FlateCode *>(distCodeTab.codes));
     }
-    if (pred) {
-        delete pred;
-    }
-    delete str;
+    delete pred;
 }
 
-void FlateStream::flateReset(bool unfiltered)
+bool FlateStream::flateRewind(bool unfiltered)
 {
-    if (unfiltered)
-        str->unfilteredReset();
-    else
-        str->reset();
-
     index = 0;
     remain = 0;
     codeBuf = 0;
@@ -4138,40 +2727,47 @@ void FlateStream::flateReset(bool unfiltered)
     compressedBlock = false;
     endOfBlock = true;
     eof = true;
+    if (unfiltered) {
+        return str->unfilteredRewind();
+    }
+    return str->rewind();
 }
 
-void FlateStream::unfilteredReset()
+bool FlateStream::unfilteredRewind()
 {
-    flateReset(true);
+    return flateRewind(true);
 }
 
-void FlateStream::reset()
+bool FlateStream::rewind()
 {
     int cmf, flg;
 
-    flateReset(false);
+    const bool internalResetResult = flateRewind(false);
 
     // read header
     //~ need to look at window size?
     endOfBlock = eof = true;
     cmf = str->getChar();
     flg = str->getChar();
-    if (cmf == EOF || flg == EOF)
-        return;
+    if (cmf == EOF || flg == EOF) {
+        return internalResetResult;
+    }
     if ((cmf & 0x0f) != 0x08) {
         error(errSyntaxError, getPos(), "Unknown compression method in flate stream");
-        return;
+        return false;
     }
     if ((((cmf << 8) + flg) % 31) != 0) {
         error(errSyntaxError, getPos(), "Bad FCHECK in flate stream");
-        return;
+        return false;
     }
     if (flg & 0x20) {
         error(errSyntaxError, getPos(), "FDICT bit set in flate stream");
-        return;
+        return false;
     }
 
     eof = false;
+
+    return internalResetResult;
 }
 
 int FlateStream::getChar()
@@ -4186,16 +2782,16 @@ int FlateStream::getChars(int nChars, unsigned char *buffer)
 {
     if (pred) {
         return pred->getChars(nChars, buffer);
-    } else {
-        for (int i = 0; i < nChars; ++i) {
-            const int c = doGetRawChar();
-            if (likely(c != EOF))
-                buffer[i] = c;
-            else
-                return i;
-        }
-        return nChars;
     }
+    for (int i = 0; i < nChars; ++i) {
+        const int c = doGetRawChar();
+        if (likely(c != EOF)) {
+            buffer[i] = c;
+        } else {
+            return i;
+        }
+    }
+    return nChars;
 }
 
 int FlateStream::lookChar()
@@ -4206,8 +2802,9 @@ int FlateStream::lookChar()
         return pred->lookChar();
     }
     while (remain == 0) {
-        if (endOfBlock && eof)
+        if (endOfBlock && eof) {
             return EOF;
+        }
         readSome();
     }
     c = buf[index];
@@ -4216,8 +2813,9 @@ int FlateStream::lookChar()
 
 void FlateStream::getRawChars(int nChars, int *buffer)
 {
-    for (int i = 0; i < nChars; ++i)
+    for (int i = 0; i < nChars; ++i) {
         buffer[i] = doGetRawChar();
+    }
 }
 
 int FlateStream::getRawChar()
@@ -4225,21 +2823,21 @@ int FlateStream::getRawChar()
     return doGetRawChar();
 }
 
-GooString *FlateStream::getPSFilter(int psLevel, const char *indent)
+std::optional<std::string> FlateStream::getPSFilter(int psLevel, const char *indent)
 {
-    GooString *s;
+    std::optional<std::string> s;
 
     if (psLevel < 3 || pred) {
-        return nullptr;
+        return {};
     }
     if (!(s = str->getPSFilter(psLevel, indent))) {
-        return nullptr;
+        return {};
     }
-    s->append(indent)->append("<< >> /FlateDecode filter\n");
+    s->append(indent).append("<< >> /FlateDecode filter\n");
     return s;
 }
 
-bool FlateStream::isBinary(bool last)
+bool FlateStream::isBinary(bool /*last*/) const
 {
     return str->isBinary(true);
 }
@@ -4252,13 +2850,15 @@ void FlateStream::readSome()
     int c;
 
     if (endOfBlock) {
-        if (!startBlock())
+        if (!startBlock()) {
             return;
+        }
     }
 
     if (compressedBlock) {
-        if ((code1 = getHuffmanCodeWord(&litCodeTab)) == EOF)
+        if ((code1 = getHuffmanCodeWord(&litCodeTab)) == EOF) {
             goto err;
+        }
         if (code1 < 256) {
             buf[index] = code1;
             remain = 1;
@@ -4268,14 +2868,17 @@ void FlateStream::readSome()
         } else {
             code1 -= 257;
             code2 = lengthDecode[code1].bits;
-            if (code2 > 0 && (code2 = getCodeWord(code2)) == EOF)
+            if (code2 > 0 && (code2 = getCodeWord(code2)) == EOF) {
                 goto err;
+            }
             len = lengthDecode[code1].first + code2;
-            if ((code1 = getHuffmanCodeWord(&distCodeTab)) == EOF)
+            if ((code1 = getHuffmanCodeWord(&distCodeTab)) == EOF) {
                 goto err;
+            }
             code2 = distDecode[code1].bits;
-            if (code2 > 0 && (code2 = getCodeWord(code2)) == EOF)
+            if (code2 > 0 && (code2 = getCodeWord(code2)) == EOF) {
                 goto err;
+            }
             dist = distDecode[code1].first + code2;
             i = index;
             j = (index - dist) & flateMask;
@@ -4298,8 +2901,9 @@ void FlateStream::readSome()
         }
         remain = i;
         blockLen -= len;
-        if (blockLen == 0)
+        if (blockLen == 0) {
             endOfBlock = true;
+        }
     }
 
     return;
@@ -4328,27 +2932,33 @@ bool FlateStream::startBlock()
 
     // read block header
     blockHdr = getCodeWord(3);
-    if (blockHdr & 1)
+    if (blockHdr & 1) {
         eof = true;
+    }
     blockHdr >>= 1;
 
     // uncompressed block
     if (blockHdr == 0) {
         compressedBlock = false;
-        if ((c = str->getChar()) == EOF)
+        if ((c = str->getChar()) == EOF) {
             goto err;
+        }
         blockLen = c & 0xff;
-        if ((c = str->getChar()) == EOF)
+        if ((c = str->getChar()) == EOF) {
             goto err;
+        }
         blockLen |= (c & 0xff) << 8;
-        if ((c = str->getChar()) == EOF)
+        if ((c = str->getChar()) == EOF) {
             goto err;
+        }
         check = c & 0xff;
-        if ((c = str->getChar()) == EOF)
+        if ((c = str->getChar()) == EOF) {
             goto err;
+        }
         check |= (c & 0xff) << 8;
-        if (check != (~blockLen & 0xffff))
+        if (check != (~blockLen & 0xffff)) {
             error(errSyntaxError, getPos(), "Bad uncompressed block length in flate stream");
+        }
         codeBuf = 0;
         codeSize = 0;
 
@@ -4501,7 +3111,7 @@ FlateCode *FlateStream::compHuffmanCodes(const int *lengths, int n, int *maxLen)
 
     // allocate the table
     const int tabSize = 1 << *maxLen;
-    FlateCode *codes = (FlateCode *)gmallocn(tabSize, sizeof(FlateCode));
+    auto *codes = static_cast<FlateCode *>(gmallocn(tabSize, sizeof(FlateCode)));
 
     // clear the table
     for (i = 0; i < tabSize; ++i) {
@@ -4524,8 +3134,8 @@ FlateCode *FlateStream::compHuffmanCodes(const int *lengths, int n, int *maxLen)
 
                 // fill in the table entries
                 for (i = code2; i < tabSize; i += skip) {
-                    codes[i].len = (unsigned short)len;
-                    codes[i].val = (unsigned short)val;
+                    codes[i].len = static_cast<unsigned short>(len);
+                    codes[i].val = static_cast<unsigned short>(val);
                 }
 
                 ++code;
@@ -4554,7 +3164,7 @@ int FlateStream::getHuffmanCodeWord(FlateHuffmanTab *tab)
     }
     codeBuf >>= code->len;
     codeSize -= code->len;
-    return (int)code->val;
+    return static_cast<int>(code->val);
 }
 
 int FlateStream::getCodeWord(int bits)
@@ -4562,8 +3172,9 @@ int FlateStream::getCodeWord(int bits)
     int c;
 
     while (codeSize < bits) {
-        if ((c = str->getChar()) == EOF)
+        if ((c = str->getChar()) == EOF) {
             return EOF;
+        }
         codeBuf |= (c & 0xff) << codeSize;
         codeSize += 8;
     }
@@ -4578,37 +3189,35 @@ int FlateStream::getCodeWord(int bits)
 // EOFStream
 //------------------------------------------------------------------------
 
-EOFStream::EOFStream(Stream *strA) : FilterStream(strA) { }
+EOFStream::EOFStream(std::unique_ptr<Stream> strA) : OwnedFilterStream(std::move(strA)) { }
 
-EOFStream::~EOFStream()
-{
-    delete str;
-}
+EOFStream::~EOFStream() = default;
 
 //------------------------------------------------------------------------
 // BufStream
 //------------------------------------------------------------------------
 
-BufStream::BufStream(Stream *strA, int bufSizeA) : FilterStream(strA)
+BufStream::BufStream(std::unique_ptr<Stream> strA, int bufSizeA) : OwnedFilterStream(std::move(strA))
 {
     bufSize = bufSizeA;
-    buf = (int *)gmallocn(bufSize, sizeof(int));
+    buf = static_cast<int *>(gmallocn(bufSize, sizeof(int)));
 }
 
 BufStream::~BufStream()
 {
     gfree(buf);
-    delete str;
 }
 
-void BufStream::reset()
+bool BufStream::rewind()
 {
     int i;
 
-    str->reset();
+    bool success = str->rewind();
     for (i = 0; i < bufSize; ++i) {
         buf[i] = str->getChar();
     }
+
+    return success;
 }
 
 int BufStream::getChar()
@@ -4633,7 +3242,7 @@ int BufStream::lookChar(int idx)
     return buf[idx];
 }
 
-bool BufStream::isBinary(bool last)
+bool BufStream::isBinary(bool /*last*/) const
 {
     return str->isBinary(true);
 }
@@ -4650,32 +3259,36 @@ FixedLengthEncoder::FixedLengthEncoder(Stream *strA, int lengthA) : FilterStream
 
 FixedLengthEncoder::~FixedLengthEncoder()
 {
-    if (str->isEncoder())
+    if (str->isEncoder()) {
         delete str;
+    }
 }
 
-void FixedLengthEncoder::reset()
+bool FixedLengthEncoder::rewind()
 {
-    str->reset();
     count = 0;
+
+    return str->rewind();
 }
 
 int FixedLengthEncoder::getChar()
 {
-    if (length >= 0 && count >= length)
+    if (length >= 0 && count >= length) {
         return EOF;
+    }
     ++count;
     return str->getChar();
 }
 
 int FixedLengthEncoder::lookChar()
 {
-    if (length >= 0 && count >= length)
+    if (length >= 0 && count >= length) {
         return EOF;
+    }
     return str->getChar();
 }
 
-bool FixedLengthEncoder::isBinary(bool last)
+bool FixedLengthEncoder::isBinary(bool /*last*/) const
 {
     return str->isBinary(true);
 }
@@ -4698,12 +3311,13 @@ ASCIIHexEncoder::~ASCIIHexEncoder()
     }
 }
 
-void ASCIIHexEncoder::reset()
+bool ASCIIHexEncoder::rewind()
 {
-    str->reset();
     bufPtr = bufEnd = buf;
     lineLen = 0;
     eof = false;
+
+    return str->rewind();
 }
 
 bool ASCIIHexEncoder::fillBuf()
@@ -4743,16 +3357,18 @@ ASCII85Encoder::ASCII85Encoder(Stream *strA) : FilterStream(strA)
 
 ASCII85Encoder::~ASCII85Encoder()
 {
-    if (str->isEncoder())
+    if (str->isEncoder()) {
         delete str;
+    }
 }
 
-void ASCII85Encoder::reset()
+bool ASCII85Encoder::rewind()
 {
-    str->reset();
     bufPtr = bufEnd = buf;
     lineLen = 0;
     eof = false;
+
+    return str->rewind();
 }
 
 bool ASCII85Encoder::fillBuf()
@@ -4786,7 +3402,7 @@ bool ASCII85Encoder::fillBuf()
                 t = (c0 << 24) | (c1 << 16) | (c2 << 8);
             }
             for (i = 4; i >= 0; --i) {
-                buf1[i] = (char)(t % 85 + 0x21);
+                buf1[i] = static_cast<char>(t % 85 + 0x21);
                 t /= 85;
             }
             for (i = 0; i <= n; ++i) {
@@ -4810,7 +3426,7 @@ bool ASCII85Encoder::fillBuf()
             }
         } else {
             for (i = 4; i >= 0; --i) {
-                buf1[i] = (char)(t % 85 + 0x21);
+                buf1[i] = static_cast<char>(t % 85 + 0x21);
                 t /= 85;
             }
             for (i = 0; i <= 4; ++i) {
@@ -4837,15 +3453,17 @@ RunLengthEncoder::RunLengthEncoder(Stream *strA) : FilterStream(strA)
 
 RunLengthEncoder::~RunLengthEncoder()
 {
-    if (str->isEncoder())
+    if (str->isEncoder()) {
         delete str;
+    }
 }
 
-void RunLengthEncoder::reset()
+bool RunLengthEncoder::rewind()
 {
-    str->reset();
     bufPtr = bufEnd = nextEnd = buf;
     eof = false;
+
+    return str->rewind();
 }
 
 //
@@ -4862,8 +3480,9 @@ bool RunLengthEncoder::fillBuf()
     int n;
 
     // already hit EOF?
-    if (eof)
+    if (eof) {
         return false;
+    }
 
     // grab two bytes
     if (nextEnd < bufEnd + 1) {
@@ -4891,9 +3510,10 @@ bool RunLengthEncoder::fillBuf()
     c = 0; // make gcc happy
     if (c1 == c2) {
         n = 2;
-        while (n < 128 && (c = str->getChar()) == c1)
+        while (n < 128 && (c = str->getChar()) == c1) {
             ++n;
-        buf[0] = (char)(257 - n);
+        }
+        buf[0] = static_cast<char>(257 - n);
         buf[1] = c1;
         bufEnd = &buf[2];
         if (c == EOF) {
@@ -4917,15 +3537,16 @@ bool RunLengthEncoder::fillBuf()
             }
             ++n;
             buf[n] = c;
-            if (buf[n] == buf[n - 1])
+            if (buf[n] == buf[n - 1]) {
                 break;
+            }
         }
         if (buf[n] == buf[n - 1]) {
-            buf[0] = (char)(n - 2 - 1);
+            buf[0] = static_cast<char>(n - 2 - 1);
             bufEnd = &buf[n - 1];
             nextEnd = &buf[n + 1];
         } else {
-            buf[0] = (char)(n - 1);
+            buf[0] = static_cast<char>(n - 1);
             bufEnd = nextEnd = &buf[n + 1];
         }
     }
@@ -4950,11 +3571,11 @@ LZWEncoder::~LZWEncoder()
     }
 }
 
-void LZWEncoder::reset()
+bool LZWEncoder::rewind()
 {
     int i;
 
-    str->reset();
+    bool success = str->rewind();
 
     // initialize code table
     for (i = 0; i < 256; ++i) {
@@ -4972,6 +3593,8 @@ void LZWEncoder::reset()
     outBuf = 256;
     outBufLen = 9;
     needEOD = false;
+
+    return success;
 }
 
 int LZWEncoder::getChar()
@@ -5004,9 +3627,8 @@ int LZWEncoder::lookChar()
     }
     if (outBufLen >= 8) {
         return (outBuf >> (outBufLen - 8)) & 0xff;
-    } else {
-        return (outBuf << (8 - outBufLen)) & 0xff;
     }
+    return (outBuf << (8 - outBufLen)) & 0xff;
 }
 
 // On input, outBufLen < 8.
@@ -5039,7 +3661,7 @@ void LZWEncoder::fillBuf()
         p0 = p1;
         ++seqLen;
     }
-    code = (int)(p0 - table);
+    code = static_cast<int>(p0 - table);
 
     // generate an output code
     outBuf = (outBuf << codeLen) | code;
@@ -5094,15 +3716,17 @@ CMYKGrayEncoder::CMYKGrayEncoder(Stream *strA) : FilterStream(strA)
 
 CMYKGrayEncoder::~CMYKGrayEncoder()
 {
-    if (str->isEncoder())
+    if (str->isEncoder()) {
         delete str;
+    }
 }
 
-void CMYKGrayEncoder::reset()
+bool CMYKGrayEncoder::rewind()
 {
-    str->reset();
     bufPtr = bufEnd = buf;
     eof = false;
+
+    return str->rewind();
 }
 
 bool CMYKGrayEncoder::fillBuf()
@@ -5122,10 +3746,11 @@ bool CMYKGrayEncoder::fillBuf()
         return false;
     }
     i = (3 * c0 + 6 * c1 + c2) / 10 + c3;
-    if (i > 255)
+    if (i > 255) {
         i = 255;
+    }
     bufPtr = bufEnd = buf;
-    *bufEnd++ = (char)i;
+    *bufEnd++ = static_cast<char>(i);
     return true;
 }
 
@@ -5141,15 +3766,17 @@ RGBGrayEncoder::RGBGrayEncoder(Stream *strA) : FilterStream(strA)
 
 RGBGrayEncoder::~RGBGrayEncoder()
 {
-    if (str->isEncoder())
+    if (str->isEncoder()) {
         delete str;
+    }
 }
 
-void RGBGrayEncoder::reset()
+bool RGBGrayEncoder::rewind()
 {
-    str->reset();
     bufPtr = bufEnd = buf;
     eof = false;
+
+    return str->rewind();
 }
 
 bool RGBGrayEncoder::fillBuf()
@@ -5168,10 +3795,11 @@ bool RGBGrayEncoder::fillBuf()
         return false;
     }
     i = 255 - (3 * c0 + 6 * c1 + c2) / 10;
-    if (i < 0)
+    if (i < 0) {
         i = 0;
+    }
     bufPtr = bufEnd = buf;
-    *bufEnd++ = (char)i;
+    *bufEnd++ = static_cast<char>(i);
     return true;
 }
 
@@ -5179,22 +3807,23 @@ bool RGBGrayEncoder::fillBuf()
 // SplashBitmapCMYKEncoder
 //------------------------------------------------------------------------
 
-#ifdef HAVE_SPLASH
 SplashBitmapCMYKEncoder::SplashBitmapCMYKEncoder(SplashBitmap *bitmapA) : bitmap(bitmapA)
 {
-    width = (size_t)4 * bitmap->getWidth();
+    width = static_cast<size_t>(4) * bitmap->getWidth();
     height = bitmap->getHeight();
     buf.resize(width);
     bufPtr = width;
     curLine = height - 1;
 }
 
-SplashBitmapCMYKEncoder::~SplashBitmapCMYKEncoder() { }
+SplashBitmapCMYKEncoder::~SplashBitmapCMYKEncoder() = default;
 
-void SplashBitmapCMYKEncoder::reset()
+bool SplashBitmapCMYKEncoder::rewind()
 {
     bufPtr = width;
     curLine = height - 1;
+
+    return true;
 }
 
 int SplashBitmapCMYKEncoder::lookChar()
@@ -5222,7 +3851,7 @@ bool SplashBitmapCMYKEncoder::fillBuf()
         return true;
     }
 
-    bitmap->getCMYKLine(curLine, &buf[0]);
+    bitmap->getCMYKLine(curLine, buf.data());
     bufPtr = 0;
     curLine--;
     return true;
@@ -5251,4 +3880,3 @@ void SplashBitmapCMYKEncoder::setPos(Goffset pos, int dir)
         bufPtr = pos % width;
     }
 }
-#endif

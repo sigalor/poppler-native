@@ -1,0 +1,210 @@
+//========================================================================
+//
+// SplashFont.cc
+//
+//========================================================================
+
+//========================================================================
+//
+// Modified under the Poppler project - http://poppler.freedesktop.org
+//
+// All changes made under the Poppler project to this file are licensed
+// under GPL version 2 or later
+//
+// Copyright (C) 2007-2008, 2010, 2014, 2019, 2025, 2026 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2018 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+//
+// To see a description of the changes please see the Changelog file that
+// came with your tarball or type make ChangeLog if you are building from git
+//
+//========================================================================
+
+#include <config.h>
+
+#include <climits>
+#include <cstring>
+#include "goo/gmem.h"
+#include "SplashGlyphBitmap.h"
+#include "SplashFontFile.h"
+#include "SplashFont.h"
+
+//------------------------------------------------------------------------
+
+struct SplashFontCacheTag
+{
+    int c;
+    short xFrac, yFrac; // x and y fractions
+    int mru; // valid bit (0x80000000) and MRU index
+    int x, y, w, h; // offset and size of glyph
+};
+
+//------------------------------------------------------------------------
+// SplashFont
+//------------------------------------------------------------------------
+
+SplashFont::SplashFont(const std::shared_ptr<SplashFontFile> &fontFileA, const std::array<double, 4> &matA, const std::array<double, 4> &textMatA, bool aaA) : mat(matA), textMat(textMatA)
+{
+    fontFile = fontFileA;
+    aa = aaA;
+
+    cache = nullptr;
+    cacheTags = nullptr;
+
+    xMin = yMin = xMax = yMax = 0;
+}
+
+void SplashFont::initCache()
+{
+    int i;
+
+    // this should be (max - min + 1), but we add some padding to
+    // deal with rounding errors
+    glyphW = xMax - xMin + 3;
+    glyphH = yMax - yMin + 3;
+    if (glyphW > INT_MAX / glyphH) {
+        glyphSize = -1;
+    } else {
+        if (aa) {
+            glyphSize = glyphW * glyphH;
+        } else {
+            glyphSize = ((glyphW + 7) >> 3) * glyphH;
+        }
+    }
+
+    // set up the glyph pixmap cache
+    cacheAssoc = 8;
+    if (glyphSize <= 64) {
+        cacheSets = 32;
+    } else if (glyphSize <= 128) {
+        cacheSets = 16;
+    } else if (glyphSize <= 256) {
+        cacheSets = 8;
+    } else if (glyphSize <= 512) {
+        cacheSets = 4;
+    } else if (glyphSize <= 1024) {
+        cacheSets = 2;
+    } else {
+        cacheSets = 1;
+    }
+    cache = static_cast<unsigned char *>(gmallocn_checkoverflow(cacheSets * cacheAssoc, glyphSize));
+    if (cache != nullptr) {
+        cacheTags = static_cast<SplashFontCacheTag *>(gmallocn(cacheSets * cacheAssoc, sizeof(SplashFontCacheTag)));
+        for (i = 0; i < cacheSets * cacheAssoc; ++i) {
+            cacheTags[i].mru = i & (cacheAssoc - 1);
+        }
+    } else {
+        cacheAssoc = 0;
+    }
+}
+
+SplashFont::~SplashFont()
+{
+    if (cache) {
+        gfree(cache);
+    }
+    if (cacheTags) {
+        gfree(cacheTags);
+    }
+}
+
+bool SplashFont::getGlyph(int c, int xFrac, int yFrac, SplashGlyphBitmap *bitmap, int x0, int y0, const SplashClip &clip, SplashClipResult *clipRes)
+{
+    SplashGlyphBitmap bitmap2;
+    int size;
+    unsigned char *p;
+    int i, j, k;
+
+    // no fractional coordinates for large glyphs or non-anti-aliased
+    // glyphs
+    if (!aa || glyphH > 50) {
+        xFrac = yFrac = 0;
+    }
+
+    // check the cache
+    i = (c & (cacheSets - 1)) * cacheAssoc;
+    for (j = 0; j < cacheAssoc; ++j) {
+        if ((cacheTags[i + j].mru & 0x80000000) && cacheTags[i + j].c == c && static_cast<int>(cacheTags[i + j].xFrac) == xFrac && static_cast<int>(cacheTags[i + j].yFrac) == yFrac) {
+            bitmap->x = cacheTags[i + j].x;
+            bitmap->y = cacheTags[i + j].y;
+            bitmap->w = cacheTags[i + j].w;
+            bitmap->h = cacheTags[i + j].h;
+            for (k = 0; k < cacheAssoc; ++k) {
+                if (k != j && (cacheTags[i + k].mru & 0x7fffffff) < (cacheTags[i + j].mru & 0x7fffffff)) {
+                    ++cacheTags[i + k].mru;
+                }
+            }
+            cacheTags[i + j].mru = 0x80000000;
+            bitmap->aa = aa;
+            bitmap->data = cache + (i + j) * glyphSize;
+            bitmap->freeData = false;
+
+            int rectXMin, rectYMin;
+            if (checkedSubtraction(x0, bitmap->x, &rectXMin)) {
+                return false;
+            }
+            if (checkedSubtraction(y0, bitmap->y, &rectYMin)) {
+                return false;
+            }
+            *clipRes = clip.testRect(rectXMin, rectYMin, rectXMin + bitmap->w - 1, rectYMin + bitmap->h - 1);
+
+            return true;
+        }
+    }
+
+    // generate the glyph bitmap
+    if (!makeGlyph(c, xFrac, yFrac, &bitmap2, x0, y0, clip, clipRes)) {
+        return false;
+    }
+
+    if (*clipRes == splashClipAllOutside) {
+        bitmap->freeData = false;
+        if (bitmap2.freeData) {
+            gfree(bitmap2.data);
+        }
+        return true;
+    }
+
+    // if the glyph doesn't fit in the bounding box, return a temporary
+    // uncached bitmap
+    if (bitmap2.w > glyphW || bitmap2.h > glyphH) {
+        *bitmap = bitmap2;
+        return true;
+    }
+
+    // insert glyph pixmap in cache
+    if (aa) {
+        size = bitmap2.w * bitmap2.h;
+    } else {
+        size = ((bitmap2.w + 7) >> 3) * bitmap2.h;
+    }
+    p = nullptr; // make gcc happy
+    if (cacheAssoc == 0) {
+        // we had problems on the malloc of the cache, so ignore it
+        *bitmap = bitmap2;
+    } else {
+        for (j = 0; j < cacheAssoc; ++j) {
+            if ((cacheTags[i + j].mru & 0x7fffffff) == cacheAssoc - 1) {
+                cacheTags[i + j].mru = 0x80000000;
+                cacheTags[i + j].c = c;
+                cacheTags[i + j].xFrac = static_cast<short>(xFrac);
+                cacheTags[i + j].yFrac = static_cast<short>(yFrac);
+                cacheTags[i + j].x = bitmap2.x;
+                cacheTags[i + j].y = bitmap2.y;
+                cacheTags[i + j].w = bitmap2.w;
+                cacheTags[i + j].h = bitmap2.h;
+                p = cache + (i + j) * glyphSize;
+                memcpy(p, bitmap2.data, size);
+            } else {
+                ++cacheTags[i + j].mru;
+            }
+        }
+        *bitmap = bitmap2;
+        bitmap->data = p;
+        bitmap->freeData = false;
+        if (bitmap2.freeData) {
+            gfree(bitmap2.data);
+        }
+    }
+    return true;
+}

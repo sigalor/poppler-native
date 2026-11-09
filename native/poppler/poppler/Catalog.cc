@@ -14,7 +14,7 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2005-2013, 2015, 2017-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005-2013, 2015, 2017-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2005 Jeff Muizelaar <jrmuizel@nit.ca>
 // Copyright (C) 2005 Jonathan Blandford <jrb@redhat.com>
 // Copyright (C) 2005 Marco Pesenti Gritti <mpg@redhat.com>
@@ -39,6 +39,15 @@
 // Copyright (C) 2020 Katarina Behrens <Katarina.Behrens@cib.de>
 // Copyright (C) 2020 Thorsten Behrens <Thorsten.Behrens@CIB.de>
 // Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
+// Copyright (C) 2021 RM <rm+git@arcsin.org>
+// Copyright (C) 2023 Ilaï Deutel <idtl@google.com>
+// Copyright (C) 2024 Hubert Figuiere <hub@figuiere.net>
+// Copyright (C) 2024-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Aaron Nguyen <aaron.nguyen@veeva.com>
+// Copyright (C) 2025 Trystan Mata <trystan.mata@tytanium.xyz>
+// Copyright (C) 2026 Adam Sampson <ats@offog.org>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
+// Copyright (C) 2026 ju1ius <jules.bernable@gmail.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -49,7 +58,6 @@
 
 #include <cstddef>
 #include <cstdlib>
-#include "goo/gmem.h"
 #include "Object.h"
 #include "PDFDoc.h"
 #include "XRef.h"
@@ -70,7 +78,7 @@
 // Catalog
 //------------------------------------------------------------------------
 
-#define catalogLocker() std::unique_lock<std::recursive_mutex> locker(mutex)
+#define catalogLocker() const std::scoped_lock locker(mutex)
 
 Catalog::Catalog(PDFDoc *docA)
 {
@@ -78,7 +86,6 @@ Catalog::Catalog(PDFDoc *docA)
     doc = docA;
     xref = doc->getXRef();
     numPages = -1;
-    baseURI = nullptr;
     pageLabelInfo = nullptr;
     form = nullptr;
     optContent = nullptr;
@@ -92,7 +99,6 @@ Catalog::Catalog(PDFDoc *docA)
 
     pagesList = nullptr;
     pagesRefList = nullptr;
-    attrsList = nullptr;
     kidsIdxList = nullptr;
     markInfo = markInfoNull;
 
@@ -103,24 +109,23 @@ Catalog::Catalog(PDFDoc *docA)
         return;
     }
     // get the AcroForm dictionary
-    acroForm = catDict.dictLookup("AcroForm");
+    acroForm = catDict.getDict()->lookup("AcroForm");
 
     // read base URI
     Object obj = catDict.getDict()->lookupEnsureEncryptedIfNeeded("URI");
     if (obj.isDict()) {
         Object obj2 = obj.getDict()->lookupEnsureEncryptedIfNeeded("Base");
         if (obj2.isString()) {
-            baseURI = obj2.getString()->copy();
+            baseURI = obj2.getString();
         }
     }
 
     // get the Optional Content dictionary
     Object optContentProps = catDict.dictLookup("OCProperties");
     if (optContentProps.isDict()) {
-        optContent = new OCGs(&optContentProps, xref);
+        optContent = std::make_unique<OCGs>(optContentProps, xref);
         if (!optContent->isOk()) {
-            delete optContent;
-            optContent = nullptr;
+            optContent.reset();
         }
     }
 
@@ -129,34 +134,32 @@ Catalog::Catalog(PDFDoc *docA)
 
     // get the ViewerPreferences dictionary
     viewerPreferences = catDict.dictLookup("ViewerPreferences");
+
+    const Object version = catDict.dictLookup("Version");
+    if (version.isName()) {
+        const int res = sscanf(version.getName(), "%d.%d", &catalogPdfMajorVersion, &catalogPdfMinorVersion);
+        if (res != 2) {
+            catalogPdfMajorVersion = -1;
+            catalogPdfMinorVersion = -1;
+        }
+    }
 }
 
 Catalog::~Catalog()
 {
     delete kidsIdxList;
-    if (attrsList) {
-        std::vector<PageAttrs *>::iterator it;
-        for (it = attrsList->begin(); it != attrsList->end(); ++it) {
-            delete *it;
-        }
-        delete attrsList;
-    }
     delete pagesRefList;
     delete pagesList;
     delete destNameTree;
     delete embeddedFileNameTree;
     delete jsNameTree;
-    if (baseURI) {
-        delete baseURI;
-    }
     delete pageLabelInfo;
     delete form;
-    delete optContent;
     delete viewerPrefs;
     delete structTreeRoot;
 }
 
-GooString *Catalog::readMetadata()
+std::optional<std::string> Catalog::readMetadata()
 {
     catalogLocker();
     if (metadata.isNone()) {
@@ -170,27 +173,29 @@ GooString *Catalog::readMetadata()
     }
 
     if (!metadata.isStream()) {
-        return nullptr;
+        return {};
     }
-    Object obj = metadata.streamGetDict()->lookup("Subtype");
+    Stream *metadataStream = metadata.getStream();
+    Object obj = metadataStream->getDict()->lookup("Subtype");
     if (!obj.isName("XML")) {
         error(errSyntaxWarning, -1, "Unknown Metadata type: '{0:s}'", obj.isName() ? obj.getName() : "???");
     }
-    GooString *s = new GooString();
-    metadata.getStream()->fillGooString(s);
-    metadata.streamClose();
+    std::string s;
+    metadataStream->fillString(s);
+    metadataStream->close();
     return s;
 }
 
 Page *Catalog::getPage(int i)
 {
-    if (i < 1)
+    if (i < 1) {
         return nullptr;
+    }
 
     catalogLocker();
-    if (std::size_t(i) > pages.size()) {
+    if (static_cast<std::size_t>(i) > pages.size()) {
         bool cached = cachePageTree(i);
-        if (cached == false) {
+        if (!cached) {
             return nullptr;
         }
     }
@@ -199,157 +204,228 @@ Page *Catalog::getPage(int i)
 
 Ref *Catalog::getPageRef(int i)
 {
-    if (i < 1)
+    if (i < 1) {
         return nullptr;
+    }
 
     catalogLocker();
-    if (std::size_t(i) > pages.size()) {
+    if (static_cast<std::size_t>(i) > pages.size()) {
         bool cached = cachePageTree(i);
-        if (cached == false) {
+        if (!cached) {
             return nullptr;
         }
     }
     return &pages[i - 1].second;
 }
 
+// Init page list. Return true on success, including if already inited.
+bool Catalog::initPageList()
+{
+    // It's already initialized
+    if (pagesList != nullptr) {
+        return true;
+    }
+
+    Ref pagesRef;
+
+    Object catDict = xref->getCatalog();
+
+    if (catDict.isDict()) {
+        const Object &pagesDictRef = catDict.dictLookupNF("Pages");
+        if (pagesDictRef.isRef() && pagesDictRef.getRefNum() >= 0 && pagesDictRef.getRefNum() < xref->getNumObjects()) {
+            pagesRef = pagesDictRef.getRef();
+        } else {
+            error(errSyntaxError, -1, "Catalog dictionary does not contain a valid \"Pages\" entry");
+            return false;
+        }
+    } else {
+        error(errSyntaxError, -1, "Could not find catalog dictionary");
+        return false;
+    }
+
+    Object obj = catDict.dictLookup("Pages");
+    // This should really be isDict("Pages"), but I've seen at least one
+    // PDF file where the /Type entry is missing.
+    if (!obj.isDict()) {
+        error(errSyntaxError, -1, "Top-level pages object is wrong type ({0:s})", obj.getTypeName());
+        return false;
+    }
+
+    // If the current Pages object lacks a Kids array but has a Parent dictionary, traverse up the hierarchy
+    // until the root Pages object (one without a Parent) is found
+    if (!obj.dictLookup("Kids").isArray() && obj.dictLookup("Parent").isDict()) {
+        RefRecursionChecker seen;
+        while (obj.isDict() && obj.dictLookup("Parent").isDict()) {
+            Object parentDictObj = obj.dictLookup("Parent");
+
+            if (!seen.insert(pagesRef)) {
+                error(errSyntaxError, -1, "Loop detected in Pages tree (numObj: {0:d})", pagesRef.num);
+                break;
+            }
+
+            if (parentDictObj.isDict()) {
+                const Object &parentRefObj = obj.dictLookupNF("Parent");
+                if (parentRefObj.isRef()) {
+                    pagesRef = parentRefObj.getRef();
+                }
+                obj = std::move(parentDictObj);
+            } else {
+                break;
+            }
+        }
+    }
+
+    pages.clear();
+    refPageMap.clear();
+    attrsList.push_back(std::make_unique<PageAttrs>(nullptr, obj.getDict()));
+    pagesList = new std::vector<Object>();
+    pagesList->push_back(std::move(obj));
+    pagesRefList = new std::vector<Ref>();
+    pagesRefList->push_back(pagesRef);
+    kidsIdxList = new std::vector<int>();
+    kidsIdxList->push_back(0);
+
+    return true;
+}
+
 bool Catalog::cachePageTree(int page)
 {
-    if (pagesList == nullptr) {
-
-        Ref pagesRef;
-
-        Object catDict = xref->getCatalog();
-
-        if (catDict.isDict()) {
-            const Object &pagesDictRef = catDict.dictLookupNF("Pages");
-            if (pagesDictRef.isRef() && pagesDictRef.getRefNum() >= 0 && pagesDictRef.getRefNum() < xref->getNumObjects()) {
-                pagesRef = pagesDictRef.getRef();
-            } else {
-                error(errSyntaxError, -1, "Catalog dictionary does not contain a valid \"Pages\" entry");
-                return false;
-            }
-        } else {
-            error(errSyntaxError, -1, "Could not find catalog dictionary");
-            return false;
-        }
-
-        Object obj = catDict.dictLookup("Pages");
-        // This should really be isDict("Pages"), but I've seen at least one
-        // PDF file where the /Type entry is missing.
-        if (!obj.isDict()) {
-            error(errSyntaxError, -1, "Top-level pages object is wrong type ({0:s})", obj.getTypeName());
-            return false;
-        }
-
-        pages.clear();
-        attrsList = new std::vector<PageAttrs *>();
-        attrsList->push_back(new PageAttrs(nullptr, obj.getDict()));
-        pagesList = new std::vector<Object>();
-        pagesList->push_back(std::move(obj));
-        pagesRefList = new std::vector<Ref>();
-        pagesRefList->push_back(pagesRef);
-        kidsIdxList = new std::vector<int>();
-        kidsIdxList->push_back(0);
+    if (!initPageList()) {
+        return false;
     }
 
     while (true) {
 
-        if (std::size_t(page) <= pages.size())
+        if (static_cast<std::size_t>(page) <= pages.size()) {
             return true;
+        }
 
-        if (pagesList->empty())
+        if (!cacheSubTree()) {
             return false;
-
-        Object kids = pagesList->back().dictLookup("Kids");
-        if (!kids.isArray()) {
-            error(errSyntaxError, -1, "Kids object (page {0:uld}) is wrong type ({1:s})", pages.size() + 1, kids.getTypeName());
-            return false;
-        }
-
-        int kidsIdx = kidsIdxList->back();
-        if (kidsIdx >= kids.arrayGetLength()) {
-            pagesList->pop_back();
-            pagesRefList->pop_back();
-            delete attrsList->back();
-            attrsList->pop_back();
-            kidsIdxList->pop_back();
-            if (!kidsIdxList->empty())
-                kidsIdxList->back()++;
-            continue;
-        }
-
-        const Object &kidRef = kids.arrayGetNF(kidsIdx);
-        if (!kidRef.isRef()) {
-            error(errSyntaxError, -1, "Kid object (page {0:uld}) is not an indirect reference ({1:s})", pages.size() + 1, kidRef.getTypeName());
-            return false;
-        }
-
-        bool loop = false;
-        ;
-        for (const Ref &pageRef : *pagesRefList) {
-            if (pageRef.num == kidRef.getRefNum()) {
-                loop = true;
-                break;
-            }
-        }
-        if (loop) {
-            error(errSyntaxError, -1, "Loop in Pages tree");
-            kidsIdxList->back()++;
-            continue;
-        }
-
-        Object kid = kids.arrayGet(kidsIdx);
-        if (kid.isDict("Page") || (kid.isDict() && !kid.getDict()->hasKey("Kids"))) {
-            PageAttrs *attrs = new PageAttrs(attrsList->back(), kid.getDict());
-            auto p = std::make_unique<Page>(doc, pages.size() + 1, std::move(kid), kidRef.getRef(), attrs, form);
-            if (!p->isOk()) {
-                error(errSyntaxError, -1, "Failed to create page (page {0:uld})", pages.size() + 1);
-                return false;
-            }
-
-            if (pages.size() >= std::size_t(numPages)) {
-                error(errSyntaxError, -1, "Page count in top-level pages object is incorrect");
-                return false;
-            }
-
-            pages.emplace_back(std::move(p), kidRef.getRef());
-
-            kidsIdxList->back()++;
-
-            // This should really be isDict("Pages"), but I've seen at least one
-            // PDF file where the /Type entry is missing.
-        } else if (kid.isDict()) {
-            attrsList->push_back(new PageAttrs(attrsList->back(), kid.getDict()));
-            pagesRefList->push_back(kidRef.getRef());
-            pagesList->push_back(std::move(kid));
-            kidsIdxList->push_back(0);
-        } else {
-            error(errSyntaxError, -1, "Kid object (page {0:uld}) is wrong type ({1:s})", pages.size() + 1, kid.getTypeName());
-            kidsIdxList->back()++;
         }
     }
 
     return false;
 }
 
+// Cache the page tree until the page ref and return the page number if found.
+// Or 0.
+std::size_t Catalog::cachePageTreeForRef(const Ref untilPageRef)
+{
+    if (!initPageList()) {
+        return 0;
+    }
+    while (true) {
+
+        auto iter = refPageMap.find(untilPageRef);
+        if (iter != refPageMap.end()) {
+            return iter->second;
+        }
+
+        if (!cacheSubTree()) {
+            return 0;
+        }
+    }
+
+    return 0;
+}
+
+// Return true to continue, false on error.
+bool Catalog::cacheSubTree()
+{
+    if (pagesList->empty()) {
+        return false;
+    }
+
+    Object kids = pagesList->back().dictLookup("Kids");
+    if (!kids.isArray()) {
+        error(errSyntaxError, -1, "Kids object (page {0:uld}) is wrong type ({1:s})", pages.size() + 1, kids.getTypeName());
+        return false;
+    }
+    Array *kidsArray = kids.getArray();
+
+    int kidsIdx = kidsIdxList->back();
+    if (kidsIdx >= kidsArray->getLength()) {
+        pagesList->pop_back();
+        pagesRefList->pop_back();
+        attrsList.pop_back();
+        kidsIdxList->pop_back();
+        if (!kidsIdxList->empty()) {
+            kidsIdxList->back()++;
+        }
+        return true;
+    }
+
+    const Object &kidRef = kidsArray->getNF(kidsIdx);
+    if (!kidRef.isRef()) {
+        error(errSyntaxError, -1, "Kid object (page {0:uld}) is not an indirect reference ({1:s})", pages.size() + 1, kidRef.getTypeName());
+        return false;
+    }
+
+    bool loop = false;
+    ;
+    for (const Ref &pageRef : *pagesRefList) {
+        if (pageRef.num == kidRef.getRefNum()) {
+            loop = true;
+            break;
+        }
+    }
+    if (loop) {
+        error(errSyntaxError, -1, "Loop in Pages tree");
+        kidsIdxList->back()++;
+        return true;
+    }
+
+    Object kid = kidsArray->get(kidsIdx);
+    if (kid.isDict("Page") || (kid.isDict() && !kid.getDict()->hasKey("Kids"))) {
+        auto attrs = std::make_unique<PageAttrs>(attrsList.back().get(), kid.getDict());
+        auto p = std::make_unique<Page>(doc, pages.size() + 1, std::move(kid), kidRef.getRef(), std::move(attrs));
+        if (!p->isOk()) {
+            error(errSyntaxError, -1, "Failed to create page (page {0:uld})", pages.size() + 1);
+            return false;
+        }
+
+        if (pages.size() >= static_cast<std::size_t>(numPages)) {
+            error(errSyntaxError, -1, "Page count in top-level pages object is incorrect");
+            return false;
+        }
+
+        auto ref = kidRef.getRef();
+        pages.emplace_back(std::move(p), ref);
+        refPageMap.emplace(ref, pages.size());
+
+        kidsIdxList->back()++;
+
+        // This should really be isDict("Pages"), but I've seen at least one
+        // PDF file where the /Type entry is missing.
+    } else if (kid.isDict()) {
+        attrsList.push_back(std::make_unique<PageAttrs>(attrsList.back().get(), kid.getDict()));
+        pagesRefList->push_back(kidRef.getRef());
+        pagesList->push_back(std::move(kid));
+        kidsIdxList->push_back(0);
+    } else {
+        error(errSyntaxError, -1, "Kid object (page {0:uld}) is wrong type ({1:s})", pages.size() + 1, kid.getTypeName());
+        kidsIdxList->back()++;
+    }
+
+    return true;
+}
+
 int Catalog::findPage(const Ref pageRef)
 {
-    int i;
+    catalogLocker();
 
-    for (i = 0; i < getNumPages(); ++i) {
-        Ref *ref = getPageRef(i + 1);
-        if (ref != nullptr && *ref == pageRef)
-            return i + 1;
-    }
-    return 0;
+    return cachePageTreeForRef(pageRef);
 }
 
 std::unique_ptr<LinkDest> Catalog::findDest(const GooString *name)
 {
     // try named destination dictionary then name tree
     if (getDests()->isDict()) {
-        Object obj1 = getDests()->dictLookup(name->c_str());
-        return createLinkDest(&obj1);
+        Object obj1 = getDests()->dictLookup(*name);
+        if (!obj1.isNull()) {
+            return createLinkDest(&obj1);
+        }
     }
 
     catalogLocker();
@@ -361,13 +437,14 @@ std::unique_ptr<LinkDest> Catalog::createLinkDest(Object *obj)
 {
     std::unique_ptr<LinkDest> dest;
     if (obj->isArray()) {
-        dest = std::make_unique<LinkDest>(obj->getArray());
+        dest = std::make_unique<LinkDest>(*obj->getArray());
     } else if (obj->isDict()) {
         Object obj2 = obj->dictLookup("D");
-        if (obj2.isArray())
-            dest = std::make_unique<LinkDest>(obj2.getArray());
-        else
+        if (obj2.isArray()) {
+            dest = std::make_unique<LinkDest>(*obj2.getArray());
+        } else {
             error(errSyntaxWarning, -1, "Bad named destination value");
+        }
     } else {
         error(errSyntaxWarning, -1, "Bad named destination value");
     }
@@ -397,7 +474,7 @@ const char *Catalog::getDestsName(int i)
     if (!obj->isDict()) {
         return nullptr;
     }
-    return obj->dictGetKey(i);
+    return obj->getDict()->getKey(i).c_str();
 }
 
 std::unique_ptr<LinkDest> Catalog::getDestsDest(int i)
@@ -422,29 +499,28 @@ std::unique_ptr<LinkDest> Catalog::getDestNameTreeDest(int i)
     return createLinkDest(&obj);
 }
 
-FileSpec *Catalog::embeddedFile(int i)
+std::unique_ptr<FileSpec> Catalog::embeddedFile(int i)
 {
     catalogLocker();
     Object *obj = getEmbeddedFileNameTree()->getValue(i);
-    FileSpec *embeddedFile = nullptr;
     if (obj->isRef()) {
         Object fsDict = obj->fetch(xref);
-        embeddedFile = new FileSpec(&fsDict);
-    } else if (obj->isDict()) {
-        embeddedFile = new FileSpec(obj);
-    } else {
-        Object null;
-        embeddedFile = new FileSpec(&null);
+        return std::make_unique<FileSpec>(&fsDict);
     }
-    return embeddedFile;
+    if (obj->isDict()) {
+        return std::make_unique<FileSpec>(obj);
+    }
+    Object null;
+    return std::make_unique<FileSpec>(&null);
 }
 
 bool Catalog::hasEmbeddedFile(const std::string &fileName)
 {
     NameTree *ef = getEmbeddedFileNameTree();
     for (int i = 0; i < ef->numEntries(); ++i) {
-        if (fileName == ef->getName(i)->toStr())
+        if (fileName == ef->getName(i)->toStr()) {
             return true;
+        }
     }
     return false;
 }
@@ -453,15 +529,14 @@ void Catalog::addEmbeddedFile(GooFile *file, const std::string &fileName)
 {
     catalogLocker();
 
-    Object fileSpecObj = FileSpec::newFileSpecObject(xref, file, fileName);
-    const Ref fileSpecRef = xref->addIndirectObject(&fileSpecObj);
+    const Ref fileSpecRef = xref->addIndirectObject(FileSpec::newFileSpecObject(xref, file, fileName));
 
     Object catDict = xref->getCatalog();
     Ref namesObjRef;
     Object namesObj = catDict.getDict()->lookup("Names", &namesObjRef);
     if (!namesObj.isDict()) {
         // Need to create the names Dict
-        catDict.dictSet("Names", Object(new Dict(xref)));
+        catDict.dictSet("Names", Object(std::make_unique<Dict>(xref)));
         namesObj = catDict.getDict()->lookup("Names");
 
         // Trigger getting the names dict again when needed
@@ -471,16 +546,16 @@ void Catalog::addEmbeddedFile(GooFile *file, const std::string &fileName)
     Dict *namesDict = namesObj.getDict();
 
     // We create a new EmbeddedFiles nametree, this replaces the existing one (if any), but it's not a problem
-    Object embeddedFilesObj = Object(new Dict(xref));
-    const Ref embeddedFilesRef = xref->addIndirectObject(&embeddedFilesObj);
+    Object embeddedFilesObj = Object(std::make_unique<Dict>(xref));
+    const Ref embeddedFilesRef = xref->addIndirectObject(embeddedFilesObj);
 
-    Array *embeddedFilesNamesArray = new Array(xref);
+    auto embeddedFilesNamesArray = std::make_unique<Array>(xref);
 
     // This flattens out the existing EmbeddedFiles nametree (if any), should not be a problem
     NameTree *ef = getEmbeddedFileNameTree();
     bool fileAlreadyAdded = false;
     for (int i = 0; i < ef->numEntries(); ++i) {
-        GooString *efNameI = ef->getName(i);
+        const GooString *efNameI = ef->getName(i);
 
         // we need to add the file if it has not been added yet and the name is smaller or equal lexicographically
         // than the current item
@@ -488,7 +563,7 @@ void Catalog::addEmbeddedFile(GooFile *file, const std::string &fileName)
         const bool addFile = !fileAlreadyAdded && (sameFileName || fileName < efNameI->toStr());
         if (addFile) {
             // If the new name is smaller lexicographically than an existing file add it in its correct position
-            embeddedFilesNamesArray->add(Object(new GooString(fileName)));
+            embeddedFilesNamesArray->add(Object(std::string { fileName }));
             embeddedFilesNamesArray->add(Object(fileSpecRef));
             fileAlreadyAdded = true;
         }
@@ -496,23 +571,23 @@ void Catalog::addEmbeddedFile(GooFile *file, const std::string &fileName)
             // If the new name is the same lexicographically than an existing file then don't add the existing file (i.e. replace)
             continue;
         }
-        embeddedFilesNamesArray->add(Object(efNameI->copy()));
+        embeddedFilesNamesArray->add(Object(std::string { efNameI->toStr() }));
         embeddedFilesNamesArray->add(ef->getValue(i)->copy());
     }
 
     if (!fileAlreadyAdded) {
         // The new file is bigger lexicographically than the existing ones
-        embeddedFilesNamesArray->add(Object(new GooString(fileName)));
+        embeddedFilesNamesArray->add(Object(std::string { fileName }));
         embeddedFilesNamesArray->add(Object(fileSpecRef));
     }
 
-    embeddedFilesObj.dictSet("Names", Object(embeddedFilesNamesArray));
+    embeddedFilesObj.dictSet("Names", Object(std::move(embeddedFilesNamesArray)));
     namesDict->set("EmbeddedFiles", Object(embeddedFilesRef));
 
     if (namesObjRef != Ref::INVALID()) {
         xref->setModifiedObject(&namesObj, namesObjRef);
     } else {
-        xref->setModifiedObject(&catDict, { xref->getRootNum(), xref->getRootGen() });
+        xref->setModifiedObject(&catDict, { .num = xref->getRootNum(), .gen = xref->getRootGen() });
     }
 
     // recreate Nametree on next call that uses it
@@ -520,7 +595,7 @@ void Catalog::addEmbeddedFile(GooFile *file, const std::string &fileName)
     embeddedFileNameTree = nullptr;
 }
 
-GooString *Catalog::getJS(int i)
+std::string Catalog::getJS(int i)
 {
     Object obj;
     // getJSNameTree()->getValue(i) returns a shallow copy of the object so we
@@ -532,23 +607,22 @@ GooString *Catalog::getJS(int i)
     }
 
     if (!obj.isDict()) {
-        return nullptr;
+        return {};
     }
     Object obj2 = obj.dictLookup("S");
     if (!obj2.isName()) {
-        return nullptr;
+        return {};
     }
-    if (strcmp(obj2.getName(), "JavaScript")) {
-        return nullptr;
+    if (!obj2.isName("JavaScript")) {
+        return {};
     }
     obj2 = obj.dictLookup("JS");
-    GooString *js = nullptr;
+    std::string js;
     if (obj2.isString()) {
-        js = new GooString(obj2.getString());
+        js = obj2.getString();
     } else if (obj2.isStream()) {
         Stream *stream = obj2.getStream();
-        js = new GooString();
-        stream->fillGooString(js);
+        stream->fillString(js);
     }
     return js;
 }
@@ -569,18 +643,19 @@ Catalog::PageMode Catalog::getPageMode()
 
         Object obj = catDict.dictLookup("PageMode");
         if (obj.isName()) {
-            if (obj.isName("UseNone"))
+            if (obj.isName("UseNone")) {
                 pageMode = pageModeNone;
-            else if (obj.isName("UseOutlines"))
+            } else if (obj.isName("UseOutlines")) {
                 pageMode = pageModeOutlines;
-            else if (obj.isName("UseThumbs"))
+            } else if (obj.isName("UseThumbs")) {
                 pageMode = pageModeThumbs;
-            else if (obj.isName("FullScreen"))
+            } else if (obj.isName("FullScreen")) {
                 pageMode = pageModeFullScreen;
-            else if (obj.isName("UseOC"))
+            } else if (obj.isName("UseOC")) {
                 pageMode = pageModeOC;
-            else if (obj.isName("UseAttachments"))
+            } else if (obj.isName("UseAttachments")) {
                 pageMode = pageModeAttach;
+            }
         }
     }
     return pageMode;
@@ -603,239 +678,208 @@ Catalog::PageLayout Catalog::getPageLayout()
         pageLayout = pageLayoutNone;
         Object obj = catDict.dictLookup("PageLayout");
         if (obj.isName()) {
-            if (obj.isName("SinglePage"))
+            if (obj.isName("SinglePage")) {
                 pageLayout = pageLayoutSinglePage;
-            if (obj.isName("OneColumn"))
+            }
+            if (obj.isName("OneColumn")) {
                 pageLayout = pageLayoutOneColumn;
-            if (obj.isName("TwoColumnLeft"))
+            }
+            if (obj.isName("TwoColumnLeft")) {
                 pageLayout = pageLayoutTwoColumnLeft;
-            if (obj.isName("TwoColumnRight"))
+            }
+            if (obj.isName("TwoColumnRight")) {
                 pageLayout = pageLayoutTwoColumnRight;
-            if (obj.isName("TwoPageLeft"))
+            }
+            if (obj.isName("TwoPageLeft")) {
                 pageLayout = pageLayoutTwoPageLeft;
-            if (obj.isName("TwoPageRight"))
+            }
+            if (obj.isName("TwoPageRight")) {
                 pageLayout = pageLayoutTwoPageRight;
+            }
         }
     }
     return pageLayout;
 }
 
-NameTree::NameTree()
+NameTree::NameTree() = default;
+NameTree::~NameTree() = default;
+
+NameTree::Entry::Entry(const Array &array, int index)
 {
-    size = 0;
-    length = 0;
-    entries = nullptr;
-}
-
-NameTree::~NameTree()
-{
-    int i;
-
-    for (i = 0; i < length; i++)
-        delete entries[i];
-
-    gfree(entries);
-}
-
-NameTree::Entry::Entry(Array *array, int index)
-{
-    if (!array->getString(index, &name)) {
-        Object aux = array->get(index);
+    if (!array.getString(index, &name)) {
+        Object aux = array.get(index);
         if (aux.isString()) {
             name.append(aux.getString());
-        } else
-            error(errSyntaxError, -1, "Invalid page tree");
-    }
-    value = array->getNF(index + 1).copy();
-}
-
-NameTree::Entry::~Entry() { }
-
-void NameTree::addEntry(Entry *entry)
-{
-    if (length == size) {
-        if (length == 0) {
-            size = 8;
         } else {
-            size *= 2;
+            error(errSyntaxError, -1, "Invalid page tree");
         }
-        entries = (Entry **)grealloc(entries, sizeof(Entry *) * size);
     }
-
-    entries[length] = entry;
-    ++length;
+    value = array.getNF(index + 1).copy();
 }
 
-int NameTree::Entry::cmpEntry(const void *voidEntry, const void *voidOtherEntry)
-{
-    Entry *entry = *(NameTree::Entry **)voidEntry;
-    Entry *otherEntry = *(NameTree::Entry **)voidOtherEntry;
-
-    return entry->name.cmp(&otherEntry->name);
-}
+NameTree::Entry::~Entry() = default;
 
 void NameTree::init(XRef *xrefA, Object *tree)
 {
     xref = xrefA;
-    std::set<int> seen;
+    RefRecursionChecker seen;
     parse(tree, seen);
-    if (entries && length > 0) {
-        qsort(entries, length, sizeof(Entry *), Entry::cmpEntry);
+    if (!entries.empty()) {
+        std::ranges::sort(entries, [](const auto &first, const auto &second) { return first->name.compare(second->name.toStr()) < 0; });
     }
 }
 
-void NameTree::parse(const Object *tree, std::set<int> &seen)
+void NameTree::parse(const Object *tree, RefRecursionChecker &seen)
 {
-    if (!tree->isDict())
+    if (!tree->isDict()) {
         return;
+    }
 
     // leaf node
     Object names = tree->dictLookup("Names");
     if (names.isArray()) {
         for (int i = 0; i < names.arrayGetLength(); i += 2) {
-            NameTree::Entry *entry;
-
-            entry = new Entry(names.getArray(), i);
-            addEntry(entry);
+            auto entry = std::make_unique<Entry>(*names.getArray(), i);
+            entries.push_back(std::move(entry));
         }
     }
 
     // root or intermediate node
     Ref ref;
     const Object kids = tree->getDict()->lookup("Kids", &ref);
-    if (ref != Ref::INVALID()) {
-        const int numObj = ref.num;
-        if (seen.find(numObj) != seen.end()) {
-            error(errSyntaxError, -1, "loop in NameTree (numObj: {0:d})", numObj);
-            return;
-        }
-        seen.insert(numObj);
+    if (!seen.insert(ref)) {
+        error(errSyntaxError, -1, "loop in NameTree (numObj: {0:d})", ref.num);
+        return;
     }
     if (kids.isArray()) {
-        for (int i = 0; i < kids.arrayGetLength(); ++i) {
-            const Object kid = kids.getArray()->get(i, &ref);
-            if (ref != Ref::INVALID()) {
-                const int numObj = ref.num;
-                if (seen.find(numObj) != seen.end()) {
-                    error(errSyntaxError, -1, "loop in NameTree (numObj: {0:d})", numObj);
-                    continue;
-                }
-                seen.insert(numObj);
+        Array *kidsArray = kids.getArray();
+        for (int i = 0; i < kidsArray->getLength(); ++i) {
+            const Object kid = kidsArray->get(i, &ref);
+            if (!seen.insert(ref)) {
+                error(errSyntaxError, -1, "loop in NameTree (numObj: {0:d})", ref.num);
+                continue;
             }
-            if (kid.isDict())
+            if (kid.isDict()) {
                 parse(&kid, seen);
+            }
         }
     }
 }
 
-int NameTree::Entry::cmp(const void *voidKey, const void *voidEntry)
+struct EntryGooStringComparer
 {
-    GooString *key = (GooString *)voidKey;
-    Entry *entry = *(NameTree::Entry **)voidEntry;
-
-    return key->cmp(&entry->name);
-}
+    static constexpr const std::string &get(const GooString *string) { return string->toStr(); };
+    static constexpr const std::string &get(const auto &entry) { return entry->name.toStr(); }
+    auto operator()(const auto &lhs, const auto &rhs) { return get(lhs).compare(get(rhs)) < 0; }
+};
 
 Object NameTree::lookup(const GooString *name)
 {
-    Entry **entry;
+    auto entry = std::ranges::lower_bound(entries, name, EntryGooStringComparer {});
 
-    entry = (Entry **)bsearch(name, entries, length, sizeof(Entry *), Entry::cmp);
-    if (entry != nullptr) {
+    if (entry != entries.end() && (*entry)->name.toStr() == name->toStr()) {
         return (*entry)->value.fetch(xref);
-    } else {
-        error(errSyntaxError, -1, "failed to look up ({0:s})", name->c_str());
-        return Object(objNull);
     }
+    error(errSyntaxError, -1, "failed to look up ({0:s})", name->c_str());
+    return Object::null();
 }
 
 Object *NameTree::getValue(int index)
 {
-    if (index < length) {
+    if (static_cast<size_t>(index) < entries.size()) {
         return &entries[index]->value;
-    } else {
-        return nullptr;
     }
+    return nullptr;
 }
 
-GooString *NameTree::getName(int index)
+const GooString *NameTree::getName(int index) const
 {
-    if (index < length) {
+    if (static_cast<size_t>(index) < entries.size()) {
         return &entries[index]->name;
-    } else {
-        return nullptr;
     }
+    return nullptr;
 }
 
-bool Catalog::labelToIndex(GooString *label, int *index)
+bool Catalog::labelToIndex(const std::string &label, int *index)
 {
     char *end;
 
     PageLabelInfo *pli = getPageLabelInfo();
     if (pli != nullptr) {
-        if (!pli->labelToIndex(label, index))
+        std::optional<int> labelIndex = pli->labelToIndex(label);
+        if (!labelIndex) {
             return false;
+        }
+        *index = *labelIndex;
     } else {
-        *index = strtol(label->c_str(), &end, 10) - 1;
-        if (*end != '\0')
+        *index = strtol(label.c_str(), &end, 10) - 1;
+        if (*end != '\0') {
             return false;
+        }
     }
 
-    if (*index < 0 || *index >= getNumPages())
+    if (*index < 0 || *index >= getNumPages()) {
         return false;
+    }
 
     return true;
 }
 
-bool Catalog::indexToLabel(int index, GooString *label)
+bool Catalog::indexToLabel(int index, std::string *label)
 {
     char buffer[32];
 
-    if (index < 0 || index >= getNumPages())
+    if (index < 0 || index >= getNumPages()) {
         return false;
+    }
 
     PageLabelInfo *pli = getPageLabelInfo();
     if (pli != nullptr) {
         return pli->indexToLabel(index, label);
-    } else {
-        snprintf(buffer, sizeof(buffer), "%d", index + 1);
-        label->append(buffer);
-        return true;
     }
+    snprintf(buffer, sizeof(buffer), "%d", index + 1);
+    label->append(buffer);
+    return true;
 }
 
 int Catalog::getNumPages()
 {
     catalogLocker();
     if (numPages == -1) {
+        if (!initPageList()) {
+            return 0;
+        }
+
         Object catDict = xref->getCatalog();
         if (!catDict.isDict()) {
             error(errSyntaxError, -1, "Catalog object is wrong type ({0:s})", catDict.getTypeName());
             return 0;
         }
-        Object pagesDict = catDict.dictLookup("Pages");
+        Object pagesObj = catDict.dictLookup("Pages");
 
         // This should really be isDict("Pages"), but I've seen at least one
         // PDF file where the /Type entry is missing.
-        if (!pagesDict.isDict()) {
-            error(errSyntaxError, -1, "Top-level pages object is wrong type ({0:s})", pagesDict.getTypeName());
+        if (!pagesObj.isDict()) {
+            error(errSyntaxError, -1, "Top-level pages object is wrong type ({0:s})", pagesObj.getTypeName());
             return 0;
         }
 
-        Object obj = pagesDict.dictLookup("Count");
+        Dict *pagesDict = pagesObj.getDict();
+        Object obj = pagesDict->lookup("Count");
         // some PDF files actually use real numbers here ("/Count 9.0")
         if (!obj.isNum()) {
-            if (pagesDict.dictIs("Page")) {
+            if (pagesDict->is("Page")) {
                 const Object &pageRootRef = catDict.dictLookupNF("Pages");
 
                 error(errSyntaxError, -1, "Pages top-level is a single Page. The document is malformed, trying to recover...");
 
-                Dict *pageDict = pagesDict.getDict();
+                Dict *pageDict = pagesDict;
                 if (pageRootRef.isRef()) {
                     const Ref pageRef = pageRootRef.getRef();
-                    auto p = std::make_unique<Page>(doc, 1, std::move(pagesDict), pageRef, new PageAttrs(nullptr, pageDict), form);
+                    auto p = std::make_unique<Page>(doc, 1, std::move(pagesObj), pageRef, std::make_unique<PageAttrs>(nullptr, pageDict));
                     if (p->isOk()) {
                         pages.emplace_back(std::move(p), pageRef);
+                        refPageMap.emplace(pageRef, pages.size());
 
                         numPages = 1;
                     } else {
@@ -849,7 +893,13 @@ int Catalog::getNumPages()
                 numPages = 0;
             }
         } else {
-            numPages = (int)obj.getNum();
+            if (obj.isInt()) {
+                numPages = obj.getInt();
+            } else if (obj.isInt64()) {
+                numPages = obj.getInt64();
+            } else {
+                numPages = obj.getNum();
+            }
             if (numPages <= 0) {
                 error(errSyntaxError, -1, "Invalid page count {0:d}", numPages);
                 numPages = 0;
@@ -873,9 +923,9 @@ PageLabelInfo *Catalog::getPageLabelInfo()
             return nullptr;
         }
 
-        Object obj = catDict.dictLookup("PageLabels");
+        const Object obj = catDict.dictLookup("PageLabels");
         if (obj.isDict()) {
-            pageLabelInfo = new PageLabelInfo(&obj, getNumPages());
+            pageLabelInfo = new PageLabelInfo(*obj.getDict(), getNumPages());
         }
     }
 
@@ -894,7 +944,7 @@ StructTreeRoot *Catalog::getStructTreeRoot()
 
         Object root = catalog.dictLookup("StructTreeRoot");
         if (root.isDict("StructTreeRoot")) {
-            structTreeRoot = new StructTreeRoot(doc, root.getDict());
+            structTreeRoot = new StructTreeRoot(doc, *root.getDict());
         }
     }
     return structTreeRoot;
@@ -921,16 +971,22 @@ unsigned int Catalog::getMarkInfo()
                 }
 
                 value = markInfoDict.dictLookup("Suspects");
-                if (value.isBool() && value.getBool())
-                    markInfo |= markInfoSuspects;
-                else if (!value.isNull())
+                if (value.isBool()) {
+                    if (value.getBool()) {
+                        markInfo |= markInfoSuspects;
+                    }
+                } else if (!value.isNull()) {
                     error(errSyntaxError, -1, "Suspects object is wrong type ({0:s})", value.getTypeName());
+                }
 
                 value = markInfoDict.dictLookup("UserProperties");
-                if (value.isBool() && value.getBool())
-                    markInfo |= markInfoUserProperties;
-                else if (!value.isNull())
+                if (value.isBool()) {
+                    if (value.getBool()) {
+                        markInfo |= markInfoUserProperties;
+                    }
+                } else if (!value.isNull()) {
                     error(errSyntaxError, -1, "UserProperties object is wrong type ({0:s})", value.getTypeName());
+                }
             } else if (!markInfoDict.isNull()) {
                 error(errSyntaxError, -1, "MarkInfo object is wrong type ({0:s})", markInfoDict.getTypeName());
             }
@@ -939,6 +995,43 @@ unsigned int Catalog::getMarkInfo()
         }
     }
     return markInfo;
+}
+
+Object *Catalog::getCreateOutline()
+{
+
+    catalogLocker();
+    Object catDict = xref->getCatalog();
+
+    // If there is no Object in the outline variable,
+    // check if there is an Outline dict in the catalog
+    if (outline.isNone()) {
+        if (catDict.isDict()) {
+            Object outline_obj = catDict.dictLookup("Outlines");
+            if (outline_obj.isDict()) {
+                return &outline;
+            }
+        } else {
+            // catalog is not a dict, give up?
+            return &outline;
+        }
+    }
+
+    // If there is an Object in variable, make sure it's a dict
+    if (outline.isDict()) {
+        return &outline;
+    }
+
+    // setup an empty outline dict
+    outline = Object(std::make_unique<Dict>(doc->getXRef()));
+    outline.dictSet("Type", Object::name("Outlines"));
+    outline.dictSet("Count", Object(0));
+
+    const Ref outlineRef = doc->getXRef()->addIndirectObject(outline);
+    catDict.dictAdd("Outlines", Object(outlineRef));
+    xref->setModifiedObject(&catDict, { .num = xref->getRootNum(), .gen = xref->getRootGen() });
+
+    return &outline;
 }
 
 Object *Catalog::getOutline()
@@ -990,12 +1083,37 @@ Catalog::FormType Catalog::getFormType()
     return res;
 }
 
+Form *Catalog::getCreateForm()
+{
+    catalogLocker();
+    if (!form) {
+
+        Object catDict = xref->getCatalog();
+        if (!catDict.isDict()) {
+            error(errSyntaxError, -1, "Catalog object is wrong type ({0:s})", catDict.getTypeName());
+            return nullptr;
+        }
+
+        if (!acroForm.isDict()) {
+            acroForm = Object(std::make_unique<Dict>(xref));
+            acroForm.dictSet("Fields", Object(std::make_unique<Array>(xref)));
+
+            const Ref newFormRef = xref->addIndirectObject(acroForm);
+            catDict.dictSet("AcroForm", Object(newFormRef));
+
+            xref->setModifiedObject(&catDict, { .num = xref->getRootNum(), .gen = xref->getRootGen() });
+        }
+    }
+
+    return getForm();
+}
+
 Form *Catalog::getForm()
 {
     catalogLocker();
     if (!form) {
         if (acroForm.isDict()) {
-            form = new Form(doc, &acroForm);
+            form = new Form(doc);
             // perform form-related loading after all widgets have been loaded
             form->postWidgetsLoad();
         }
@@ -1008,33 +1126,34 @@ void Catalog::addFormToAcroForm(const Ref formRef)
 {
     catalogLocker();
 
+    if (!acroForm.isDict()) {
+        getCreateForm();
+    }
+    Dict &acroFormDict = *acroForm.getDict();
+
+    // append to field array
+    Ref fieldRef;
+    Object fieldArray = acroFormDict.lookup("Fields", &fieldRef);
+    if (!fieldArray.isArray()) {
+        acroFormDict.set("Fields", Object(std::make_unique<Array>(xref)));
+        fieldArray = acroFormDict.lookup("Fields", &fieldRef);
+    }
+    fieldArray.getArray()->add(Object(formRef));
+
+    setAcroFormModified();
+}
+
+void Catalog::setAcroFormModified()
+{
     Object catDict = xref->getCatalog();
     Ref acroFormRef;
-    acroForm = catDict.getDict()->lookup("AcroForm", &acroFormRef);
-
-    if (!acroForm.isDict()) {
-        // none there yet, need to create a new fields dict
-        Object newForm = Object(new Dict(xref));
-        newForm.dictSet("SigFlags", Object(3));
-
-        Array *fieldArray = new Array(xref);
-        fieldArray->add(Object(formRef));
-        newForm.dictSet("Fields", Object(fieldArray));
-
-        Ref newRef = xref->addIndirectObject(&newForm);
-        catDict.dictSet("AcroForm", Object(newRef));
-        acroForm = catDict.getDict()->lookup("AcroForm");
-    } else {
-        // append to field array
-        Ref fieldRef;
-        Object fieldArray = acroForm.getDict()->lookup("Fields", &fieldRef);
-        fieldArray.getArray()->add(Object(formRef));
-    }
+    catDict.getDict()->lookup("AcroForm", &acroFormRef);
 
     if (acroFormRef != Ref::INVALID()) {
         xref->setModifiedObject(&acroForm, acroFormRef);
     } else {
-        xref->setModifiedObject(&catDict, { xref->getRootNum(), xref->getRootGen() });
+        catDict.dictSet("AcroForm", acroForm.copy());
+        xref->setModifiedObject(&catDict, { .num = xref->getRootNum(), .gen = xref->getRootGen() });
     }
 }
 
@@ -1043,9 +1162,6 @@ void Catalog::removeFormFromAcroForm(const Ref formRef)
     catalogLocker();
 
     Object catDict = xref->getCatalog();
-    Ref acroFormRef;
-    acroForm = catDict.getDict()->lookup("AcroForm", &acroFormRef);
-
     if (acroForm.isDict()) {
         // remove from field array
         Ref fieldRef;
@@ -1059,7 +1175,7 @@ void Catalog::removeFormFromAcroForm(const Ref formRef)
             }
         }
 
-        xref->setModifiedObject(&acroForm, acroFormRef);
+        setAcroFormModified();
     }
 }
 
@@ -1068,7 +1184,7 @@ ViewerPreferences *Catalog::getViewerPreferences()
     catalogLocker();
     if (!viewerPrefs) {
         if (viewerPreferences.isDict()) {
-            viewerPrefs = new ViewerPreferences(viewerPreferences.getDict());
+            viewerPrefs = new ViewerPreferences(*viewerPreferences.getDict());
         }
     }
 
@@ -1147,8 +1263,77 @@ std::unique_ptr<LinkAction> Catalog::getAdditionalAction(DocumentAdditionalActio
                                                                        : nullptr);
 
         Object actionObject = additionalActionsObject.dictLookup(key);
-        if (actionObject.isDict())
+        if (actionObject.isDict()) {
             return LinkAction::parseAction(&actionObject, doc->getCatalog()->getBaseURI());
+        }
     }
     return nullptr;
 }
+
+std::unique_ptr<LinkAction> Catalog::getOpenAction() const
+{
+    catalogLocker();
+    const Object catDict = xref->getCatalog();
+    if (!catDict.isDict()) {
+        return {};
+    }
+
+    const Object openActionObj = catDict.dictLookup("OpenAction");
+    if (openActionObj.isArray()) {
+        return LinkAction::parseDest(&openActionObj);
+    }
+    if (openActionObj.isDict()) {
+        return LinkAction::parseAction(&openActionObj, baseURI);
+    }
+    return {};
+}
+
+#if USE_CMS
+
+#    include <lcms2.h>
+
+GfxLCMSProfilePtr Catalog::getDisplayProfile()
+{
+    if (displayProfile) {
+        return displayProfile;
+    }
+
+    catalogLocker();
+
+    Object catDict = xref->getCatalog();
+    if (catDict.isDict()) {
+        Object outputIntents = catDict.dictLookup("OutputIntents");
+        if (outputIntents.isArrayOfLength(1)) {
+            Object firstElement = outputIntents.arrayGet(0);
+            if (firstElement.isDict()) {
+                Object profile = firstElement.dictLookup("DestOutputProfile");
+                if (profile.isStream()) {
+                    Stream *iccStream = profile.getStream();
+                    const std::vector<unsigned char> profBuf = iccStream->toUnsignedChars(65536, 65536);
+                    displayProfile = make_GfxLCMSProfilePtr(cmsOpenProfileFromMem(profBuf.data(), profBuf.size()));
+                    if (!displayProfile) {
+                        error(errSyntaxWarning, -1, "read ICCBased color space profile error");
+                    }
+                    return displayProfile;
+                }
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+std::shared_ptr<GfxXYZ2DisplayTransforms> Catalog::getXYZ2DisplayTransforms()
+{
+    if (!XYZ2DisplayTransforms) {
+
+        GfxLCMSProfilePtr profile = getDisplayProfile();
+        catalogLocker();
+
+        XYZ2DisplayTransforms = std::make_shared<GfxXYZ2DisplayTransforms>(profile);
+    }
+
+    return XYZ2DisplayTransforms;
+}
+
+#endif

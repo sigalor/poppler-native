@@ -14,12 +14,14 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2010 Jakub Wilk <jwilk@jwilk.net>
-// Copyright (C) 2017-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2017-2020, 2022, 2025, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2017 Jean Ghali <jghali@libertysurf.fr>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
+// Copyright (C) 2024 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -30,49 +32,36 @@
 
 #include <cstdio>
 #include <cstring>
-#include "goo/glibc.h"
-#include "goo/gmem.h"
 #include "goo/gfile.h"
-#include "goo/GooString.h"
+#include "goo/glibc.h"
 #include "Error.h"
 #include "GlobalParams.h"
 #include "UnicodeMap.h"
 
-//------------------------------------------------------------------------
-
-#define maxExtCode 16
-
-struct UnicodeMapExt
-{
-    Unicode u; // Unicode char
-    char code[maxExtCode];
-    unsigned int nBytes;
-};
+// helper for using std::visit to get a dependent false for static_asserts
+// to help get compile errors if one ever extends variants
+template<class>
+inline constexpr bool always_false_v = false;
 
 //------------------------------------------------------------------------
 
-UnicodeMap *UnicodeMap::parse(const std::string &encodingNameA)
+std::unique_ptr<UnicodeMap> UnicodeMap::parse(const std::string &encodingNameA)
 {
     FILE *f;
-    UnicodeMap *map;
-    UnicodeMapRange *range;
-    UnicodeMapExt *eMap;
-    int size, eMapsSize;
     char buf[256];
-    int line, nBytes, i;
+    int line, nBytes;
     char *tok1, *tok2, *tok3;
     char *tokptr;
 
     if (!(f = globalParams->getUnicodeMapFile(encodingNameA))) {
-        error(errSyntaxError, -1, "Couldn't find unicodeMap file for the '{0:s}' encoding", encodingNameA.c_str());
-        return nullptr;
+        error(errSyntaxError, -1, "Couldn't find unicodeMap file for the '{0:r}' encoding", &encodingNameA);
+        return {};
     }
 
-    map = new UnicodeMap(encodingNameA);
+    auto map = std::unique_ptr<UnicodeMap>(new UnicodeMap(encodingNameA));
 
-    size = 8;
-    UnicodeMapRange *customRanges = (UnicodeMapRange *)gmallocn(size, sizeof(UnicodeMapRange));
-    eMapsSize = 0;
+    std::vector<UnicodeMapRange> customRanges;
+    std::vector<UnicodeMapExt> eMap;
 
     line = 1;
     while (getLine(buf, sizeof(buf), f)) {
@@ -83,42 +72,35 @@ UnicodeMap *UnicodeMap::parse(const std::string &encodingNameA)
             }
             nBytes = strlen(tok3) / 2;
             if (nBytes <= 4) {
-                if (map->len == size) {
-                    size *= 2;
-                    customRanges = (UnicodeMapRange *)greallocn(customRanges, size, sizeof(UnicodeMapRange));
-                }
-                range = &customRanges[map->len];
-                sscanf(tok1, "%x", &range->start);
-                sscanf(tok2, "%x", &range->end);
-                sscanf(tok3, "%x", &range->code);
-                range->nBytes = nBytes;
-                ++map->len;
+                UnicodeMapRange range;
+                sscanf(tok1, "%x", &range.start);
+                sscanf(tok2, "%x", &range.end);
+                sscanf(tok3, "%x", &range.code);
+                range.nBytes = nBytes;
+                customRanges.push_back(range);
             } else if (tok2 == tok1) {
-                if (map->eMapsLen == eMapsSize) {
-                    eMapsSize += 16;
-                    map->eMaps = (UnicodeMapExt *)greallocn(map->eMaps, eMapsSize, sizeof(UnicodeMapExt));
-                }
-                eMap = &map->eMaps[map->eMapsLen];
-                sscanf(tok1, "%x", &eMap->u);
-                for (i = 0; i < nBytes; ++i) {
+                UnicodeMapExt ext;
+                sscanf(tok1, "%x", &ext.u);
+                ext.code.reserve(nBytes);
+                for (int i = 0; i < nBytes; ++i) {
                     unsigned int x;
                     sscanf(tok3 + i * 2, "%2x", &x);
-                    eMap->code[i] = (char)x;
+                    ext.code.push_back(static_cast<char>(x));
                 }
-                eMap->nBytes = nBytes;
-                ++map->eMapsLen;
+                eMap.push_back(std::move(ext));
             } else {
-                error(errSyntaxError, -1, "Bad line ({0:d}) in unicodeMap file for the '{1:s}' encoding", line, encodingNameA.c_str());
+                error(errSyntaxError, -1, "Bad line ({0:d}) in unicodeMap file for the '{1:r}' encoding", line, &encodingNameA);
             }
         } else {
-            error(errSyntaxError, -1, "Bad line ({0:d}) in unicodeMap file for the '{1:s}' encoding", line, encodingNameA.c_str());
+            error(errSyntaxError, -1, "Bad line ({0:d}) in unicodeMap file for the '{1:r}' encoding", line, &encodingNameA);
         }
         ++line;
     }
 
     fclose(f);
 
-    map->ranges = customRanges;
+    map->eMaps = std::move(eMap);
+    map->data = std::move(customRanges);
     return map;
 }
 
@@ -126,63 +108,31 @@ UnicodeMap::UnicodeMap(const std::string &encodingNameA)
 {
     encodingName = encodingNameA;
     unicodeOut = false;
-    kind = unicodeMapUser;
-    ranges = nullptr;
-    len = 0;
-    eMaps = nullptr;
-    eMapsLen = 0;
 }
 
-UnicodeMap::UnicodeMap(const char *encodingNameA, bool unicodeOutA, const UnicodeMapRange *rangesA, int lenA)
+UnicodeMap::UnicodeMap(const char *encodingNameA, bool unicodeOutA, std::span<const UnicodeMapRange> rangesA)
 {
     encodingName = encodingNameA;
     unicodeOut = unicodeOutA;
-    kind = unicodeMapResident;
-    ranges = rangesA;
-    len = lenA;
-    eMaps = nullptr;
-    eMapsLen = 0;
+    data = rangesA;
 }
 
 UnicodeMap::UnicodeMap(const char *encodingNameA, bool unicodeOutA, UnicodeMapFunc funcA)
 {
     encodingName = encodingNameA;
     unicodeOut = unicodeOutA;
-    kind = unicodeMapFunc;
-    func = funcA;
-    eMaps = nullptr;
-    eMapsLen = 0;
+    data = funcA;
 }
 
-UnicodeMap::~UnicodeMap()
-{
-    if (kind == unicodeMapUser && ranges) {
-        gfree(const_cast<UnicodeMapRange *>(ranges));
-    }
-    if (eMaps) {
-        gfree(eMaps);
-    }
-}
+UnicodeMap::~UnicodeMap() = default;
 
-UnicodeMap::UnicodeMap(UnicodeMap &&other) noexcept : encodingName { std::move(other.encodingName) }, kind { other.kind }, unicodeOut { other.unicodeOut }, len { other.len }, eMaps { other.eMaps }, eMapsLen { other.eMapsLen }
-{
-    switch (kind) {
-    case unicodeMapUser:
-    case unicodeMapResident:
-        ranges = other.ranges;
-        other.ranges = nullptr;
-        break;
-    case unicodeMapFunc:
-        func = other.func;
-        break;
-    }
-    other.eMaps = nullptr;
-}
+UnicodeMap::UnicodeMap(UnicodeMap &&other) noexcept : encodingName { std::move(other.encodingName) }, unicodeOut { other.unicodeOut }, data { std::move(other.data) }, eMaps { std::move(other.eMaps) } { }
 
 UnicodeMap &UnicodeMap::operator=(UnicodeMap &&other) noexcept
 {
-    if (this != &other)
+    if (this != &other) {
         swap(other);
+    }
     return *this;
 }
 
@@ -191,41 +141,8 @@ void UnicodeMap::swap(UnicodeMap &other) noexcept
     using std::swap;
     swap(encodingName, other.encodingName);
     swap(unicodeOut, other.unicodeOut);
-    switch (kind) {
-    case unicodeMapUser:
-    case unicodeMapResident:
-        switch (other.kind) {
-        case unicodeMapUser:
-        case unicodeMapResident:
-            swap(ranges, other.ranges);
-            break;
-        case unicodeMapFunc: {
-            const auto tmp = ranges;
-            func = other.func;
-            other.ranges = tmp;
-            break;
-        }
-        }
-        break;
-    case unicodeMapFunc:
-        switch (other.kind) {
-        case unicodeMapUser:
-        case unicodeMapResident: {
-            const auto tmp = func;
-            ranges = other.ranges;
-            other.func = tmp;
-            break;
-        }
-        case unicodeMapFunc:
-            swap(func, other.func);
-            break;
-        }
-        break;
-    }
-    swap(kind, other.kind);
-    swap(len, other.len);
+    swap(data, other.data);
     swap(eMaps, other.eMaps);
-    swap(eMapsLen, other.eMapsLen);
 }
 
 bool UnicodeMap::match(const std::string &encodingNameA) const
@@ -235,73 +152,74 @@ bool UnicodeMap::match(const std::string &encodingNameA) const
 
 int UnicodeMap::mapUnicode(Unicode u, char *buf, int bufSize) const
 {
-    int a, b, m, n, i, j;
-    unsigned int code;
 
-    if (kind == unicodeMapFunc) {
-        return (*func)(u, buf, bufSize);
-    }
-
-    a = 0;
-    b = len;
-    if (u >= ranges[a].start) {
-        // invariant: ranges[a].start <= u < ranges[b].start
-        while (b - a > 1) {
-            m = (a + b) / 2;
-            if (u >= ranges[m].start) {
-                a = m;
-            } else if (u < ranges[m].start) {
-                b = m;
-            }
-        }
-        if (u <= ranges[a].end) {
-            n = ranges[a].nBytes;
-            if (n > bufSize) {
-                return 0;
-            }
-            code = ranges[a].code + (u - ranges[a].start);
-            for (i = n - 1; i >= 0; --i) {
-                buf[i] = (char)(code & 0xff);
-                code >>= 8;
-            }
-            return n;
-        }
-    }
-
-    for (i = 0; i < eMapsLen; ++i) {
-        if (eMaps[i].u == u) {
-            n = eMaps[i].nBytes;
-            for (j = 0; j < n; ++j) {
-                buf[j] = eMaps[i].code[j];
-            }
-            return n;
-        }
-    }
-
-    return 0;
+    return std::visit(
+            [this, u, buf, bufSize](auto &&item) {
+                using T = std::decay_t<decltype(item)>;
+                if constexpr (std::is_same_v<T, UnicodeMapFunc>) {
+                    return (*item)(u, buf, bufSize);
+                } else if constexpr (std::is_same_v<T, std::span<const UnicodeMapRange>> || std::is_same_v<T, std::vector<UnicodeMapRange>>) {
+                    int a = 0;
+                    int b = static_cast<int>(item.size());
+                    if (u >= item[a].start) {
+                        // invariant: item[a].start <= u < item[b].start
+                        while (b - a > 1) {
+                            int m = (a + b) / 2;
+                            if (u >= item[m].start) {
+                                a = m;
+                            } else if (u < item[m].start) {
+                                b = m;
+                            }
+                        }
+                        if (u <= item[a].end) {
+                            int n = item[a].nBytes;
+                            if (n > bufSize) {
+                                return 0;
+                            }
+                            unsigned int code = item[a].code + (u - item[a].start);
+                            for (int i = n - 1; i >= 0; --i) {
+                                buf[i] = static_cast<char>(code & 0xff);
+                                code >>= 8;
+                            }
+                            return n;
+                        }
+                    }
+                    for (const UnicodeMapExt &ext : eMaps) {
+                        if (ext.u == u) {
+                            const int codeSize = ext.code.size();
+                            if (codeSize > bufSize) {
+                                return 0;
+                            }
+                            for (int j = 0; j < codeSize; ++j) {
+                                buf[j] = ext.code[j];
+                            }
+                            return codeSize;
+                        }
+                    }
+                    return 0;
+                } else {
+                    static_assert(always_false_v<T>);
+                }
+            },
+            data);
 }
 
 //------------------------------------------------------------------------
 
-UnicodeMapCache::UnicodeMapCache() { }
-
-UnicodeMapCache::~UnicodeMapCache()
-{
-    for (UnicodeMap *map : cache) {
-        delete map;
-    }
-}
+UnicodeMapCache::UnicodeMapCache() = default;
 
 const UnicodeMap *UnicodeMapCache::getUnicodeMap(const std::string &encodingName)
 {
-    for (UnicodeMap *map : cache) {
+    for (const std::unique_ptr<UnicodeMap> &map : cache) {
         if (map->match(encodingName)) {
-            return map;
+            return map.get();
         }
     }
-    UnicodeMap *map = UnicodeMap::parse(encodingName);
+    std::unique_ptr<UnicodeMap> map = UnicodeMap::parse(encodingName);
     if (map) {
-        cache.emplace_back(map);
+        UnicodeMap *m = map.get();
+        cache.emplace_back(std::move(map));
+        return m;
     }
-    return map;
+    return nullptr;
 }

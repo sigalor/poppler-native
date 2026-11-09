@@ -3,7 +3,10 @@
 // FlateStream.h
 //
 // Copyright (C) 2005, Jeff Muizelaar <jeff@infidigm.net>
-// Copyright (C) 2010, 2011, 2019, Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2010, 2011, 2019, 2021, 2025 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2025 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
 //
 // This file is under the GPLv2 or later license
 //
@@ -12,39 +15,27 @@
 #ifndef FLATESTREAM_H
 #define FLATESTREAM_H
 
-#include "poppler-config.h"
 #include <cstdio>
-#include <cstdlib>
-#include <cstddef>
-#ifdef HAVE_UNISTD_H
-#    include <unistd.h>
-#endif
-#include <cstring>
-#include <cctype>
-#include "goo/gmem.h"
-#include "goo/gfile.h"
-#include "Error.h"
-#include "Object.h"
-#include "Decrypt.h"
+
 #include "Stream.h"
 
 extern "C" {
 #include <zlib.h>
 }
 
-class FlateStream : public FilterStream
+class FlateStream : public OwnedFilterStream
 {
 public:
-    FlateStream(Stream *strA, int predictor, int columns, int colors, int bits);
+    FlateStream(std::unique_ptr<Stream> strA, int predictor, int columns, int colors, int bits);
     virtual ~FlateStream();
     StreamKind getKind() const override { return strFlate; }
-    void reset() override;
+    [[nodiscard]] bool rewind() override;
     int getChar() override;
     int lookChar() override;
     int getRawChar() override;
     void getRawChars(int nChars, int *buffer) override;
-    GooString *getPSFilter(int psLevel, const char *indent) override;
-    bool isBinary(bool last = true) override;
+    std::optional<std::string> getPSFilter(int psLevel, const char *indent) override;
+    bool isBinary(bool last = true) const override;
 
 private:
     inline int doGetRawChar()

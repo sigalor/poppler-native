@@ -5,10 +5,11 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright (C) 2013 Adrian Johnson <ajohnson@redneon.com>
-// Copyright (C) 2017, 2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2017, 2020, 2021, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2020 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2020 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2024, 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -17,8 +18,6 @@
 
 #include "config.h"
 #include <cstdio>
-#include "Object.h"
-#include "Dict.h"
 #include "Annot.h"
 #include "PDFDoc.h"
 #include "JSInfo.h"
@@ -34,52 +33,48 @@ JSInfo::JSInfo(PDFDoc *docA, int firstPage)
     currentPage = firstPage + 1;
 }
 
-JSInfo::~JSInfo() { }
-
-void JSInfo::printJS(const GooString *js)
+void JSInfo::printJS(std::string_view js)
 {
-    Unicode *u = nullptr;
     char buf[8];
-    int i, n, len;
 
-    if (!js || !js->c_str())
+    if (js.empty()) {
         return;
+    }
 
-    len = TextStringToUCS4(js, &u);
-    for (i = 0; i < len; i++) {
-        n = uniMap->mapUnicode(u[i], buf, sizeof(buf));
+    std::vector<Unicode> u = TextStringToUCS4(js);
+    for (auto &c : u) {
+        int n = uniMap->mapUnicode(c, buf, sizeof(buf));
         fwrite(buf, 1, n, file);
     }
-    gfree(u);
 }
 
-void JSInfo::scanLinkAction(LinkAction *link, const char *action)
+void JSInfo::scanLinkAction(const LinkAction *link, const char *action)
 {
-    if (!link)
+    if (!link) {
         return;
+    }
 
     if (link->getKind() == actionJavaScript) {
         hasJS = true;
         if (print) {
-            LinkJavaScript *linkjs = static_cast<LinkJavaScript *>(link);
+            const auto *linkjs = static_cast<const LinkJavaScript *>(link);
             if (linkjs->isOk()) {
                 const std::string &s = linkjs->getScript();
                 fprintf(file, "%s:\n", action);
-                GooString gooS = GooString(s);
-                printJS(&gooS);
+                printJS(s);
                 fputs("\n\n", file);
             }
         }
     }
 
     if (link->getKind() == actionRendition) {
-        LinkRendition *linkr = static_cast<LinkRendition *>(link);
+        const auto *linkr = static_cast<const LinkRendition *>(link);
         if (!linkr->getScript().empty()) {
             hasJS = true;
             if (print) {
                 fprintf(file, "%s (Rendition):\n", action);
-                const GooString s(linkr->getScript());
-                printJS(&s);
+                const std::string &s(linkr->getScript());
+                printJS(s);
                 fputs("\n\n", file);
             }
         }
@@ -129,15 +124,15 @@ void JSInfo::scan(int nPages)
         if (print) {
             for (int i = 0; i < numNames; i++) {
                 fprintf(file, "Name Dictionary \"%s\":\n", doc->getCatalog()->getJSName(i)->c_str());
-                GooString *js = doc->getCatalog()->getJS(i);
+                std::string js = doc->getCatalog()->getJS(i);
                 printJS(js);
-                delete js;
                 fputs("\n\n", file);
             }
         }
     }
 
     // document actions
+    scanLinkAction(doc->getCatalog()->getOpenAction().get(), "Open Document Action");
     scanLinkAction(doc->getCatalog()->getAdditionalAction(Catalog::actionCloseDocument).get(), "Before Close Document");
     scanLinkAction(doc->getCatalog()->getAdditionalAction(Catalog::actionSaveDocumentStart).get(), "Before Save Document");
     scanLinkAction(doc->getCatalog()->getAdditionalAction(Catalog::actionSaveDocumentFinish).get(), "After Save Document");
@@ -179,8 +174,9 @@ void JSInfo::scan(int nPages)
 
     for (int pg = currentPage; pg < lastPage; ++pg) {
         page = doc->getPage(pg);
-        if (!page)
+        if (!page) {
             continue;
+        }
 
         // page actions (open, close)
         scanLinkAction(page->getAdditionalAction(Page::actionOpenPage).get(), "Page Open");
@@ -191,15 +187,15 @@ void JSInfo::scan(int nPages)
         }
         // annotation actions (links, screen, widget)
         annots = page->getAnnots();
-        for (int i = 0; i < annots->getNumAnnots(); ++i) {
-            if (annots->getAnnot(i)->getType() == Annot::typeLink) {
-                AnnotLink *annot = static_cast<AnnotLink *>(annots->getAnnot(i));
+        for (const std::shared_ptr<Annot> &a : annots->getAnnots()) {
+            if (a->getType() == Annot::typeLink) {
+                auto *annot = static_cast<AnnotLink *>(a.get());
                 scanLinkAction(annot->getAction(), "Link Annotation Activated");
                 if (onlyFirstJS && hasJS) {
                     return;
                 }
-            } else if (annots->getAnnot(i)->getType() == Annot::typeScreen) {
-                AnnotScreen *annot = static_cast<AnnotScreen *>(annots->getAnnot(i));
+            } else if (a->getType() == Annot::typeScreen) {
+                auto *annot = static_cast<AnnotScreen *>(a.get());
                 scanLinkAction(annot->getAction(), "Screen Annotation Activated");
                 scanLinkAction(annot->getAdditionalAction(Annot::actionCursorEntering).get(), "Screen Annotation Cursor Enter");
                 scanLinkAction(annot->getAdditionalAction(Annot::actionCursorLeaving).get(), "Screen Annotation Cursor Leave");
@@ -215,8 +211,8 @@ void JSInfo::scan(int nPages)
                 if (onlyFirstJS && hasJS) {
                     return;
                 }
-            } else if (annots->getAnnot(i)->getType() == Annot::typeWidget) {
-                AnnotWidget *annot = static_cast<AnnotWidget *>(annots->getAnnot(i));
+            } else if (a->getType() == Annot::typeWidget) {
+                auto *annot = static_cast<AnnotWidget *>(a.get());
                 scanLinkAction(annot->getAction(), "Widget Annotation Activated");
                 scanLinkAction(annot->getAdditionalAction(Annot::actionCursorEntering).get(), "Widget Annotation Cursor Enter");
                 scanLinkAction(annot->getAdditionalAction(Annot::actionCursorLeaving).get(), "Widget Annotation Cursor Leave");
@@ -238,7 +234,7 @@ void JSInfo::scan(int nPages)
     currentPage = lastPage;
 }
 
-bool JSInfo::containsJS()
+bool JSInfo::containsJS() const
 {
     return hasJS;
 }

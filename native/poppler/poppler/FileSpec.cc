@@ -7,11 +7,14 @@
 //
 // Copyright (C) 2008-2009 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2009 Kovid Goyal <kovid@kovidgoyal.net>
-// Copyright (C) 2012, 2017-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2012, 2017-2021, 2024, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2012 Hib Eris <hib@hiberis.nl>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2019 Christian Persch <chpe@src.gnome.org>
+// Copyright (C) 2024-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -44,50 +47,48 @@ EmbFile::EmbFile(Object &&efStream)
 
     if (m_objStr.isStream()) {
         // dataDict corresponds to Table 3.41 in the PDF1.6 spec.
-        Dict *dataDict = m_objStr.streamGetDict();
+        Dict *dataDict = m_objStr.getStream()->getDict();
 
         // subtype is normally the mimetype
         Object subtypeName = dataDict->lookup("Subtype");
         if (subtypeName.isName()) {
-            m_mimetype = new GooString(subtypeName.getName());
+            m_mimetype = std::make_unique<GooString>(subtypeName.getNameString());
         }
 
         // paramDict corresponds to Table 3.42 in the PDF1.6 spec
         Object paramDict = dataDict->lookup("Params");
         if (paramDict.isDict()) {
             Object paramObj = paramDict.dictLookup("ModDate");
-            if (paramObj.isString())
-                m_modDate = new GooString(paramObj.getString());
+            if (paramObj.isString()) {
+                m_modDate = paramObj.takeString();
+            }
 
             paramObj = paramDict.dictLookup("CreationDate");
-            if (paramObj.isString())
-                m_createDate = new GooString(paramObj.getString());
+            if (paramObj.isString()) {
+                m_createDate = paramObj.takeString();
+            }
 
             paramObj = paramDict.dictLookup("Size");
-            if (paramObj.isInt())
+            if (paramObj.isInt()) {
                 m_size = paramObj.getInt();
+            }
 
             paramObj = paramDict.dictLookup("CheckSum");
-            if (paramObj.isString())
-                m_checksum = new GooString(paramObj.getString());
+            if (paramObj.isString()) {
+                m_checksum = paramObj.takeString();
+            }
         }
     }
 }
 
-EmbFile::~EmbFile()
-{
-    delete m_createDate;
-    delete m_modDate;
-    delete m_checksum;
-    delete m_mimetype;
-}
+EmbFile::~EmbFile() = default;
 
-bool EmbFile::save(const char *path)
+bool EmbFile::save(const std::string &path)
 {
     FILE *f;
     bool ret;
 
-    if (!(f = openFile(path, "wb"))) {
+    if (!(f = openFile(path.c_str(), "wb"))) {
         return false;
     }
     ret = save2(f);
@@ -99,11 +100,16 @@ bool EmbFile::save2(FILE *f)
 {
     int c;
 
-    if (unlikely(!m_objStr.isStream()))
+    if (unlikely(!m_objStr.isStream())) {
         return false;
+    }
 
-    m_objStr.streamReset();
-    while ((c = m_objStr.streamGetChar()) != EOF) {
+    Stream *stream = m_objStr.getStream();
+
+    if (!stream->rewind()) {
+        return false;
+    }
+    while ((c = stream->getChar()) != EOF) {
         fputc(c, f);
     }
     return true;
@@ -112,10 +118,7 @@ bool EmbFile::save2(FILE *f)
 FileSpec::FileSpec(const Object *fileSpecA)
 {
     ok = true;
-    fileName = nullptr;
-    platformFileName = nullptr;
     embFile = nullptr;
-    desc = nullptr;
     fileSpec = fileSpecA->copy();
 
     Object obj1 = getFileSpecName(fileSpecA);
@@ -125,7 +128,7 @@ FileSpec::FileSpec(const Object *fileSpecA)
         return;
     }
 
-    fileName = obj1.getString()->copy();
+    fileName = obj1.takeString();
 
     if (fileSpec.isDict()) {
         obj1 = fileSpec.dictLookup("EF");
@@ -141,70 +144,66 @@ FileSpec::FileSpec(const Object *fileSpecA)
 
         obj1 = fileSpec.dictLookup("Desc");
         if (obj1.isString()) {
-            desc = obj1.getString()->copy();
+            desc = obj1.takeString();
         }
     }
 }
 
-FileSpec::~FileSpec()
-{
-    delete fileName;
-    delete platformFileName;
-    delete embFile;
-    delete desc;
-}
+FileSpec::~FileSpec() = default;
 
 EmbFile *FileSpec::getEmbeddedFile()
 {
-    if (!ok || !fileSpec.isDict())
+    if (!ok || !fileSpec.isDict()) {
         return nullptr;
+    }
 
-    if (embFile)
-        return embFile;
+    if (embFile) {
+        return embFile.get();
+    }
 
     XRef *xref = fileSpec.getDict()->getXRef();
-    embFile = new EmbFile(fileStream.fetch(xref));
+    embFile = std::make_unique<EmbFile>(fileStream.fetch(xref));
 
-    return embFile;
+    return embFile.get();
 }
 
 Object FileSpec::newFileSpecObject(XRef *xref, GooFile *file, const std::string &fileName)
 {
-    Object paramsDict = Object(new Dict(xref));
+    Object paramsDict = Object(std::make_unique<Dict>(xref));
     paramsDict.dictSet("Size", Object(file->size()));
 
     // No Subtype in the embedded file stream dictionary for now
-    Object streamDict = Object(new Dict(xref));
+    Object streamDict = Object(std::make_unique<Dict>(xref));
     streamDict.dictSet("Length", Object(file->size()));
     streamDict.dictSet("Params", std::move(paramsDict));
 
-    FileStream *fStream = new FileStream(file, 0, false, file->size(), std::move(streamDict));
+    auto fStream = std::make_unique<FileStream>(file, 0, false, file->size(), std::move(streamDict));
     fStream->setNeedsEncryptionOnSave(true);
-    Stream *stream = fStream;
-    Object streamObj = Object(stream);
-    const Ref streamRef = xref->addIndirectObject(&streamObj);
+    const Ref streamRef = xref->addIndirectObject(Object(std::move(fStream)));
 
-    Dict *efDict = new Dict(xref);
+    auto efDict = std::make_unique<Dict>(xref);
     efDict->set("F", Object(streamRef));
 
-    Dict *fsDict = new Dict(xref);
-    fsDict->set("Type", Object(objName, "Filespec"));
-    fsDict->set("UF", Object(new GooString(fileName)));
-    fsDict->set("EF", Object(efDict));
+    auto fsDict = std::make_unique<Dict>(xref);
+    fsDict->set("Type", Object::name("Filespec"));
+    fsDict->set("UF", Object(std::string { fileName }));
+    fsDict->set("EF", Object(std::move(efDict)));
 
-    return Object(fsDict);
+    return Object(std::move(fsDict));
 }
 
 GooString *FileSpec::getFileNameForPlatform()
 {
-    if (platformFileName)
-        return platformFileName;
+    if (platformFileName) {
+        return platformFileName.get();
+    }
 
     Object obj1 = getFileSpecNameForPlatform(&fileSpec);
-    if (obj1.isString())
-        platformFileName = obj1.getString()->copy();
+    if (obj1.isString()) {
+        platformFileName = obj1.takeString();
+    }
 
-    return platformFileName;
+    return platformFileName.get();
 }
 
 Object getFileSpecName(const Object *fileSpec)
@@ -269,42 +268,42 @@ Object getFileSpecNameForPlatform(const Object *fileSpec)
 
     // system-dependent path manipulation
 #ifdef _WIN32
-    int i, j;
-    GooString *name = fileName.getString()->copy();
+    size_t i, j;
+    std::string name = fileName.getString();
     // "//...."             --> "\...."
     // "/x/...."            --> "x:\...."
     // "/server/share/...." --> "\\server\share\...."
     // convert escaped slashes to slashes and unescaped slashes to backslashes
     i = 0;
-    if (name->getChar(0) == '/') {
-        if (name->getLength() >= 2 && name->getChar(1) == '/') {
-            name->del(0);
+    if (name.at(0) == '/') {
+        if (name.size() >= 2 && name.at(1) == '/') {
+            name.erase(0, 1);
             i = 0;
-        } else if (name->getLength() >= 2 && ((name->getChar(1) >= 'a' && name->getChar(1) <= 'z') || (name->getChar(1) >= 'A' && name->getChar(1) <= 'Z')) && (name->getLength() == 2 || name->getChar(2) == '/')) {
-            name->setChar(0, name->getChar(1));
-            name->setChar(1, ':');
+        } else if (name.size() >= 2 && ((name.at(1) >= 'a' && name.at(1) <= 'z') || (name.at(1) >= 'A' && name.at(1) <= 'Z')) && (name.size() == 2 || name.at(2) == '/')) {
+            name[0] = name.at(1);
+            name[1] = ':';
             i = 2;
         } else {
-            for (j = 2; j < name->getLength(); ++j) {
-                if (name->getChar(j - 1) != '\\' && name->getChar(j) == '/') {
+            for (j = 2; j < name.size(); ++j) {
+                if (name.at(j - 1) != '\\' && name.at(j) == '/') {
                     break;
                 }
             }
-            if (j < name->getLength()) {
-                name->setChar(0, '\\');
-                name->insert(0, '\\');
+            if (j < name.size()) {
+                name[0] = '\\';
+                name.insert(0, "\\");
                 i = 2;
             }
         }
     }
-    for (; i < name->getLength(); ++i) {
-        if (name->getChar(i) == '/') {
-            name->setChar(i, '\\');
-        } else if (name->getChar(i) == '\\' && i + 1 < name->getLength() && name->getChar(i + 1) == '/') {
-            name->del(i);
+    for (; i < name.size(); ++i) {
+        if (name.at(i) == '/') {
+            name[i] = '\\';
+        } else if (name.at(i) == '\\' && i + 1 < name.size() && name.at(i + 1) == '/') {
+            name.erase(i, 1);
         }
     }
-    fileName = Object(name);
+    fileName = Object(std::move(name));
 #endif /* _WIN32 */
 
     return fileName;

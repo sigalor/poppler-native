@@ -14,7 +14,7 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2009 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright (C) 2010, 2018-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2010, 2018-2021, 2025, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2011, 2014 William Bader <williambader@hotmail.com>
 // Copyright (C) 2011, 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2011 Adrian Johnson <ajohnson@redneon.com>
@@ -40,7 +40,7 @@ class PreScanOutputDev : public OutputDev
 {
 public:
     // Constructor.
-    PreScanOutputDev(PSLevel levelA);
+    explicit PreScanOutputDev(PSLevel levelA);
 
     // Destructor.
     ~PreScanOutputDev() override;
@@ -62,7 +62,7 @@ public:
     // Does this device use functionShadedFill(), axialShadedFill(), and
     // radialShadedFill()?  If this returns false, these shaded fills
     // will be reduced to a series of other drawing operations.
-    bool useShadedFills(int type) override { return true; }
+    bool useShadedFills(int /*type*/) override { return true; }
 
     // Does this device use beginType3Char/endType3Char?  Otherwise,
     // text in Type 3 fonts will be drawn with drawChar/drawString.
@@ -80,7 +80,7 @@ public:
     void stroke(GfxState *state) override;
     void fill(GfxState *state) override;
     void eoFill(GfxState *state) override;
-    bool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, GfxTilingPattern *tPat, const double *mat, int x0, int y0, int x1, int y1, double xStep, double yStep) override;
+    bool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, GfxTilingPattern *tPat, const std::array<double, 6> &mat, int x0, int y0, int x1, int y1, double xStep, double yStep) override;
     bool functionShadedFill(GfxState *state, GfxFunctionShading *shading) override;
     bool axialShadedFill(GfxState *state, GfxAxialShading *shading, double tMin, double tMax) override;
     bool radialShadedFill(GfxState *state, GfxRadialShading *shading, double tMin, double tMax) override;
@@ -103,38 +103,38 @@ public:
                              bool maskInterpolate) override;
 
     //----- transparency groups and soft masks
-    void beginTransparencyGroup(GfxState *state, const double *bbox, GfxColorSpace *blendingColorSpace, bool isolated, bool knockout, bool forSoftMask) override;
-    void paintTransparencyGroup(GfxState *state, const double *bbox) override;
-    void setSoftMask(GfxState *state, const double *bbox, bool alpha, Function *transferFunc, GfxColor *backdropColor) override;
+    void beginTransparencyGroup(GfxState *state, const std::array<double, 4> &bbox, GfxColorSpace *blendingColorSpace, bool isolated, bool knockout, bool forSoftMask) override;
+    void paintTransparencyGroup(GfxState *state, const std::array<double, 4> &bbox) override;
+    void setSoftMask(GfxState *state, const std::array<double, 4> &bbox, bool alpha, Function *transferFunc, const GfxColor &backdropColor) override;
 
     //----- special access
 
     // Returns true if the operations performed since the last call to
     // clearStats() are all monochrome (black or white).
-    bool isMonochrome() { return mono; }
+    bool isMonochrome() const { return mono; }
 
     // Returns true if the operations performed since the last call to
     // clearStats() are all gray.
-    bool isGray() { return gray; }
+    bool isGray() const { return gray; }
 
     // Returns true if the operations performed since the last call to
     // clearStats() included any transparency.
-    bool usesTransparency() { return transparency; }
+    bool usesTransparency() const { return transparency; }
 
     // Returns true if the operations performed since the last call to
     // clearStats() are all rasterizable by GDI calls in GDIOutputDev.
-    bool isAllGDI() { return gdi; }
+    bool isAllGDI() const { return gdi; }
 
     // Returns true if the operations performed since the last call to
     // clearStats() included any image mask fills with a pattern color
     // space. (only level1!)
-    bool usesPatternImageMask() { return patternImgMask; }
+    bool usesPatternImageMask() const { return patternImgMask; }
 
     // Clear the stats used by the above functions.
     void clearStats();
 
 private:
-    void check(GfxColorSpace *colorSpace, const GfxColor *color, double opacity, GfxBlendMode blendMode);
+    void check(GfxColorSpace *colorSpace, const GfxColor &color, double opacity, GfxBlendMode blendMode);
 
     bool mono;
     bool gray;

@@ -14,9 +14,10 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2013 Christoph Duelli <duelli@melosgmbh.de>
-// Copyright (C) 2018 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2018, 2021, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2019 Christian Persch <chpe@src.gnome.org>
 // Copyright (C) 2019 LE GARREC Vincent <legarrec.vincent@gmail.com>
+// Copyright (C) 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -41,7 +42,7 @@ public:
     Reader(const Reader &) = delete;
     Reader &operator=(const Reader &other) = delete;
 
-    virtual ~Reader() { }
+    virtual ~Reader() = default;
 
     // Read one byte.  Returns -1 if past EOF.
     virtual int getByte(int pos) = 0;
@@ -68,104 +69,14 @@ public:
 
 //------------------------------------------------------------------------
 
-class MemReader : public Reader
-{
-public:
-    static MemReader *make(const char *bufA, int lenA);
-    ~MemReader() override;
-    int getByte(int pos) override;
-    bool getU16BE(int pos, int *val) override;
-    bool getU32BE(int pos, unsigned int *val) override;
-    bool getU32LE(int pos, unsigned int *val) override;
-    bool getUVarBE(int pos, int size, unsigned int *val) override;
-    bool cmp(int pos, const char *s) override;
-
-private:
-    MemReader(const char *bufA, int lenA);
-
-    const char *buf;
-    int len;
-};
-
-MemReader *MemReader::make(const char *bufA, int lenA)
-{
-    return new MemReader(bufA, lenA);
-}
-
-MemReader::MemReader(const char *bufA, int lenA)
-{
-    buf = bufA;
-    len = lenA;
-}
-
-MemReader::~MemReader() { }
-
-int MemReader::getByte(int pos)
-{
-    if (pos < 0 || pos >= len) {
-        return -1;
-    }
-    return buf[pos] & 0xff;
-}
-
-bool MemReader::getU16BE(int pos, int *val)
-{
-    if (pos < 0 || pos > len - 2) {
-        return false;
-    }
-    *val = ((buf[pos] & 0xff) << 8) + (buf[pos + 1] & 0xff);
-    return true;
-}
-
-bool MemReader::getU32BE(int pos, unsigned int *val)
-{
-    if (pos < 0 || pos > len - 4) {
-        return false;
-    }
-    *val = ((buf[pos] & 0xff) << 24) + ((buf[pos + 1] & 0xff) << 16) + ((buf[pos + 2] & 0xff) << 8) + (buf[pos + 3] & 0xff);
-    return true;
-}
-
-bool MemReader::getU32LE(int pos, unsigned int *val)
-{
-    if (pos < 0 || pos > len - 4) {
-        return false;
-    }
-    *val = (buf[pos] & 0xff) + ((buf[pos + 1] & 0xff) << 8) + ((buf[pos + 2] & 0xff) << 16) + ((buf[pos + 3] & 0xff) << 24);
-    return true;
-}
-
-bool MemReader::getUVarBE(int pos, int size, unsigned int *val)
-{
-    int i;
-
-    if (size < 1 || size > 4 || pos < 0 || pos > len - size) {
-        return false;
-    }
-    *val = 0;
-    for (i = 0; i < size; ++i) {
-        *val = (*val << 8) + (buf[pos + i] & 0xff);
-    }
-    return true;
-}
-
-bool MemReader::cmp(int pos, const char *s)
-{
-    int n;
-
-    n = (int)strlen(s);
-    if (pos < 0 || len < n || pos > len - n) {
-        return false;
-    }
-    return !memcmp(buf + pos, s, n);
-}
-
-//------------------------------------------------------------------------
-
 class FileReader : public Reader
 {
+    class PrivateTag
+    {
+    };
+
 public:
-    static FileReader *make(const char *fileName);
+    static std::unique_ptr<FileReader> make(const char *fileName);
     ~FileReader() override;
     int getByte(int pos) override;
     bool getU16BE(int pos, int *val) override;
@@ -174,8 +85,9 @@ public:
     bool getUVarBE(int pos, int size, unsigned int *val) override;
     bool cmp(int pos, const char *s) override;
 
+    explicit FileReader(FILE *fA);
+
 private:
-    FileReader(FILE *fA);
     bool fillBuf(int pos, int len);
 
     FILE *f;
@@ -183,14 +95,14 @@ private:
     int bufPos, bufLen;
 };
 
-FileReader *FileReader::make(const char *fileName)
+std::unique_ptr<FileReader> FileReader::make(const char *fileName)
 {
     FILE *fA;
 
     if (!(fA = openFile(fileName, "rb"))) {
         return nullptr;
     }
-    return new FileReader(fA);
+    return std::make_unique<FileReader>(fA);
 }
 
 FileReader::FileReader(FILE *fA)
@@ -258,7 +170,7 @@ bool FileReader::cmp(int pos, const char *s)
 {
     int n;
 
-    n = (int)strlen(s);
+    n = static_cast<int>(strlen(s));
     if (!fillBuf(pos, n)) {
         return false;
     }
@@ -267,7 +179,8 @@ bool FileReader::cmp(int pos, const char *s)
 
 bool FileReader::fillBuf(int pos, int len)
 {
-    if (pos < 0 || len < 0 || len > (int)sizeof(buf) || pos > INT_MAX - (int)sizeof(buf)) {
+    constexpr int bufSize = sizeof(buf);
+    if (pos < 0 || len < 0 || len > bufSize || pos > INT_MAX - bufSize) {
         return false;
     }
     if (pos >= bufPos && pos + len <= bufPos + bufLen) {
@@ -277,19 +190,20 @@ bool FileReader::fillBuf(int pos, int len)
         return false;
     }
     bufPos = pos;
-    bufLen = (int)fread(buf, 1, sizeof(buf), f);
-    if (bufLen < len) {
-        return false;
-    }
-    return true;
+    bufLen = static_cast<int>(fread(buf, 1, sizeof(buf), f));
+    return bufLen >= len;
 }
 
 //------------------------------------------------------------------------
 
 class StreamReader : public Reader
 {
+    class PrivateTag
+    {
+    };
+
 public:
-    static StreamReader *make(int (*getCharA)(void *data), void *dataA);
+    static std::unique_ptr<StreamReader> make(int (*getCharA)(void *data), void *dataA);
     ~StreamReader() override;
     int getByte(int pos) override;
     bool getU16BE(int pos, int *val) override;
@@ -298,8 +212,9 @@ public:
     bool getUVarBE(int pos, int size, unsigned int *val) override;
     bool cmp(int pos, const char *s) override;
 
+    StreamReader(int (*getCharA)(void *data), void *dataA, PrivateTag /*unused*/ = {});
+
 private:
-    StreamReader(int (*getCharA)(void *data), void *dataA);
     bool fillBuf(int pos, int len);
 
     int (*getChar)(void *data);
@@ -309,12 +224,12 @@ private:
     int bufPos, bufLen;
 };
 
-StreamReader *StreamReader::make(int (*getCharA)(void *data), void *dataA)
+std::unique_ptr<StreamReader> StreamReader::make(int (*getCharA)(void *data), void *dataA)
 {
-    return new StreamReader(getCharA, dataA);
+    return std::make_unique<StreamReader>(getCharA, dataA);
 }
 
-StreamReader::StreamReader(int (*getCharA)(void *data), void *dataA)
+StreamReader::StreamReader(int (*getCharA)(void *data), void *dataA, PrivateTag /*unused*/)
 {
     getChar = getCharA;
     data = dataA;
@@ -323,7 +238,7 @@ StreamReader::StreamReader(int (*getCharA)(void *data), void *dataA)
     bufLen = 0;
 }
 
-StreamReader::~StreamReader() { }
+StreamReader::~StreamReader() = default;
 
 int StreamReader::getByte(int pos)
 {
@@ -376,7 +291,7 @@ bool StreamReader::getUVarBE(int pos, int size, unsigned int *val)
 
 bool StreamReader::cmp(int pos, const char *s)
 {
-    const int n = (int)strlen(s);
+    const int n = static_cast<int>(strlen(s));
     if (!fillBuf(pos, n)) {
         return false;
     }
@@ -388,7 +303,8 @@ bool StreamReader::fillBuf(int pos, int len)
 {
     int c;
 
-    if (pos < 0 || len < 0 || len > (int)sizeof(buf) || pos > INT_MAX - (int)sizeof(buf)) {
+    constexpr int bufSize = sizeof(buf);
+    if (pos < 0 || len < 0 || len > bufSize || pos > INT_MAX - bufSize) {
         return false;
     }
     if (pos < bufPos) {
@@ -396,7 +312,7 @@ bool StreamReader::fillBuf(int pos, int len)
     }
 
     // if requested region will not fit in the current buffer...
-    if (pos + len > bufPos + (int)sizeof(buf)) {
+    if (pos + len > bufPos + bufSize) {
 
         // if the start of the requested data is already in the buffer, move
         // it to the start of the buffer
@@ -424,7 +340,7 @@ bool StreamReader::fillBuf(int pos, int len)
         if ((c = (*getChar)(data)) < 0) {
             return false;
         }
-        buf[bufLen++] = (char)c;
+        buf[bufLen++] = static_cast<char>(c);
     }
 
     return true;
@@ -438,43 +354,24 @@ static FoFiIdentifierType identify(Reader *reader);
 static FoFiIdentifierType identifyOpenType(Reader *reader);
 static FoFiIdentifierType identifyCFF(Reader *reader, int start);
 
-FoFiIdentifierType FoFiIdentifier::identifyMem(const char *file, int len)
-{
-    MemReader *reader;
-    FoFiIdentifierType type;
-
-    if (!(reader = MemReader::make(file, len))) {
-        return fofiIdError;
-    }
-    type = identify(reader);
-    delete reader;
-    return type;
-}
-
 FoFiIdentifierType FoFiIdentifier::identifyFile(const char *fileName)
 {
-    FileReader *reader;
-    FoFiIdentifierType type;
 
-    if (!(reader = FileReader::make(fileName))) {
+    std::unique_ptr<FileReader> reader = FileReader::make(fileName);
+    if (!reader) {
         return fofiIdError;
     }
-    type = identify(reader);
-    delete reader;
-    return type;
+    return identify(reader.get());
 }
 
 FoFiIdentifierType FoFiIdentifier::identifyStream(int (*getChar)(void *data), void *data)
 {
-    StreamReader *reader;
-    FoFiIdentifierType type;
+    std::unique_ptr<StreamReader> reader = StreamReader::make(getChar, data);
 
-    if (!(reader = StreamReader::make(getChar, data))) {
+    if (!reader) {
         return fofiIdError;
     }
-    type = identify(reader);
-    delete reader;
-    return type;
+    return identify(reader.get());
 }
 
 static FoFiIdentifierType identify(Reader *reader)
@@ -534,8 +431,8 @@ static FoFiIdentifierType identifyOpenType(Reader *reader)
     }
     for (i = 0; i < nTables; ++i) {
         if (reader->cmp(12 + i * 16, "CFF ")) {
-            if (reader->getU32BE(12 + i * 16 + 8, &offset) && offset < (unsigned int)INT_MAX) {
-                type = identifyCFF(reader, (int)offset);
+            if (reader->getU32BE(12 + i * 16 + 8, &offset) && offset < static_cast<unsigned int>(INT_MAX)) {
+                type = identifyCFF(reader, static_cast<int>(offset));
                 if (type == fofiIdCFF8Bit) {
                     type = fofiIdOpenTypeCFF8Bit;
                 } else if (type == fofiIdCFFCID) {
@@ -579,10 +476,10 @@ static FoFiIdentifierType identifyCFF(Reader *reader, int start)
         if ((offSize1 = reader->getByte(pos + 2)) < 1 || offSize1 > 4) {
             return fofiIdUnknown;
         }
-        if (!reader->getUVarBE(pos + 3 + n * offSize1, offSize1, &offset1) || offset1 > (unsigned int)INT_MAX) {
+        if (!reader->getUVarBE(pos + 3 + n * offSize1, offSize1, &offset1) || offset1 > static_cast<unsigned int>(INT_MAX)) {
             return fofiIdUnknown;
         }
-        pos += 3 + (n + 1) * offSize1 + (int)offset1 - 1;
+        pos += 3 + (n + 1) * offSize1 + static_cast<int>(offset1) - 1;
     }
     if (pos < 0) {
         return fofiIdUnknown;
@@ -595,10 +492,10 @@ static FoFiIdentifierType identifyCFF(Reader *reader, int start)
     if ((offSize1 = reader->getByte(pos + 2)) < 1 || offSize1 > 4) {
         return fofiIdUnknown;
     }
-    if (!reader->getUVarBE(pos + 3, offSize1, &offset0) || offset0 > (unsigned int)INT_MAX || !reader->getUVarBE(pos + 3 + offSize1, offSize1, &offset1) || offset1 > (unsigned int)INT_MAX || offset0 > offset1) {
+    if (!reader->getUVarBE(pos + 3, offSize1, &offset0) || offset0 > static_cast<unsigned int>(INT_MAX) || !reader->getUVarBE(pos + 3 + offSize1, offSize1, &offset1) || offset1 > static_cast<unsigned int>(INT_MAX) || offset0 > offset1) {
         return fofiIdUnknown;
     }
-    if (checkedAdd(pos + 3 + (n + 1) * offSize1, (int)offset0 - 1, &pos) || checkedAdd(pos + 3 + (n + 1) * offSize1, (int)offset1 - 1, &endPos) || pos < 0 || endPos < 0 || pos > endPos) {
+    if (checkedAdd(pos + 3 + (n + 1) * offSize1, static_cast<int>(offset0) - 1, &pos) || checkedAdd(pos + 3 + (n + 1) * offSize1, static_cast<int>(offset1) - 1, &endPos) || pos < 0 || endPos < 0 || pos > endPos) {
         return fofiIdUnknown;
     }
 
@@ -622,7 +519,6 @@ static FoFiIdentifierType identifyCFF(Reader *reader, int start)
     }
     if (pos + 1 < endPos && reader->getByte(pos) == 12 && reader->getByte(pos + 1) == 30) {
         return fofiIdCFFCID;
-    } else {
-        return fofiIdCFF8Bit;
     }
+    return fofiIdCFF8Bit;
 }

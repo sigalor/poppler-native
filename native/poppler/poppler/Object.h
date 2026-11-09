@@ -15,7 +15,7 @@
 //
 // Copyright (C) 2007 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright (C) 2008 Kees Cook <kees@outflux.net>
-// Copyright (C) 2008, 2010, 2017-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2008, 2010, 2017-2021, 2023-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009 Jakub Wilk <jwilk@jwilk.net>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
@@ -25,6 +25,12 @@
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
+// Copyright (C) 2023 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2024-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Jonathan Hähne <jonathan.haehne@hotmail.com>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
+// Copyright (C) 2026 Adam Sampson <ats@offog.org>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -35,46 +41,45 @@
 #define OBJECT_H
 
 #include <cassert>
-#include <set>
 #include <cstdio>
-#include <cstring>
-#include <climits>
-#include "goo/gmem.h"
+#include <cstdlib>
+#include <variant>
 #include "goo/GooString.h"
 #include "goo/GooLikely.h"
 #include "Error.h"
+#include "Ref.h"
 #include "poppler_private_export.h"
 
 #define OBJECT_TYPE_CHECK(wanted_type)                                                                                                                                                                                                         \
-    if (unlikely(type != wanted_type)) {                                                                                                                                                                                                       \
-        error(errInternal, 0,                                                                                                                                                                                                                  \
-              "Call to Object where the object was type {0:d}, "                                                                                                                                                                               \
-              "not the expected type {1:d}",                                                                                                                                                                                                   \
-              type, wanted_type);                                                                                                                                                                                                              \
+    if (unlikely(type != (wanted_type))) {                                                                                                                                                                                                     \
+        ::error(errInternal, 0,                                                                                                                                                                                                                \
+                "Call to Object where the object was type {0:d}, "                                                                                                                                                                             \
+                "not the expected type {1:d}",                                                                                                                                                                                                 \
+                type, wanted_type);                                                                                                                                                                                                            \
         abort();                                                                                                                                                                                                                               \
     }
 
 #define OBJECT_2TYPES_CHECK(wanted_type1, wanted_type2)                                                                                                                                                                                        \
-    if (unlikely(type != wanted_type1) && unlikely(type != wanted_type2)) {                                                                                                                                                                    \
-        error(errInternal, 0,                                                                                                                                                                                                                  \
-              "Call to Object where the object was type {0:d}, "                                                                                                                                                                               \
-              "not the expected type {1:d} or {2:d}",                                                                                                                                                                                          \
-              type, wanted_type1, wanted_type2);                                                                                                                                                                                               \
+    if (unlikely(type != (wanted_type1)) && unlikely(type != (wanted_type2))) {                                                                                                                                                                \
+        ::error(errInternal, 0,                                                                                                                                                                                                                \
+                "Call to Object where the object was type {0:d}, "                                                                                                                                                                             \
+                "not the expected type {1:d} or {2:d}",                                                                                                                                                                                        \
+                type, wanted_type1, wanted_type2);                                                                                                                                                                                             \
         abort();                                                                                                                                                                                                                               \
     }
 
 #define OBJECT_3TYPES_CHECK(wanted_type1, wanted_type2, wanted_type3)                                                                                                                                                                          \
-    if (unlikely(type != wanted_type1) && unlikely(type != wanted_type2) && unlikely(type != wanted_type3)) {                                                                                                                                  \
-        error(errInternal, 0,                                                                                                                                                                                                                  \
-              "Call to Object where the object was type {0:d}, "                                                                                                                                                                               \
-              "not the expected type {1:d}, {2:d} or {3:d}",                                                                                                                                                                                   \
-              type, wanted_type1, wanted_type2, wanted_type3);                                                                                                                                                                                 \
+    if (unlikely(type != (wanted_type1)) && unlikely(type != (wanted_type2)) && unlikely(type != (wanted_type3))) {                                                                                                                            \
+        ::error(errInternal, 0,                                                                                                                                                                                                                \
+                "Call to Object where the object was type {0:d}, "                                                                                                                                                                             \
+                "not the expected type {1:d}, {2:d} or {3:d}",                                                                                                                                                                                 \
+                type, wanted_type1, wanted_type2, wanted_type3);                                                                                                                                                                               \
         abort();                                                                                                                                                                                                                               \
     }
 
 #define CHECK_NOT_DEAD                                                                                                                                                                                                                         \
     if (unlikely(type == objDead)) {                                                                                                                                                                                                           \
-        error(errInternal, 0, "Call to dead object");                                                                                                                                                                                          \
+        ::error(errInternal, 0, "Call to dead object");                                                                                                                                                                                        \
         abort();                                                                                                                                                                                                                               \
     }
 
@@ -82,48 +87,6 @@ class XRef;
 class Array;
 class Dict;
 class Stream;
-
-//------------------------------------------------------------------------
-// Ref
-//------------------------------------------------------------------------
-
-struct Ref
-{
-    int num; // object number
-    int gen; // generation number
-
-    static constexpr Ref INVALID() { return { -1, -1 }; };
-};
-
-inline bool operator==(const Ref lhs, const Ref rhs) noexcept
-{
-    return lhs.num == rhs.num && lhs.gen == rhs.gen;
-}
-
-inline bool operator!=(const Ref lhs, const Ref rhs) noexcept
-{
-    return lhs.num != rhs.num || lhs.gen != rhs.gen;
-}
-
-inline bool operator<(const Ref lhs, const Ref rhs) noexcept
-{
-    if (lhs.num != rhs.num)
-        return lhs.num < rhs.num;
-    return lhs.gen < rhs.gen;
-}
-
-namespace std {
-
-template<>
-struct hash<Ref>
-{
-    using argument_type = Ref;
-    using result_type = size_t;
-
-    result_type operator()(const argument_type ref) const noexcept { return std::hash<int> {}(ref.num) ^ (std::hash<int> {}(ref.gen) << 1); }
-};
-
-}
 
 //------------------------------------------------------------------------
 // object types
@@ -166,88 +129,46 @@ constexpr int numObjTypes = 17; // total number of object types
 class POPPLER_PRIVATE_EXPORT Object
 {
 public:
-    Object() : type(objNone) { }
-    ~Object() { free(); }
+    static Object null() { return Object(objNull); }
+    static Object eof() { return Object(objEOF); }
+    static Object error() { return Object(objError); }
 
-    explicit Object(bool boolnA)
+    static Object name(std::string_view name) { return Object(objName, name); }
+    static Object cmd(std::string_view name) { return Object(objCmd, name); }
+    static Object hexString(std::string &&hex) { return Object(objHexString, std::move(hex)); }
+    Object() : type(objNone) { }
+    ~Object() = default;
+
+    explicit Object(bool boolnA) : type { objBool }, data { boolnA } { }
+
+    explicit Object(int intgA) : type { objInt }, data { intgA } { }
+
+    explicit Object(double realA) : type { objReal }, data { realA } { }
+
+    explicit Object(std::string &&stringA) : type { objString }, data { std::move(stringA) } { }
+
+    explicit Object(long long int64gA) : type { objInt64 }, data { int64gA } { }
+
+    explicit Object(std::unique_ptr<Array> arrayA) : type { objArray }, data { std::shared_ptr<Array>(std::move(arrayA)) } { }
+
+    explicit Object(std::unique_ptr<Dict> &&dictA) : type { objDict }, data { std::shared_ptr<Dict>(std::move(dictA)) } { }
+
+    template<typename StreamType>
+        requires(std::is_base_of_v<Stream, StreamType>)
+    explicit Object(std::unique_ptr<StreamType> &&streamA) : type { objStream }, data { std::shared_ptr<Stream>(std::move(streamA)) }
     {
-        type = objBool;
-        booln = boolnA;
     }
-    explicit Object(int intgA)
-    {
-        type = objInt;
-        intg = intgA;
-    }
-    explicit Object(ObjType typeA) { type = typeA; }
-    explicit Object(double realA)
-    {
-        type = objReal;
-        real = realA;
-    }
-    explicit Object(GooString *stringA)
-    {
-        assert(stringA);
-        type = objString;
-        string = stringA;
-    }
-    Object(ObjType typeA, GooString *stringA)
-    {
-        assert(typeA == objHexString);
-        assert(stringA);
-        type = typeA;
-        string = stringA;
-    }
-    Object(ObjType typeA, const char *stringA)
-    {
-        assert(typeA == objName || typeA == objCmd);
-        assert(stringA);
-        type = typeA;
-        cString = copyString(stringA);
-    }
-    explicit Object(long long int64gA)
-    {
-        type = objInt64;
-        int64g = int64gA;
-    }
-    explicit Object(Array *arrayA)
-    {
-        assert(arrayA);
-        type = objArray;
-        array = arrayA;
-    }
-    explicit Object(Dict *dictA)
-    {
-        assert(dictA);
-        type = objDict;
-        dict = dictA;
-    }
-    explicit Object(Stream *streamA)
-    {
-        assert(streamA);
-        type = objStream;
-        stream = streamA;
-    }
-    explicit Object(const Ref r)
-    {
-        type = objRef;
-        ref = r;
-    }
+    explicit Object(Ref r) : type { objRef }, data { r } { }
 
     template<typename T>
     Object(T) = delete;
 
-    Object(Object &&other) noexcept
-    {
-        std::memcpy(reinterpret_cast<void *>(this), &other, sizeof(Object));
-        other.type = objDead;
-    }
+    Object(Object &&other) noexcept : type { other.type }, data { std::move(other.data) } { other.type = objDead; }
 
     Object &operator=(Object &&other) noexcept
     {
-        free();
-
-        std::memcpy(reinterpret_cast<void *>(this), &other, sizeof(Object));
+        data = std::move(other.data);
+        type = other.type;
         other.type = objDead;
 
         return *this;
@@ -259,12 +180,17 @@ public:
     // Set object to null.
     void setToNull()
     {
-        free();
+        data = std::monostate {};
         type = objNull;
     }
 
-    // Copy this to obj
+    // Copies all object types except
+    // objArray, objDict, objStream whose refcount is increased by 1
     Object copy() const;
+
+    // Deep copies all object types (recursively)
+    // except objStream whose refcount is increased by 1
+    Object deepCopy() const;
 
     // If object is a Ref, fetch and return the referenced object.
     // Otherwise, return a copy of the object.
@@ -368,25 +294,27 @@ public:
     }
 
     // Special type checking.
-    bool isName(const char *nameA) const { return type == objName && !strcmp(cString, nameA); }
-    bool isDict(const char *dictType) const;
-    bool isCmd(const char *cmdA) const { return type == objCmd && !strcmp(cString, cmdA); }
+    bool isName(std::string_view nameA) const { return type == objName && getNameString() == nameA; }
+    bool isArrayOfLength(int length) const;
+    bool isArrayOfLengthAtLeast(int length) const;
+    bool isDict(std::string_view dictType) const;
+    bool isCmd(std::string_view cmdA) const { return type == objCmd && std::get<std::string>(data) == cmdA; }
 
     // Accessors.
     bool getBool() const
     {
         OBJECT_TYPE_CHECK(objBool);
-        return booln;
+        return std::get<bool>(data);
     }
     int getInt() const
     {
         OBJECT_TYPE_CHECK(objInt);
-        return intg;
+        return std::get<int>(data);
     }
     double getReal() const
     {
         OBJECT_TYPE_CHECK(objReal);
-        return real;
+        return std::get<double>(data);
     }
 
     // Note: integers larger than 2^53 can not be exactly represented by a double.
@@ -394,7 +322,7 @@ public:
     double getNum() const
     {
         OBJECT_3TYPES_CHECK(objInt, objInt64, objReal);
-        return type == objInt ? (double)intg : type == objInt64 ? (double)int64g : real;
+        return type == objInt ? static_cast<double>(std::get<int>(data)) : type == objInt64 ? static_cast<double>(std::get<long long>(data)) : std::get<double>(data);
     }
     double getNum(bool *ok) const
     {
@@ -402,109 +330,96 @@ public:
             *ok = false;
             return 0.;
         }
-        return type == objInt ? (double)intg : type == objInt64 ? (double)int64g : real;
+        return type == objInt ? static_cast<double>(std::get<int>(data)) : type == objInt64 ? static_cast<double>(std::get<long long>(data)) : std::get<double>(data);
     }
-    const GooString *getString() const
+    const std::string &getString() const
     {
         OBJECT_TYPE_CHECK(objString);
-        return string;
+        return std::get<std::string>(data);
     }
-    // After takeString() the only method that should be called for the object is free().
-    GooString *takeString()
+
+    std::unique_ptr<GooString> takeString()
     {
         OBJECT_TYPE_CHECK(objString);
-        type = objDead;
-        return string;
+        std::unique_ptr<GooString> str = std::make_unique<GooString>(std::get<std::string>(std::move(data)));
+        data = std::monostate {};
+        type = objNull;
+        return str;
     }
-    const GooString *getHexString() const
+
+    const std::string &getHexString() const
     {
         OBJECT_TYPE_CHECK(objHexString);
-        return string;
-    }
-    GooString *takeHexString()
-    {
-        OBJECT_TYPE_CHECK(objHexString);
-        type = objDead;
-        return string;
+        return std::get<std::string>(data);
     }
     const char *getName() const
     {
         OBJECT_TYPE_CHECK(objName);
-        return cString;
+        return std::get<std::string>(data).c_str();
+    }
+    const std::string &getNameString() const
+    {
+        OBJECT_TYPE_CHECK(objName);
+        return std::get<std::string>(data);
     }
     Array *getArray() const
     {
         OBJECT_TYPE_CHECK(objArray);
-        return array;
+        return std::get<std::shared_ptr<Array>>(data).get();
     }
     Dict *getDict() const
     {
         OBJECT_TYPE_CHECK(objDict);
-        return dict;
+        return std::get<std::shared_ptr<Dict>>(data).get();
     }
     Stream *getStream() const
     {
         OBJECT_TYPE_CHECK(objStream);
-        return stream;
+        return std::get<std::shared_ptr<Stream>>(data).get();
     }
     Ref getRef() const
     {
         OBJECT_TYPE_CHECK(objRef);
-        return ref;
+        return std::get<Ref>(data);
     }
     int getRefNum() const
     {
         OBJECT_TYPE_CHECK(objRef);
-        return ref.num;
+        return std::get<Ref>(data).num;
     }
     int getRefGen() const
     {
         OBJECT_TYPE_CHECK(objRef);
-        return ref.gen;
+        return std::get<Ref>(data).gen;
     }
     const char *getCmd() const
     {
         OBJECT_TYPE_CHECK(objCmd);
-        return cString;
+        return std::get<std::string>(data).c_str();
     }
     long long getInt64() const
     {
         OBJECT_TYPE_CHECK(objInt64);
-        return int64g;
+        return std::get<long long>(data);
     }
     long long getIntOrInt64() const
     {
         OBJECT_2TYPES_CHECK(objInt, objInt64);
-        return type == objInt ? intg : int64g;
+        return type == objInt ? std::get<int>(data) : std::get<long long>(data);
     }
 
     // Array accessors.
     int arrayGetLength() const;
-    void arrayAdd(Object &&elem);
-    void arrayRemove(int i);
     Object arrayGet(int i, int recursion) const;
-    const Object &arrayGetNF(int i) const;
 
     // Dict accessors.
     int dictGetLength() const;
-    void dictAdd(char *key, Object &&val) = delete;
-    void dictAdd(const char *key, Object &&val);
-    void dictSet(const char *key, Object &&val);
-    void dictRemove(const char *key);
-    bool dictIs(const char *dictType) const;
-    Object dictLookup(const char *key, int recursion = 0) const;
-    const Object &dictLookupNF(const char *key) const;
-    const char *dictGetKey(int i) const;
+    void dictAdd(std::string_view key, Object &&val);
+    void dictSet(std::string_view key, Object &&val);
+    void dictRemove(std::string_view key);
+    Object dictLookup(std::string_view key, int recursion = 0) const;
+    const Object &dictLookupNF(std::string_view key) const;
     Object dictGetVal(int i) const;
-    const Object &dictGetValNF(int i) const;
-
-    // Stream accessors.
-    void streamReset();
-    void streamClose();
-    int streamGetChar();
-    int streamGetChars(int nChars, unsigned char *buffer);
-    void streamSetPos(Goffset pos, int dir = 0);
-    Dict *streamGetDict() const;
 
     // Output.
     const char *getTypeName() const;
@@ -515,28 +430,27 @@ public:
         if (unlikely(type != objInt && type != objInt64 && type != objReal)) {
             return defaultValue;
         }
-        return type == objInt ? (double)intg : type == objInt64 ? (double)int64g : real;
+        return type == objInt ? static_cast<double>(std::get<int>(data)) : type == objInt64 ? static_cast<double>(std::get<long long>(data)) : std::get<double>(data);
     }
 
-    bool getBoolWithDefaultValue(bool defaultValue) const { return (type == objBool) ? booln : defaultValue; }
+    bool getBoolWithDefaultValue(bool defaultValue) const { return (type == objBool) ? std::get<bool>(data) : defaultValue; }
 
 private:
-    // Free object contents.
-    void free();
+    class PrivateTag
+    {
+    };
+    Object(ObjType typeA, std::string &&stringA) : type { typeA }, data { std::move(stringA) } { assert(typeA == objHexString); }
+
+    Object(ObjType typeA, std::string_view v) : type { typeA }, data { std::string { v } } { assert(typeA == objName || typeA == objCmd); }
+
+    explicit Object(ObjType typeA) { type = typeA; }
+    explicit Object(ObjType typeA, std::variant<std::monostate, bool, int, long long, double, std::string, std::shared_ptr<Array>, std::shared_ptr<Dict>, std::shared_ptr<Stream>, Ref> dataA, PrivateTag /*unnamed*/)
+        : type { typeA }, data { std::move(dataA) }
+    {
+    }
 
     ObjType type; // object type
-    union { // value for each type:
-        bool booln; //   boolean
-        int intg; //   integer
-        long long int64g; //   64-bit integer
-        double real; //   real
-        GooString *string; // [hex] string
-        char *cString; //   name or command, depending on objType
-        Array *array; //   array
-        Dict *dict; //   dictionary
-        Stream *stream; //   stream
-        Ref ref; //   indirect reference
-    };
+    std::variant<std::monostate, bool, int, long long, double, std::string, std::shared_ptr<Array>, std::shared_ptr<Dict>, std::shared_ptr<Stream>, Ref> data;
 };
 
 //------------------------------------------------------------------------
@@ -545,141 +459,10 @@ private:
 
 #include "Array.h"
 
-inline int Object::arrayGetLength() const
-{
-    OBJECT_TYPE_CHECK(objArray);
-    return array->getLength();
-}
-
-inline void Object::arrayAdd(Object &&elem)
-{
-    OBJECT_TYPE_CHECK(objArray);
-    array->add(std::move(elem));
-}
-
-inline void Object::arrayRemove(int i)
-{
-    OBJECT_TYPE_CHECK(objArray);
-    array->remove(i);
-}
-
-inline Object Object::arrayGet(int i, int recursion = 0) const
-{
-    OBJECT_TYPE_CHECK(objArray);
-    return array->get(i, recursion);
-}
-
-inline const Object &Object::arrayGetNF(int i) const
-{
-    OBJECT_TYPE_CHECK(objArray);
-    return array->getNF(i);
-}
-
 //------------------------------------------------------------------------
 // Dict accessors.
 //------------------------------------------------------------------------
 
 #include "Dict.h"
-
-inline int Object::dictGetLength() const
-{
-    OBJECT_TYPE_CHECK(objDict);
-    return dict->getLength();
-}
-
-inline void Object::dictAdd(const char *key, Object &&val)
-{
-    OBJECT_TYPE_CHECK(objDict);
-    dict->add(key, std::move(val));
-}
-
-inline void Object::dictSet(const char *key, Object &&val)
-{
-    OBJECT_TYPE_CHECK(objDict);
-    dict->set(key, std::move(val));
-}
-
-inline void Object::dictRemove(const char *key)
-{
-    OBJECT_TYPE_CHECK(objDict);
-    dict->remove(key);
-}
-
-inline bool Object::dictIs(const char *dictType) const
-{
-    OBJECT_TYPE_CHECK(objDict);
-    return dict->is(dictType);
-}
-
-inline bool Object::isDict(const char *dictType) const
-{
-    return type == objDict && dictIs(dictType);
-}
-
-inline Object Object::dictLookup(const char *key, int recursion) const
-{
-    OBJECT_TYPE_CHECK(objDict);
-    return dict->lookup(key, recursion);
-}
-
-inline const Object &Object::dictLookupNF(const char *key) const
-{
-    OBJECT_TYPE_CHECK(objDict);
-    return dict->lookupNF(key);
-}
-
-inline const char *Object::dictGetKey(int i) const
-{
-    OBJECT_TYPE_CHECK(objDict);
-    return dict->getKey(i);
-}
-
-inline Object Object::dictGetVal(int i) const
-{
-    OBJECT_TYPE_CHECK(objDict);
-    return dict->getVal(i);
-}
-
-inline const Object &Object::dictGetValNF(int i) const
-{
-    OBJECT_TYPE_CHECK(objDict);
-    return dict->getValNF(i);
-}
-
-//------------------------------------------------------------------------
-// Stream accessors.
-//------------------------------------------------------------------------
-
-#include "Stream.h"
-
-inline void Object::streamReset()
-{
-    OBJECT_TYPE_CHECK(objStream);
-    stream->reset();
-}
-
-inline void Object::streamClose()
-{
-    OBJECT_TYPE_CHECK(objStream);
-    stream->close();
-}
-
-inline int Object::streamGetChar()
-{
-    OBJECT_TYPE_CHECK(objStream);
-    return stream->getChar();
-}
-
-inline int Object::streamGetChars(int nChars, unsigned char *buffer)
-{
-    OBJECT_TYPE_CHECK(objStream);
-    return stream->doGetChars(nChars, buffer);
-}
-
-inline Dict *Object::streamGetDict() const
-{
-    OBJECT_TYPE_CHECK(objStream);
-    return stream->getDict();
-}
 
 #endif

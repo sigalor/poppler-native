@@ -7,7 +7,10 @@
 // Pino Toscano <pino@kde.org> (c) 2008
 // Carlos Garcia Campos <carlosgc@gnome.org> (c) 2010
 // Tobias Koenig <tobias.koenig@kdab.com> (c) 2012
-// Albert Astals Cid <aacid@kde.org> (C) 2017, 2018
+// Albert Astals Cid <aacid@kde.org> (C) 2017, 2018, 2024-2026
+// g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk> (C) 2025, 2026
+// 2025 Arnav V <arnav0872@gmail.com> (C) 2025
+// Stefan Brüns <stefan.bruens@rwth-aachen.de> (C) 2026
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -24,9 +27,8 @@
 // Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 //*********************************************************************************
 
-#include <cmath>
 #include "Rendition.h"
-#include "FileSpec.h"
+#include "Stream.h"
 
 MediaWindowParameters::MediaWindowParameters()
 {
@@ -42,11 +44,9 @@ MediaWindowParameters::MediaWindowParameters()
     isResizeable = true;
 }
 
-MediaWindowParameters::~MediaWindowParameters() { }
-
-void MediaWindowParameters::parseFWParams(Object *obj)
+void MediaWindowParameters::parseFWParams(const Dict &params)
 {
-    Object tmp = obj->dictLookup("D");
+    Object tmp = params.lookup("D");
     if (tmp.isArray()) {
         Array *dim = tmp.getArray();
 
@@ -63,7 +63,7 @@ void MediaWindowParameters::parseFWParams(Object *obj)
         }
     }
 
-    tmp = obj->dictLookup("RT");
+    tmp = params.lookup("RT");
     if (tmp.isInt()) {
         int t = tmp.getInt();
         switch (t) {
@@ -79,7 +79,7 @@ void MediaWindowParameters::parseFWParams(Object *obj)
         }
     }
 
-    tmp = obj->dictLookup("P");
+    tmp = params.lookup("P");
     if (tmp.isInt()) {
         int t = tmp.getInt();
 
@@ -123,15 +123,15 @@ void MediaWindowParameters::parseFWParams(Object *obj)
         }
     }
 
-    tmp = obj->dictLookup("T");
+    tmp = params.lookup("T");
     if (tmp.isBool()) {
         hasTitleBar = tmp.getBool();
     }
-    tmp = obj->dictLookup("UC");
+    tmp = params.lookup("UC");
     if (tmp.isBool()) {
         hasCloseButton = tmp.getBool();
     }
-    tmp = obj->dictLookup("R");
+    tmp = params.lookup("R");
     if (tmp.isInt()) {
         isResizeable = (tmp.getInt() != 0);
     }
@@ -150,21 +150,19 @@ MediaParameters::MediaParameters()
     duration = 0;
 }
 
-MediaParameters::~MediaParameters() { }
-
-void MediaParameters::parseMediaPlayParameters(Object *obj)
+void MediaParameters::parseMediaPlayParameters(const Dict &playDict)
 {
-    Object tmp = obj->dictLookup("V");
+    Object tmp = playDict.lookup("V");
     if (tmp.isInt()) {
         volume = tmp.getInt();
     }
 
-    tmp = obj->dictLookup("C");
+    tmp = playDict.lookup("C");
     if (tmp.isBool()) {
         showControls = tmp.getBool();
     }
 
-    tmp = obj->dictLookup("F");
+    tmp = playDict.lookup("F");
     if (tmp.isInt()) {
         int t = tmp.getInt();
 
@@ -192,39 +190,39 @@ void MediaParameters::parseMediaPlayParameters(Object *obj)
 
     // duration parsing
     // duration's default value is set to 0, which means : intrinsinc media duration
-    tmp = obj->dictLookup("D");
+    tmp = playDict.lookup("D");
     if (tmp.isDict()) {
         Object oname = tmp.dictLookup("S");
         if (oname.isName()) {
-            const char *name = oname.getName();
-            if (!strcmp(name, "F"))
+            const std::string &name = oname.getNameString();
+            if (name == "F") {
                 duration = -1; // infinity
-            else if (!strcmp(name, "T")) {
+            } else if (name == "T") {
                 Object ddict = tmp.dictLookup("T");
                 if (ddict.isDict()) {
                     Object tmp2 = ddict.dictLookup("V");
                     if (tmp2.isNum()) {
-                        duration = (unsigned long)(tmp2.getNum());
+                        duration = static_cast<unsigned long>(tmp2.getNum());
                     }
                 }
             }
         }
     }
 
-    tmp = obj->dictLookup("A");
+    tmp = playDict.lookup("A");
     if (tmp.isBool()) {
         autoPlay = tmp.getBool();
     }
 
-    tmp = obj->dictLookup("RC");
+    tmp = playDict.lookup("RC");
     if (tmp.isNum()) {
         repeatCount = tmp.getNum();
     }
 }
 
-void MediaParameters::parseMediaScreenParameters(Object *obj)
+void MediaParameters::parseMediaScreenParameters(const Dict &screenDict)
 {
-    Object tmp = obj->dictLookup("W");
+    Object tmp = screenDict.lookup("W");
     if (tmp.isInt()) {
         int t = tmp.getInt();
 
@@ -245,7 +243,7 @@ void MediaParameters::parseMediaScreenParameters(Object *obj)
     }
 
     // background color
-    tmp = obj->dictLookup("B");
+    tmp = screenDict.lookup("B");
     if (tmp.isArray()) {
         Array *color = tmp.getArray();
 
@@ -260,48 +258,42 @@ void MediaParameters::parseMediaScreenParameters(Object *obj)
     }
 
     // opacity
-    tmp = obj->dictLookup("O");
+    tmp = screenDict.lookup("O");
     if (tmp.isNum()) {
         opacity = tmp.getNum();
     }
 
     if (windowParams.type == MediaWindowParameters::windowFloating) {
-        Object winDict = obj->dictLookup("F");
+        const Object winDict = screenDict.lookup("F");
         if (winDict.isDict()) {
-            windowParams.parseFWParams(&winDict);
+            windowParams.parseFWParams(*winDict.getDict());
         }
     }
 }
 
-MediaRendition::~MediaRendition()
-{
-    delete fileName;
-    delete contentType;
-}
+MediaRendition::~MediaRendition() = default;
 
-MediaRendition::MediaRendition(Object *obj)
+MediaRendition::MediaRendition(const Dict &dict)
 {
     bool hasClip = false;
 
     ok = true;
-    fileName = nullptr;
-    contentType = nullptr;
     isEmbedded = false;
 
     //
     // Parse media clip data
     //
-    Object tmp2 = obj->dictLookup("C");
+    Object tmp2 = dict.lookup("C");
     if (tmp2.isDict()) { // media clip
         hasClip = true;
         Object tmp = tmp2.dictLookup("S");
         if (tmp.isName()) {
-            if (!strcmp(tmp.getName(), "MCD")) { // media clip data
+            if (tmp.getNameString() == "MCD") { // media clip data
                 Object obj1 = tmp2.dictLookup("D");
                 if (obj1.isDict()) {
                     Object obj2 = obj1.dictLookup("F");
                     if (obj2.isString()) {
-                        fileName = obj2.getString()->copy();
+                        fileName = obj2.takeString();
                     }
                     obj2 = obj1.dictLookup("EF");
                     if (obj2.isDict()) {
@@ -321,9 +313,9 @@ MediaRendition::MediaRendition(Object *obj)
                 // FIXME: ignore CT if D is a form XObject
                 obj1 = tmp2.dictLookup("CT");
                 if (obj1.isString()) {
-                    contentType = obj1.getString()->copy();
+                    contentType = obj1.takeString();
                 }
-            } else if (!strcmp(tmp.getName(), "MCS")) { // media clip data
+            } else if (tmp.getNameString() == "MCS") { // media clip data
                 // TODO
             }
         } else {
@@ -332,20 +324,23 @@ MediaRendition::MediaRendition(Object *obj)
         }
     }
 
-    if (!ok)
+    if (!ok) {
         return;
+    }
 
     //
     // parse Media Play Parameters
-    tmp2 = obj->dictLookup("P");
+    tmp2 = dict.lookup("P");
     if (tmp2.isDict()) { // media play parameters
         Object params = tmp2.dictLookup("MH");
         if (params.isDict()) {
-            MH.parseMediaPlayParameters(&params);
+            MH = MediaParameters {};
+            MH->parseMediaPlayParameters(*params.getDict());
         }
         params = tmp2.dictLookup("BE");
         if (params.isDict()) {
-            BE.parseMediaPlayParameters(&params);
+            BE = MediaParameters {};
+            BE->parseMediaPlayParameters(*params.getDict());
         }
     } else if (!hasClip) {
         error(errSyntaxError, -1, "Invalid Media Rendition");
@@ -354,15 +349,21 @@ MediaRendition::MediaRendition(Object *obj)
 
     //
     // parse Media Screen Parameters
-    tmp2 = obj->dictLookup("SP");
+    tmp2 = dict.lookup("SP");
     if (tmp2.isDict()) { // media screen parameters
         Object params = tmp2.dictLookup("MH");
         if (params.isDict()) {
-            MH.parseMediaScreenParameters(&params);
+            if (!MH) {
+                MH = MediaParameters {};
+            }
+            MH->parseMediaScreenParameters(*params.getDict());
         }
         params = tmp2.dictLookup("BE");
         if (params.isDict()) {
-            BE.parseMediaScreenParameters(&params);
+            if (!BE) {
+                BE = MediaParameters {};
+            }
+            BE->parseMediaScreenParameters(*params.getDict());
         }
     }
 }
@@ -375,36 +376,39 @@ MediaRendition::MediaRendition(const MediaRendition &other)
     isEmbedded = other.isEmbedded;
     embeddedStreamObject = other.embeddedStreamObject.copy();
 
-    if (other.contentType)
+    if (other.contentType) {
         contentType = other.contentType->copy();
-    else
-        contentType = nullptr;
+    }
 
-    if (other.fileName)
+    if (other.fileName) {
         fileName = other.fileName->copy();
-    else
-        fileName = nullptr;
+    }
 }
 
 void MediaRendition::outputToFile(FILE *fp)
 {
-    if (!isEmbedded)
+    if (!isEmbedded) {
         return;
+    }
 
-    embeddedStreamObject.streamReset();
+    Stream *embeddedStream = embeddedStreamObject.getStream();
+    if (!embeddedStream->rewind()) {
+        return;
+    }
 
     while (true) {
-        int c = embeddedStreamObject.streamGetChar();
-        if (c == EOF)
+        int c = embeddedStream->getChar();
+        if (c == EOF) {
             break;
+        }
 
         fwrite(&c, 1, 1, fp);
     }
 }
 
-MediaRendition *MediaRendition::copy() const
+std::unique_ptr<MediaRendition> MediaRendition::copy() const
 {
-    return new MediaRendition(*this);
+    return std::make_unique<MediaRendition>(*this);
 }
 
 // TODO: SelectorRendition

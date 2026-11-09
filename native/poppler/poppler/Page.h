@@ -20,12 +20,17 @@
 // Copyright (C) 2007 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright (C) 2008 Iñigo Martínez <inigomartinez@gmail.com>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
-// Copyright (C) 2012, 2017, 2018, 2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2012, 2017, 2018, 2020, 2021, 2023, 2025, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
-// Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2013, 2017, 2023 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2020, 2021 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2024 Pablo Correa Gómez <ablocorrea@hotmail.com>
+// Copyright (C) 2024-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Even Rouault <even.rouault@spatialys.com>
+// Copyright (C) 2025 Stefan Brüns <stefan.bruens@rwth-aachen.de>
+// Copyright (C) 2026 Lucas Baudin <lbaudin@gnome.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -38,8 +43,8 @@
 #include <memory>
 #include <mutex>
 
-#include "poppler-config.h"
 #include "Object.h"
+#include "PDFRectangle.h"
 #include "poppler_private_export.h"
 
 class Dict;
@@ -56,28 +61,6 @@ class Form;
 class FormField;
 
 //------------------------------------------------------------------------
-
-class PDFRectangle
-{
-public:
-    double x1, y1, x2, y2;
-
-    PDFRectangle() { x1 = y1 = x2 = y2 = 0; }
-    PDFRectangle(double x1A, double y1A, double x2A, double y2A)
-    {
-        x1 = x1A;
-        y1 = y1A;
-        x2 = x2A;
-        y2 = y2A;
-    }
-    bool isValid() const { return x1 != 0 || y1 != 0 || x2 != 0 || y2 != 0; }
-    bool contains(double x, double y) const { return x1 <= x && x <= x2 && y1 <= y && y <= y2; }
-    void clipTo(PDFRectangle *rect);
-
-    bool operator==(const PDFRectangle &rect) const { return x1 == rect.x1 && y1 == rect.y1 && x2 == rect.x2 && y2 == rect.y2; }
-};
-
-//------------------------------------------------------------------------
 // PageAttrs
 //------------------------------------------------------------------------
 
@@ -87,20 +70,19 @@ public:
     // Construct a new PageAttrs object by merging a dictionary
     // (of type Pages or Page) into another PageAttrs object.  If
     // <attrs> is nullptr, uses defaults.
-    PageAttrs(PageAttrs *attrs, Dict *dict);
+    PageAttrs(const PageAttrs *attrs, Dict *dict);
 
     // Destructor.
     ~PageAttrs();
 
     // Accessors.
-    const PDFRectangle *getMediaBox() const { return &mediaBox; }
-    const PDFRectangle *getCropBox() const { return &cropBox; }
+    const PDFRectangle &getMediaBox() const { return mediaBox; }
+    const PDFRectangle &getCropBox() const { return cropBox; }
     bool isCropped() const { return haveCropBox; }
-    const PDFRectangle *getBleedBox() const { return &bleedBox; }
-    const PDFRectangle *getTrimBox() const { return &trimBox; }
-    const PDFRectangle *getArtBox() const { return &artBox; }
+    const PDFRectangle &getBleedBox() const { return bleedBox; }
+    const PDFRectangle &getTrimBox() const { return trimBox; }
+    const PDFRectangle &getArtBox() const { return artBox; }
     int getRotate() const { return rotate; }
-    const GooString *getLastModified() const { return lastModified.isString() ? lastModified.getString() : nullptr; }
     Dict *getBoxColorInfo() { return boxColorInfo.isDict() ? boxColorInfo.getDict() : nullptr; }
     Dict *getGroup() { return group.isDict() ? group.getDict() : nullptr; }
     Stream *getMetadata() { return metadata.isStream() ? metadata.getStream() : nullptr; }
@@ -114,7 +96,7 @@ public:
     void clipBoxes();
 
 private:
-    bool readBox(Dict *dict, const char *key, PDFRectangle *box);
+    static bool readBox(Dict *dict, const char *key, PDFRectangle *box);
 
     PDFRectangle mediaBox;
     PDFRectangle cropBox;
@@ -140,7 +122,7 @@ class POPPLER_PRIVATE_EXPORT Page
 {
 public:
     // Constructor.
-    Page(PDFDoc *docA, int numA, Object &&pageDict, Ref pageRefA, PageAttrs *attrsA, Form *form);
+    Page(PDFDoc *docA, int numA, Object &&pageDict, Ref pageRefA, std::unique_ptr<PageAttrs> attrsA);
 
     // Destructor.
     ~Page();
@@ -153,18 +135,17 @@ public:
 
     // Get page parameters.
     int getNum() const { return num; }
-    const PDFRectangle *getMediaBox() const { return attrs->getMediaBox(); }
-    const PDFRectangle *getCropBox() const { return attrs->getCropBox(); }
+    const PDFRectangle &getMediaBox() const { return attrs->getMediaBox(); }
+    const PDFRectangle &getCropBox() const { return attrs->getCropBox(); }
     bool isCropped() const { return attrs->isCropped(); }
-    double getMediaWidth() const { return attrs->getMediaBox()->x2 - attrs->getMediaBox()->x1; }
-    double getMediaHeight() const { return attrs->getMediaBox()->y2 - attrs->getMediaBox()->y1; }
-    double getCropWidth() const { return attrs->getCropBox()->x2 - attrs->getCropBox()->x1; }
-    double getCropHeight() const { return attrs->getCropBox()->y2 - attrs->getCropBox()->y1; }
-    const PDFRectangle *getBleedBox() const { return attrs->getBleedBox(); }
-    const PDFRectangle *getTrimBox() const { return attrs->getTrimBox(); }
-    const PDFRectangle *getArtBox() const { return attrs->getArtBox(); }
+    double getMediaWidth() const { return attrs->getMediaBox().x2 - attrs->getMediaBox().x1; }
+    double getMediaHeight() const { return attrs->getMediaBox().y2 - attrs->getMediaBox().y1; }
+    double getCropWidth() const { return attrs->getCropBox().x2 - attrs->getCropBox().x1; }
+    double getCropHeight() const { return attrs->getCropBox().y2 - attrs->getCropBox().y1; }
+    const PDFRectangle &getBleedBox() const { return attrs->getBleedBox(); }
+    const PDFRectangle &getTrimBox() const { return attrs->getTrimBox(); }
+    const PDFRectangle &getArtBox() const { return attrs->getArtBox(); }
     int getRotate() const { return attrs->getRotate(); }
-    const GooString *getLastModified() const { return attrs->getLastModified(); }
     Dict *getBoxColorInfo() { return attrs->getBoxColorInfo(); }
     Dict *getGroup() { return attrs->getGroup(); }
     Stream *getMetadata() { return attrs->getMetadata(); }
@@ -173,23 +154,26 @@ public:
     PDFDoc *getDoc() { return doc; }
     Ref getRef() { return pageRef; }
 
+    // Keep in API. This is used by GDAL
+    const Object &getPageObj() const { return pageObj; }
+
     // Get resource dictionary.
     Dict *getResourceDict();
     Object *getResourceDictObject();
-    Dict *getResourceDictCopy(XRef *xrefA);
+    std::unique_ptr<Dict> getResourceDictCopy(XRef *xrefA);
 
     // Get annotations array.
     Object getAnnotsObject(XRef *xrefA = nullptr) { return annotsObj.fetch(xrefA ? xrefA : xref); }
     // Add a new annotation to the page
-    void addAnnot(Annot *annot);
+    bool addAnnot(const std::shared_ptr<Annot> &annot);
     // Remove an existing annotation from the page
-    void removeAnnot(Annot *annot);
+    void removeAnnot(const std::shared_ptr<Annot> &annot);
 
     // Return a list of links.
-    Links *getLinks();
+    std::unique_ptr<Links> getLinks();
 
     // Return a list of annots. It will be valid until the page is destroyed
-    Annots *getAnnots(XRef *xrefA = nullptr);
+    Annots *getAnnots();
 
     // Get contents.
     Object getContents() { return contents.fetch(xref); }
@@ -207,7 +191,7 @@ public:
     // Get duration, the maximum length of time, in seconds,
     // that the page is displayed before the presentation automatically
     // advances to the next page
-    double getDuration() { return duration; }
+    double getDuration() const { return duration; }
 
     // Get actions
     Object getActions() { return actions.fetch(xref); }
@@ -220,8 +204,8 @@ public:
 
     std::unique_ptr<LinkAction> getAdditionalAction(PageAdditionalActionsType type);
 
-    Gfx *createGfx(OutputDev *out, double hDPI, double vDPI, int rotate, bool useMediaBox, bool crop, int sliceX, int sliceY, int sliceW, int sliceH, bool printing, bool (*abortCheckCbk)(void *data), void *abortCheckCbkData,
-                   XRef *xrefA = nullptr);
+    std::unique_ptr<Gfx> createGfx(OutputDev *out, double hDPI, double vDPI, int rotate, bool useMediaBox, bool crop, int sliceX, int sliceY, int sliceW, int sliceH, bool (*abortCheckCbk)(void *data), void *abortCheckCbkData,
+                                   XRef *xrefA = nullptr);
 
     // Display a page.
     void display(OutputDev *out, double hDPI, double vDPI, int rotate, bool useMediaBox, bool crop, bool printing, bool (*abortCheckCbk)(void *data) = nullptr, void *abortCheckCbkData = nullptr,
@@ -233,14 +217,18 @@ public:
 
     void display(Gfx *gfx);
 
-    void makeBox(double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown, double sliceX, double sliceY, double sliceW, double sliceH, PDFRectangle *box, bool *crop);
+    void makeBox(double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown, double sliceX, double sliceY, double sliceW, double sliceH, PDFRectangle *box, bool *crop) const;
 
     void processLinks(OutputDev *out);
 
     // Get the page's default CTM.
-    void getDefaultCTM(double *ctm, double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown);
+    void getDefaultCTM(double *ctm, double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown) const;
 
     bool hasStandaloneFields() const { return !standaloneFields.empty(); }
+
+    // Get the integer key of the page's entry in the structural parent tree.
+    // Returns -1 if the page dict does not contain a StructParents key.
+    int getStructParents() const { return structParents; }
 
 private:
     // replace xref
@@ -249,16 +237,18 @@ private:
     PDFDoc *doc;
     XRef *xref; // the xref table for this PDF file
     Object pageObj; // page dictionary
-    Ref pageRef; // page reference
+    const Ref pageRef; // page reference
     int num; // page number
-    PageAttrs *attrs; // page attributes
-    Annots *annots; // annotations
+    std::unique_ptr<PageAttrs> attrs; // page attributes
+    std::unique_ptr<Annots> annots; // annotations
+    std::once_flag annotsInitializationFlag;
     Object annotsObj; // annotations array
     Object contents; // page contents
     Object thumb; // page thumbnail
     Object trans; // page transition
     Object actions; // page additional actions
     double duration; // page duration
+    int structParents; // integer key of page in structure parent tree
     bool ok; // true if page is valid
     mutable std::recursive_mutex mutex;
     // standalone widgets are special FormWidget's inside a Page that *are not*
@@ -266,8 +256,9 @@ private:
     // i.e. the PDF document does not have a FormField associated with them. We
     // create standalone FormFields to contain those special FormWidgets, as
     // they are 'de facto' being used to implement tooltips. See #34
-    std::vector<FormField *> standaloneFields;
-    void loadStandaloneFields(Annots *annotations, Form *form);
+    std::vector<std::unique_ptr<FormField>> standaloneFields;
+    void loadStandaloneFields(Form *form);
+    void initializeAnnots();
 };
 
 #endif
