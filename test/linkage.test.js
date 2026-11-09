@@ -12,12 +12,14 @@ const readelf = (...args) => {
     throw e;
   }
 };
+// glibc: libc.so.6, libm.so.6, ld-linux-x86-64.so.2, libstdc++.so.6, libgcc_s.so.1; musl: libc.musl-x86_64.so.1
+const RUNTIMES = /^(libc|libc\.musl-[\w-]+|libm|libstdc\+\+|libgcc_s|ld-linux[\w-]*|ld-musl[\w-]*)\.so/;
 const describeOnLinux = process.platform === 'linux' && readelf('-h') !== null ? describe : describe.skip;
 
 describeOnLinux('the compiled addon (Linux)', () => {
   test('needs no shared library but the C and C++ runtimes', () => {
     const needed = [...readelf('-d').matchAll(/\(NEEDED\)\s+Shared library: \[([^\]]+)\]/g)].map(m => m[1]);
-    const unexpected = needed.filter(lib => !/^(libc|libm|libstdc\+\+|libgcc_s|ld-linux[\w-]*|ld-musl[\w-]*)\.so/.test(lib));
+    const unexpected = needed.filter(lib => !RUNTIMES.test(lib));
     expect(unexpected).toEqual([]);
   });
 

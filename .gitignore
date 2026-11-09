@@ -1,4 +1,7 @@
 /build
+/prebuilds
+*.tgz
+fuzz-case.pdf
 .settings
 .project
 .cproject
