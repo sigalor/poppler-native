@@ -7,10 +7,10 @@
         'native/binding/html/HtmlFonts.cc',
         'native/binding/html/HtmlLinks.cc',
         'native/binding/html/HtmlOutputDev.cc',
-        'native/binding/html/InMemoryFile.cc',
         'native/binding/binding.cpp',
         'native/binding/NodeUtilities.cpp',
         'native/binding/PDFUtilities.cpp',
+        'native/binding/PngEncoder.cpp',
         'native/binding/ReadPDFOutputs.cpp',
         'native/binding/text-repair/GlyphFingerprint.cpp',
         'native/binding/text-repair/ReferenceFonts.cpp',
@@ -22,6 +22,7 @@
       'dependencies': [
         "<!(node -p \"require('node-addon-api').gyp\")",
         'native/poppler/poppler.gyp:libpoppler',
+        'native/deps/deps.gyp:libpng',
       ],
       'defines': ['NAPI_CPP_EXCEPTIONS'],
       'conditions': [

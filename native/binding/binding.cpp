@@ -4,12 +4,12 @@
 #include <poppler/GlobalParams.h>
 #include <poppler/PDFDoc.h>
 #include <poppler/Stream.h>
-#include <unistd.h>
 
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -22,11 +22,32 @@
 #include "text-repair/GlyphFingerprint.hpp"
 #include "text-repair/TextRepair.hpp"
 
+// Reads a whole file. The name arrives from JavaScript as UTF-8, which Windows needs converted to open it.
+static std::vector<uint8_t> readFile(const std::string &filename) {
+#ifdef _WIN32
+  const std::filesystem::path path(std::u8string(filename.begin(), filename.end()));
+  std::FILE *file = _wfopen(path.c_str(), L"rb");
+#else
+  std::FILE *file = std::fopen(filename.c_str(), "rb");
+#endif
+  if (!file) throw std::runtime_error(filename + ": couldn't open the PDF file: " + std::strerror(errno));
+  std::vector<uint8_t> bytes;
+  uint8_t chunk[65536];
+  size_t n;
+  while ((n = std::fread(chunk, 1, sizeof(chunk), file)) > 0) bytes.insert(bytes.end(), chunk, chunk + n);
+  const bool failed = std::ferror(file);
+  const int readError = errno;
+  std::fclose(file);
+  if (failed) throw std::runtime_error(filename + ": couldn't open the PDF file: " + std::strerror(readError));
+  return bytes;
+}
+
 class ReadPDFWorker : public Napi::AsyncWorker {
  private:
   std::string argError;
-  std::vector<uint8_t> inputBytes;
-  bool reconvertThroughPS;
+  bool fromFile = false;
+  std::string filename;             // read in Execute, off the JavaScript thread
+  std::vector<uint8_t> inputBytes;  // a Buffer is copied right away: the caller may reuse it while we work
 
   std::map<std::string, std::string> meta;
   std::vector<ReadPDFOutputs::OutlineItem> outline;
@@ -36,7 +57,6 @@ class ReadPDFWorker : public Napi::AsyncWorker {
  public:
   ReadPDFWorker(Napi::Env &env, const Napi::CallbackInfo &info, Napi::Promise::Deferred &newDeferred)
       : Napi::AsyncWorker(env), deferred(newDeferred) {
-    reconvertThroughPS = false;
     if (info.Length() < 1 || info.Length() > 2) {
       argError = "wrong number of arguments: expected 1-2, got " + std::to_string(info.Length());
       return;
@@ -46,107 +66,28 @@ class ReadPDFWorker : public Napi::AsyncWorker {
                  NodeUtilities::typeToString(info[0].Type());
       return;
     }
-    if (info.Length() == 2) {
-      if (!info[1].IsObject()) {
-        argError = "argument at position 2 has wrong type: expected object, got " +
-                   NodeUtilities::typeToString(info[1].Type());
-        return;
-      }
-      Napi::Object obj = info[1].ToObject();
-      if (obj.Has("reconvertThroughPS") && obj.Get("reconvertThroughPS").IsBoolean()) {
-        reconvertThroughPS = obj.Get("reconvertThroughPS").ToBoolean();
-      }
+    if (info.Length() == 2 && !info[1].IsObject()) {
+      argError = "argument at position 2 has wrong type: expected object, got " +
+                 NodeUtilities::typeToString(info[1].Type());
+      return;
     }
 
     if (info[0].IsString()) {
-      std::string filename(info[0].ToString());
-      std::ifstream inStream(filename, std::ios::in | std::ios::binary);
-      if (!inStream) {
-        argError = filename + ": couldn't open the PDF file: " + std::strerror(errno);
-        return;
-      }
-      inputBytes = std::vector<uint8_t>((std::istreambuf_iterator<char>(inStream)), std::istreambuf_iterator<char>());
+      fromFile = true;
+      filename = info[0].ToString();
     } else {
       Napi::Buffer<uint8_t> buf = info[0].As<Napi::Buffer<uint8_t>>();
       inputBytes = std::vector<uint8_t>(buf.Data(), buf.Data() + buf.Length());
-    }
-    if (inputBytes.empty()) argError = "input buffer is empty";
-  }
-
-  void ExecCMD(std::string cmd) {
-    FILE *command = popen(cmd.c_str(), "r");
-    if (command == nullptr) {
-      throw std::runtime_error("failed to execute: " + cmd);
-    }
-
-    std::string output;
-    char line[1000];
-    while (fgets(line, sizeof(line), command) != nullptr) {
-      output += std::string(line);
-    }
-
-    // in case of an error, throw it
-    int pcloseCode = pclose(command);
-    int code = WEXITSTATUS(pcloseCode);
-    if (code != 0) {
-      throw std::runtime_error("failed to execute '" + cmd + "': code " + std::to_string(code) + ": " + output);
+      if (inputBytes.empty()) argError = "input buffer is empty";
     }
   }
 
   void Execute() {
     // handle function argument errors here to catch exceptions correctly
     if (!argError.empty()) throw std::runtime_error(argError);
-
-    char tempTemplate[] = "/tmp/poppler-native.tmp.XXXXXX";
-
-    if (reconvertThroughPS) {
-      char tempDirPath[256];
-      strncpy(tempDirPath, tempTemplate, sizeof(tempDirPath));
-      if (mkdtemp(tempDirPath) == nullptr)
-        throw std::runtime_error(std::string("failed to create temporary directory: ") + std::strerror(errno));
-
-      // create temporary file for dumping the PDF there
-      // char tempFilePath[512];              // array to hold the result.
-      // strcpy(tempFilePath, tempDirPath);   // copy string one into the result.
-      // strcat(tempFilePath, "/input.pdf");  // append string two to the result.
-      char tempInputPDFPath[256];
-      strncpy(tempInputPDFPath, tempTemplate, sizeof(tempInputPDFPath));
-      if (mkstemp(tempInputPDFPath) == -1)
-        throw std::runtime_error(std::string("failed to create temporary filename: ") + std::strerror(errno));
-      FILE *tmpFile = fopen(tempInputPDFPath, "wb");
-      fwrite(inputBytes.data(), 1, inputBytes.size(), tmpFile);
-      fclose(tmpFile);
-
-      // convert PDF to .ps
-      char tempPsFilePath[256];
-      strncpy(tempPsFilePath, tempTemplate, sizeof(tempPsFilePath));
-      if (mkstemp(tempPsFilePath) == -1)
-        throw std::runtime_error(std::string("failed to create temporary filename: ") + std::strerror(errno));
-      ExecCMD(std::string("bash -c 'cd ") + tempDirPath + "; gs -o " + tempPsFilePath +
-              " -dNOCACHE -sDEVICE=ps2write " + tempInputPDFPath + " 2>&1'");
-
-      // reconvert .ps to PDF
-      char tempNewPDFPath[256];
-      strncpy(tempNewPDFPath, tempTemplate, sizeof(tempNewPDFPath));
-      if (mkstemp(tempNewPDFPath) == -1)
-        throw std::runtime_error(std::string("failed to create temporary filename: ") + std::strerror(errno));
-      ExecCMD(std::string("bash -c 'cd ") + tempDirPath + "; gs -o " + tempNewPDFPath + " -sDEVICE=pdfwrite " +
-              tempPsFilePath + " 2>&1'");
-
-      std::string filename(tempNewPDFPath);
-      std::ifstream inStream(filename, std::ios::in | std::ios::binary);
-      if (!inStream) {
-        argError = filename + ": couldn't open the PDF file: " + std::strerror(errno);
-        return;
-      }
-      inputBytes = std::vector<uint8_t>((std::istreambuf_iterator<char>(inStream)), std::istreambuf_iterator<char>());
-
-      unlink(tempInputPDFPath);
-      unlink(tempPsFilePath);
-      unlink(tempNewPDFPath);
-
-      int code = system((std::string("rm -rf ") + tempDirPath).c_str());
-      if (code != 0) throw std::runtime_error("failed to remove temporary directory: code " + std::to_string(code));
+    if (fromFile) {
+      inputBytes = readFile(filename);
+      if (inputBytes.empty()) throw std::runtime_error("input buffer is empty");
     }
 
     // load PDF document from memory

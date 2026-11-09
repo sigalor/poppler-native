@@ -63,7 +63,6 @@
 
 #include <config.h>
 #include <goo/GooString.h>
-#include <goo/PNGWriter.h>
 #include <goo/gbase64.h>
 #include <goo/gbasename.h>
 #include <goo/gmem.h>
@@ -82,7 +81,7 @@
 #include "HtmlFonts.h"
 #include "HtmlOutputDev.h"
 #include "HtmlUtils.h"
-#include "InMemoryFile.h"
+#include "../PngEncoder.hpp"
 
 #define DEBUG __FILE__ << ": " << __LINE__ << ": DEBUG: "
 
@@ -655,56 +654,31 @@ void HtmlOutputDev::drawChar(GfxState *state, double x, double y, double dx, dou
 
 void HtmlOutputDev::drawJpegImage(GfxState *state, Stream *str)
 {
-    InMemoryFile ims;
-    int c;
-
-    // open the image file
-    FILE *f1 = ims.open("wb");
-    if (!f1) {
-        error(errIO, -1, "Couldn't open in-memory image file");
-        return;
-    }
-
-    // initialize stream
+    // the JPEG data as it is embedded: the stream underneath the DCT decoder
     str = str->getNextStream();
     if (!str->rewind()) {
-        fclose(f1);
         error(errIO, -1, "Couldn't rewind stream");
         return;
     }
 
-    // copy the stream
+    std::vector<unsigned char> jpeg;
+    int c;
     while ((c = str->getChar()) != EOF)
-        fputc(c, f1);
+        jpeg.push_back(static_cast<unsigned char>(c));
 
-    fclose(f1);
-
-    pages->addImage(std::string("data:image/jpeg;base64,") + gbase64Encode(ims.getBuffer()), state);
+    pages->addImage(std::string("data:image/jpeg;base64,") + gbase64Encode(jpeg), state);
 }
 
 void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask)
 {
-#if ENABLE_LIBPNG
-    InMemoryFile ims;
-
     if (!colorMap && !isMask) {
         error(errInternal, -1, "Can't have color image without a color map");
         return;
     }
 
-    // open the image file
-    FILE *f1 = ims.open("wb");
-    if (!f1) {
-        error(errIO, -1, "Couldn't open in-memory image file");
-        return;
-    }
-
-    PNGWriter *writer = new PNGWriter(isMask ? PNGWriter::MONOCHROME : PNGWriter::RGB);
-    // TODO can we calculate the resolution of the image?
-    if (!writer->init(f1, width, height, 72, 72)) {
+    PngEncoder writer(width, height, isMask ? PngEncoder::Format::Monochrome : PngEncoder::Format::Rgb);
+    if (!writer.ok()) {
         error(errInternal, -1, "Can't init PNG for in-memory image");
-        delete writer;
-        fclose(f1);
         return;
     }
 
@@ -713,28 +687,20 @@ void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int he
         GfxRGB rgb;
 
         // Initialize the image stream
-        ImageStream *imgStr = new ImageStream(str, width, colorMap->getNumPixelComps(), colorMap->getBits());
-        if (!imgStr->rewind()) {
+        ImageStream imgStr(str, width, colorMap->getNumPixelComps(), colorMap->getBits());
+        if (!imgStr.rewind()) {
             error(errInternal, -1, "Can't rewind image stream");
-            delete writer;
-            delete imgStr;
-            fclose(f1);
             return;
         }
-        unsigned char *row = (unsigned char *)gmalloc(3 * width); // 3 bytes/pixel: RGB
-        unsigned char **row_pointer = &row;
+        std::vector<unsigned char> row(3 * width); // 3 bytes/pixel: RGB
 
         // For each line...
         for (int y = 0; y < height; y++) {
 
             // Convert into a PNG row
-            p = imgStr->getLine();
+            p = imgStr.getLine();
             if (!p) {
                 error(errIO, -1, "Failed to read PNG. In-memory file will be incorrect");
-                gfree(row);
-                delete writer;
-                delete imgStr;
-                fclose(f1);
                 return;
             }
             for (int x = 0; x < width; x++) {
@@ -746,18 +712,12 @@ void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int he
                 p += colorMap->getNumPixelComps();
             }
 
-            if (!writer->writeRow(row_pointer)) {
+            if (!writer.writeRow(row.data())) {
                 error(errIO, -1, "Failed to write into in-memory PNG file");
-                gfree(row);
-                delete writer;
-                delete imgStr;
-                fclose(f1);
                 return;
             }
         }
-        gfree(row);
-        imgStr->close();
-        delete imgStr;
+        imgStr.close();
     } else { // isMask == true
         int size = (width + 7) / 8;
 
@@ -777,38 +737,30 @@ void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int he
 
         if (!str->rewind()) {
             error(errInternal, -1, "Can't rewind image stream");
-            delete writer;
-            fclose(f1);
             return;
         }
-        unsigned char *png_row = (unsigned char *)gmalloc(size);
+        std::vector<unsigned char> png_row(size);
 
         for (int ri = 0; ri < height; ++ri) {
             for (int i = 0; i < size; i++)
                 png_row[i] = str->getChar() ^ invert_bits;
 
-            if (!writer->writeRow(&png_row)) {
+            if (!writer.writeRow(png_row.data())) {
                 error(errIO, -1, "Failed to write into in-memory PNG file");
-                delete writer;
-                fclose(f1);
-                gfree(png_row);
                 return;
             }
         }
         str->close();
-        gfree(png_row);
     }
 
     str->close();
 
-    writer->close();
-    delete writer;
-    fclose(f1);
-
-    pages->addImage(std::string("data:image/png;base64,") + gbase64Encode(ims.getBuffer()), state);
-#else
-    return;
-#endif
+    std::vector<unsigned char> png = writer.finish();
+    if (png.empty()) {
+        error(errIO, -1, "Failed to write into in-memory PNG file");
+        return;
+    }
+    pages->addImage(std::string("data:image/png;base64,") + gbase64Encode(png), state);
 }
 
 void HtmlOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool interpolate, bool inlineImg)
@@ -823,11 +775,7 @@ void HtmlOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str, int
     if (dumpJPEG && str->getKind() == strDCT) {
         drawJpegImage(state, str);
     } else {
-#if ENABLE_LIBPNG
         drawPngImage(state, str, width, height, nullptr, true);
-#else
-        OutputDev::drawImageMask(state, ref, str, width, height, invert, interpolate, inlineImg);
-#endif
     }
 }
 
@@ -843,11 +791,7 @@ void HtmlOutputDev::drawImage(GfxState *state, Object *ref, Stream *str, int wid
     if (dumpJPEG && str->getKind() == strDCT && (colorMap->getNumPixelComps() == 1 || colorMap->getNumPixelComps() == 3) && !inlineImg) {
         drawJpegImage(state, str);
     } else {
-#if ENABLE_LIBPNG
         drawPngImage(state, str, width, height, colorMap);
-#else
-        OutputDev::drawImage(state, ref, str, width, height, colorMap, interpolate, maskColors, inlineImg);
-#endif
     }
 }
 
