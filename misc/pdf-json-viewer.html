@@ -46,7 +46,11 @@
       }
     </style>
 
-    <script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script
+      src="https://code.jquery.com/jquery-4.0.0.min.js"
+      integrity="sha384-fgGyf7Mo7DURSOMnOy7ed+dkq5Job205Gnzu6QIg0BOHKaqt4D76Dt8VlDCzcMHV"
+      crossorigin="anonymous"
+    ></script>
     <script type="text/javascript">
       let lastFileDropTarget = null;
       let currHoveredString = null;
@@ -83,7 +87,8 @@
         let ret = $(`<${name}></${name}>`);
         for (let k in attrs) ret.attr(k, attrs[k]);
         for (let k in css) ret.css(k, css[k]);
-        if (children.length === 1 && typeof children[0] === 'string') ret.html(children[0]);
+        // text from a PDF is shown, never interpreted: a PDF can contain anything, including markup
+        if (children.length === 1 && (typeof children[0] === 'string' || typeof children[0] === 'number')) ret.text(String(children[0]));
         else ret.append(children);
         return ret;
       }
@@ -172,7 +177,7 @@
         return tag('div', tag('h3', `Page ${number}, width ${width}, height ${height}`), page, tooltip);
       }
 
-      function renderDocument(name, { meta, fonts, pages }) {
+      function renderDocument(name, { meta, fonts, pages, numPages }) {
         const allFonts = fonts.reduce((prev, curr) => ((prev[curr.id] = curr), prev), {});
         $('#pages-output')
           .empty()
@@ -182,7 +187,7 @@
             Object.keys(meta).length === 0 ? tag('i', 'PDF has no meta data.') : objectToTable(meta),
             tag('h2', 'Statistics'),
             objectToTable({
-              'Number of pages': pages.length,
+              'Number of pages': numPages === undefined ? pages.length : `${pages.length} read of ${numPages}`,
               'Number of images': sum(pages.map(p => p.images.length)),
               'Number of strings': sum(pages.map(p => p.strings.length)),
             }),

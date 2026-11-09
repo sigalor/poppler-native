@@ -1,3 +1,45 @@
+# 3.0.0 (unreleased)
+
+Poppler 26.11.0, prebuilt binaries, and everything a new user would expect from a PDF library in 2026.
+
+**Installing**
+
+- Prebuilt binaries for Linux (x64 and arm64, glibc and musl), macOS (Apple silicon and Intel) and Windows (x64 and
+  arm64): `npm install` downloads nothing else and compiles nothing. No system packages are needed any more -- not
+  libjpeg, libpng, FreeType, curl, nor mupdf-tools.
+- Where no prebuilt binary fits, the install compiles from source on all cores with nothing but Python 3 and a C++23
+  compiler: Poppler and every library it needs (zlib 1.4, libpng 1.6.59, libjpeg-turbo 3.2.1, OpenJPEG 2.5.4,
+  FreeType 2.15.0) are bundled.
+- Node.js 22 or newer.
+
+**New**
+
+- `text()` returns a PDF's text like `pdftotext`, optionally keeping the physical layout.
+- Options for `info()`: `password` (encrypted PDFs), `firstPage` / `lastPage`, `images: false` (faster, much smaller
+  results).
+- `numPages` in the result of `info()`.
+- Any typed array or `ArrayBuffer` is accepted besides a path or a `Buffer`.
+- ES module entry point and TypeScript declarations.
+- A command line: `npx poppler-native file.pdf [--text] [--pretty] ...`.
+- JPEG 2000 images are decoded through OpenJPEG (Poppler 26.07 removed its built-in decoder).
+
+**Changed**
+
+- Poppler 21.05.0 → 26.11.0: 68 releases, 43 of them with crash fixes (33 for malformed or broken files). The output
+  stays the same: on 100 real-world PDFs, the only differences are Type 3 fonts that now report their real name, text
+  that the repair below now reads correctly, and PNG images that compress to different bytes with identical pixels.
+- Faster: `info()` reads the 756-page PDF 1.7 specification in 2.0 s instead of 2.8 s.
+- Text drawn with an embedded Arial subset without a ToUnicode map is read again: the repair has been silently off
+  since mupdf 1.18 (October 2020) changed the file names of `mutool extract`. It now works inside the addon, without
+  mutool, by the shape of the glyph actually drawn, and leaves text alone that Poppler decodes correctly.
+- The Arial fonts are no longer shipped: a table of glyph-outline fingerprints replaces 2.9 MB of font data.
+- Poppler no longer prints warnings to stderr; errors reject the promise.
+- An unknown option or an invalid option value rejects with a `TypeError` that names it, instead of being ignored.
+- An outline entry whose destination can't be resolved has no `page` (it was an uninitialized number).
+- A directory passed as the file rejects the promise; 2.3.0 aborted the Node process.
+- Files are read off the JavaScript thread, and `info()` can be called concurrently from many places at once.
+- `reconvertThroughPS` runs Ghostscript without a shell and cleans up after itself; it still needs Ghostscript (`gs`).
+
 # 2.3.0 (2023-09-21)
 
 - add `reconvertThroughPS` parameter (Chris031196) [#11](https://github.com/sigalor/poppler-native/pull/11)

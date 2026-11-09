@@ -4,7 +4,7 @@
     "editor.tabSize": 2,
     "files.associations": {
       "*.cu": "cuda",
-      "*.h": "c",
+      "*.h": "cpp",
       "functional": "c",
       "array": "cpp",
       "atomic": "cpp",
