@@ -108,7 +108,11 @@ std::string HtmlFontColor::convtoX(unsigned int xcol)
 
 std::string HtmlFontColor::toString() const
 {
-    return "#" + convtoX(r) + convtoX(g) + convtoX(b);
+    std::string color(1, '#');
+    color += convtoX(r);
+    color += convtoX(g);
+    color += convtoX(b);
+    return color;
 }
 
 HtmlFont::HtmlFont(const GfxFont &font, int _size, GfxRGB rgb, double opacity)

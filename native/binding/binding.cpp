@@ -278,6 +278,9 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   std::call_once(initialized, [] {
     globalParams = std::make_unique<GlobalParams>();
     globalParams->setTextEncoding("UTF-8");
+    // A library must not write to the user's stderr: Poppler's warnings about damaged PDFs are dropped, and real
+    // failures reach the caller as rejected promises.
+    globalParams->setErrQuiet(true);
   });
 
   exports.Set("info", Napi::Function::New(env, Run<InfoWorker>));

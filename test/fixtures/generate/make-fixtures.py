@@ -4,15 +4,18 @@
                        internal link on page 1
   encrypted-user.pdf   three-pages.pdf, AES-256, user password "secret"
   encrypted-owner.pdf  three-pages.pdf, AES-256, owner password only (opens without a password)
+  outline-unresolved.pdf  an outline whose items point to a missing named destination, to a website and to page 1
   images.pdf           one page with one image per way poppler-native emits images: a JPEG (passed through as is),
                        a Flate RGB image, a 1-bit image mask, a JPEG 2000 image and a CMYK JPEG (both re-encoded
                        as PNG)
 
-Usage: python3 test/fixtures/generate/make-fixtures.py
+Usage: python3 test/fixtures/generate/make-fixtures.py [three-pages | outline-unresolved | images ...]
+(all of them by default; three-pages also writes the two encrypted copies, which come out different every time)
 """
 import io
 import os
 import subprocess
+import sys
 import zlib
 
 from PIL import Image
@@ -69,6 +72,23 @@ def three_pages():
     return path
 
 
+def outline_unresolved():
+    doc = Pdf()
+    pages = doc.reserve()
+    font = doc.add(b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')
+    page = doc.add(b'<< /Type /Page /Parent %d 0 R /MediaBox %s /Resources << /Font << /F1 %d 0 R >> >> /Contents %d 0 R >>'
+                   % (pages, A4, font, doc.stream(b'BT /F1 24 Tf 72 700 Td (Only page) Tj ET\n')))
+    doc.set(pages, b'<< /Type /Pages /Kids [%d 0 R] /Count 1 >>' % page)
+    outlines, missing, website, first = doc.reserve(), doc.reserve(), doc.reserve(), doc.reserve()
+    doc.set(outlines, b'<< /Type /Outlines /First %d 0 R /Last %d 0 R /Count 3 >>' % (missing, first))
+    doc.set(missing, b'<< /Title (Missing) /Parent %d 0 R /Next %d 0 R /Dest (no-such-destination) >>' % (outlines, website))
+    doc.set(website, b'<< /Title (Website) /Parent %d 0 R /Prev %d 0 R /Next %d 0 R /A << /S /URI /URI (https://example.com/) >> >>'
+            % (outlines, missing, first))
+    doc.set(first, b'<< /Title (Page 1) /Parent %d 0 R /Prev %d 0 R /Dest [%d 0 R /Fit] >>' % (outlines, website, page))
+    catalog = doc.add(b'<< /Type /Catalog /Pages %d 0 R /Outlines %d 0 R >>' % (pages, outlines))
+    doc.write(os.path.join(OUT, 'outline-unresolved.pdf'), catalog)
+
+
 def jpeg(image, **options):
     out = io.BytesIO()
     image.save(out, 'JPEG', quality=90, **options)
@@ -118,10 +138,17 @@ def encrypted(source):
     qpdf('', 'encrypted-owner.pdf')
 
 
+FIXTURES = {
+    'three-pages': lambda: encrypted(three_pages()),
+    'outline-unresolved': outline_unresolved,
+    'images': images,
+}
+
+
 def main():
-    encrypted(three_pages())
-    images()
-    print('wrote three-pages.pdf, encrypted-user.pdf, encrypted-owner.pdf, images.pdf')
+    for name in sys.argv[1:] or FIXTURES:
+        FIXTURES[name]()
+        print('wrote', name)
 
 
 main()
