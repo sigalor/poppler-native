@@ -13,7 +13,7 @@
 //   4. replaces native/poppler/{goo,fofi,poppler,splash} with exactly those sources plus every file they
 //      #include, transitively -- no file is edited, poppler-native carries no patches to Poppler,
 //   5. generates native/poppler/sources.gypi, config.h, poppler-config.h and poppler_private_export.h from
-//      upstream's templates and the FLAGS table below, and writes native/poppler/VERSION.
+//      upstream's templates and the FLAGS table below, and writes native/poppler/VERSION.txt.
 //
 // A Poppler release that adds a configuration flag makes this script fail until the flag is added to FLAGS:
 // every flag is a conscious decision, never a silent default.
@@ -234,7 +234,10 @@ async function main() {
         sources.filter(source => /\.(cc|c)$/.test(source)),
       ),
     );
-    fs.writeFileSync(path.join(DEST, 'VERSION'), `${args.version}\n`);
+    // Not "VERSION": native/poppler is an include directory, and on a case-insensitive file system (macOS, Windows)
+    // `#include <version>` would find that file instead of the C++ standard header.
+    fs.rmSync(path.join(DEST, 'VERSION'), { force: true });
+    fs.writeFileSync(path.join(DEST, 'VERSION.txt'), `${args.version}\n`);
 
     const unused = Object.keys(FLAGS).filter(flag => !usedFlags.has(flag));
     const after = listVendored();

@@ -1,14 +1,15 @@
 # Compiler settings shared by every target of poppler-native (the addon, Poppler and the vendored C libraries).
 #
-# Node's own common.gypi builds addons as C++20 without exceptions and RTTI. Poppler 26.x is C++23, and our
-# output device runs inside Poppler's stack frames, so an exception thrown there (std::bad_alloc, for one) must
-# be able to unwind through Poppler's code: everything is built with exceptions and RTTI enabled.
+# Node's own common.gypi builds addons as C++17 (Node 22) or C++20 (Node 24 and newer), without exceptions and RTTI.
+# Poppler 26.x is C++23, and our output device runs inside Poppler's stack frames, so an exception thrown there
+# (std::bad_alloc, for one) must be able to unwind through Poppler's code: everything is built as C++23, with
+# exceptions and RTTI enabled. C++23 is spelled gnu++2b, which GCC 11+ and Clang 15+ all accept.
 {
   'target_defaults': {
     'cflags!': ['-fno-exceptions'],
-    'cflags_cc!': ['-fno-exceptions', '-fno-rtti', '-std=gnu++20'],
+    'cflags_cc!': ['-fno-exceptions', '-fno-rtti', '-std=gnu++17', '-std=gnu++20'],
     'cflags': ['-fvisibility=hidden'],
-    'cflags_cc': ['-std=gnu++23', '-fexceptions', '-frtti', '-fvisibility-inlines-hidden'],
+    'cflags_cc': ['-std=gnu++2b', '-fexceptions', '-frtti', '-fvisibility-inlines-hidden'],
     'configurations': {
       'Release': {
         # Poppler's own release builds define NDEBUG; without it an assert() on a malformed PDF would abort Node.
@@ -26,12 +27,15 @@
       }],
       ['OS=="mac"', {
         'xcode_settings': {
-          'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++23',
+          'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++2b',
           'DEAD_CODE_STRIPPING': 'YES',
           'GCC_ENABLE_CPP_EXCEPTIONS': 'YES',
           'GCC_ENABLE_CPP_RTTI': 'YES',
           'GCC_SYMBOLS_PRIVATE_EXTERN': 'YES',
           'MACOSX_DEPLOYMENT_TARGET': '11.0',
+          # Node also sets CLANG_CXX_LANGUAGE_STANDARD, and which of the two wins depends on the order gyp merges
+          # them; these flags come last on the command line, so C++23 wins either way.
+          'OTHER_CPLUSPLUSFLAGS': ['$(inherited)', '-std=gnu++2b'],
         },
       }],
       ['OS=="win"', {
@@ -41,7 +45,9 @@
             'LanguageStandard': 'stdcpplatest',
             'ExceptionHandling': 1,
             'RuntimeTypeInfo': 'true',
-            'AdditionalOptions': ['/utf-8', '/Zc:__cplusplus', '/bigobj'],
+            # Node passes -std:c++20 among the options, which come after LanguageStandard and would win.
+            'AdditionalOptions!': ['-std:c++20'],
+            'AdditionalOptions': ['/std:c++latest', '/utf-8', '/Zc:__cplusplus', '/bigobj'],
           },
         },
       }],

@@ -12,8 +12,10 @@ const readelf = (...args) => {
     throw e;
   }
 };
-// glibc: libc.so.6, libm.so.6, ld-linux-x86-64.so.2, libstdc++.so.6, libgcc_s.so.1; musl: libc.musl-x86_64.so.1
-const RUNTIMES = /^(libc|libc\.musl-[\w-]+|libm|libstdc\+\+|libgcc_s|ld-linux[\w-]*|ld-musl[\w-]*)\.so/;
+// glibc: libc.so.6, libm.so.6, ld-linux-x86-64.so.2 -- and before glibc 2.34, which the prebuilt binaries are built
+// against, also libpthread.so.0, libdl.so.2 and librt.so.1 --, libstdc++.so.6, libgcc_s.so.1; musl:
+// libc.musl-x86_64.so.1.
+const RUNTIMES = /^(libc|libc\.musl-[\w-]+|libm|libpthread|libdl|librt|libstdc\+\+|libgcc_s|ld-linux[\w-]*|ld-musl[\w-]*)\.so/;
 const describeOnLinux = process.platform === 'linux' && readelf('-h') !== null ? describe : describe.skip;
 
 describeOnLinux('the compiled addon (Linux)', () => {
