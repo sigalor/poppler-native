@@ -19,6 +19,9 @@
       'include_dirs': [
         "<!@(node -p \"require('node-addon-api').include\")",
       ],
+      # The addon needs Node's headers, but not its copy of zlib's (Chromium's zlib.h, first on the include path):
+      # <zlib.h> must mean the bundled zlib that Poppler and libpng are built with.
+      'include_dirs!': ['<(node_root_dir)/deps/zlib'],
       'dependencies': [
         "<!(node -p \"require('node-addon-api').gyp\")",
         'native/poppler/poppler.gyp:libpoppler',
