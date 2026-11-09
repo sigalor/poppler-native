@@ -1,9 +1,10 @@
 const fs = require('fs/promises');
 const native = require('./lib/native');
+const { checkArguments } = require('./lib/arguments');
 const { reconvertThroughPostScript } = require('./lib/ghostscript');
 
 // The C library's wording (strerror) for the errors a file read can run into, so a file that can't be read is
-// reported the same way whichever path reads it.
+// reported the same way whether the addon reads it or reconvertThroughPS does.
 const SYSTEM_ERRORS = {
   EACCES: 'Permission denied',
   EISDIR: 'Is a directory',
@@ -23,16 +24,19 @@ async function readPdfFile(filename) {
   }
 }
 
-// The addon validates arguments and reads files itself; only reconvertThroughPS needs work in JavaScript first.
 async function info(...args) {
-  const [input, options] = args;
-  const reconvert =
-    args.length === 2 && options !== null && typeof options === 'object' && options.reconvertThroughPS === true;
-  if (!reconvert || (typeof input !== 'string' && !ArrayBuffer.isView(input))) return native.info(...args);
+  const { pdf, options } = checkArguments('info', args);
+  const { reconvertThroughPS, ...rest } = options;
+  if (!reconvertThroughPS) return native.info(pdf, rest);
 
-  const pdf = typeof input === 'string' ? await readPdfFile(input) : input;
-  if (pdf.length === 0) throw new Error('input buffer is empty');
-  return native.info(await reconvertThroughPostScript(pdf), options);
+  const bytes = typeof pdf === 'string' ? await readPdfFile(pdf) : pdf;
+  if (bytes.length === 0) throw new Error('input buffer is empty');
+  return native.info(await reconvertThroughPostScript(bytes), rest);
 }
 
-module.exports.info = info;
+async function text(...args) {
+  const { pdf, options } = checkArguments('text', args);
+  return native.text(pdf, options);
+}
+
+module.exports = { info, text };

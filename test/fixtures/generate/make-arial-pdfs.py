@@ -21,6 +21,8 @@ from fontTools import subset
 from fontTools.ttLib import TTFont
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_4
 
+from pdfwriter import Pdf
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEXT = 'Hello Wörld 123'
 DESCRIPTOR = b'/Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 /ItalicAngle 0 /FontBBox [-665 -325 2000 1006]'
@@ -53,43 +55,18 @@ def advance(font, glyph_name):
     return round(font['hmtx'][glyph_name][0] * 1000 / font['head'].unitsPerEm)
 
 
-class Pdf:
-    def __init__(self):
-        self.objects = []
-
-    def add(self, body):
-        self.objects.append(body)
-        return len(self.objects)
-
-    def stream(self, data, extra=b''):
-        return self.add(b'<< /Length %d%s >>\nstream\n' % (len(data), extra) + data + b'\nendstream')
-
-    def write(self, path, fonts, lines):
-        """fonts: {resource name: font object number}; lines: [(font resource, y, hex string)]."""
-        content = b'BT\n' + b''.join(
-            b'/%s 24 Tf 1 0 0 1 72 %d Tm <%s> Tj\n' % (name.encode(), y, codes.encode()) for name, y, codes in lines
-        ) + b'ET\n'
-        contents = self.stream(content)
-        resources = b' '.join(b'/%s %d 0 R' % (name.encode(), num) for name, num in fonts.items())
-        page = self.add(
-            b'<< /Type /Page /Parent %d 0 R /MediaBox [0 0 595 842] /Resources << /Font << %s >> >> /Contents %d 0 R >>'
-            % (len(self.objects) + 2, resources, contents)
-        )
-        pages = self.add(b'<< /Type /Pages /Kids [%d 0 R] /Count 1 >>' % page)
-        catalog = self.add(b'<< /Type /Catalog /Pages %d 0 R >>' % pages)
-        out = io.BytesIO()
-        out.write(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n')
-        offsets = []
-        for number, body in enumerate(self.objects, start=1):
-            offsets.append(out.tell())
-            out.write(b'%d 0 obj\n' % number + body + b'\nendobj\n')
-        xref = out.tell()
-        out.write(b'xref\n0 %d\n0000000000 65535 f \n' % (len(self.objects) + 1))
-        for offset in offsets:
-            out.write(b'%010d 00000 n \n' % offset)
-        out.write(b'trailer\n<< /Size %d /Root %d 0 R >>\nstartxref\n%d\n%%%%EOF\n' % (len(self.objects) + 1, catalog, xref))
-        with open(path, 'wb') as f:
-            f.write(out.getvalue())
+def write(doc, path, fonts, lines):
+    """One A4 page drawing each (font resource, y, hex codes) line at 24 pt."""
+    content = b'BT\n' + b''.join(
+        b'/%s 24 Tf 1 0 0 1 72 %d Tm <%s> Tj\n' % (name.encode(), y, codes.encode()) for name, y, codes in lines
+    ) + b'ET\n'
+    contents = doc.stream(content)
+    resources = b' '.join(b'/%s %d 0 R' % (name.encode(), num) for name, num in fonts.items())
+    pages = doc.reserve()
+    page = doc.add(b'<< /Type /Page /Parent %d 0 R /MediaBox [0 0 595 842] /Resources << /Font << %s >> >> /Contents %d 0 R >>'
+                   % (pages, resources, contents))
+    doc.set(pages, b'<< /Type /Pages /Kids [%d 0 R] /Count 1 >>' % page)
+    doc.write(path, doc.add(b'<< /Type /Catalog /Pages %d 0 R >>' % pages))
 
 
 def gid_codes(arial_path, unicode_cmap):
@@ -124,7 +101,7 @@ def gid_codes(arial_path, unicode_cmap):
     )
     line2 = ''.join('%02x' % gid_of[unicode_cmap[ord(c)]] for c in TEXT)
 
-    doc.write(os.path.join(HERE, '..', 'arial-gid-codes.pdf'), {'F1': type0, 'F2': simple}, [('F1', 700, line1), ('F2', 600, line2)])
+    write(doc, os.path.join(HERE, '..', 'arial-gid-codes.pdf'), {'F1': type0, 'F2': simple}, [('F1', 700, line1), ('F2', 600, line2)])
 
 
 def encoded(arial_path, unicode_cmap):
@@ -144,7 +121,7 @@ def encoded(arial_path, unicode_cmap):
         % (b' '.join(b'%d' % w for w in widths), desc)
     )
     lines = [('F1', 700, ''.join('%02x' % winansi[c] for c in TEXT)), ('F1', 600, 'c0')]
-    doc.write(os.path.join(HERE, '..', 'arial-encoded.pdf'), {'F1': simple}, lines)
+    write(doc, os.path.join(HERE, '..', 'arial-encoded.pdf'), {'F1': simple}, lines)
 
 
 def main(arial_path):

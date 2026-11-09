@@ -1,7 +1,6 @@
-require('./jest-setup');
 const pdf = require('../');
 const path = require('path');
-const fs = require('fs-extra');
+const fs = require('fs/promises');
 
 test('wrong number of parameters throws an error', () => {
   expect(pdf.info()).rejects.toThrow('wrong number of arguments: expected 1-2, got 0');
@@ -32,8 +31,8 @@ test('invalid PDF file throws an error', () => {
 test('reading PDF from buffer works', async () => {
   const data = await fs.readFile(path.join(__dirname, 'fixtures/minimal-text.pdf'));
   const info = await pdf.info(data);
-  expect(info.meta).toBeType('object');
-  expect(info.pages).toBeType('array');
+  expect(info.meta).toEqual(expect.any(Object));
+  expect(Array.isArray(info.pages)).toBe(true);
 });
 
 test('empty input buffer throws an error', () => {
@@ -59,7 +58,7 @@ describe('for minimal-text.pdf', () => {
   });
 
   test('correctly reads page info', () => {
-    expect(info.pages).toBeType('array');
+    expect(Array.isArray(info.pages)).toBe(true);
     expect(info.pages.length).toBe(1);
     expect(info.pages[0].number).toBe(1);
     expect(info.pages[0].width).toBe(893);
@@ -67,7 +66,7 @@ describe('for minimal-text.pdf', () => {
   });
 
   test('correctly reads contained font', () => {
-    expect(info.fonts).toBeType('array');
+    expect(Array.isArray(info.fonts)).toBe(true);
     expect(info.fonts.length).toBe(1);
     expect(info.fonts[0]).toMatchObject({
       id: 0,
@@ -80,12 +79,12 @@ describe('for minimal-text.pdf', () => {
   });
 
   test('detects no images', () => {
-    expect(info.pages[0].images).toBeType('array');
+    expect(Array.isArray(info.pages[0].images)).toBe(true);
     expect(info.pages[0].images.length).toBe(0);
   });
 
   test('correctly reads contained string', () => {
-    expect(info.pages[0].strings).toBeType('array');
+    expect(Array.isArray(info.pages[0].strings)).toBe(true);
     expect(info.pages[0].strings.length).toBe(1);
     expect(info.pages[0].strings[0].top).toBeCloseTo(54.213);
     expect(info.pages[0].strings[0].left).toBeCloseTo(54.57);

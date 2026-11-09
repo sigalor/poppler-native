@@ -3,7 +3,7 @@ const path = require('path');
 
 // The addon must be self-contained: Poppler and every C library it needs are linked statically, and nothing but
 // Node-API's entry points is exported (so no symbol can clash with another copy of a library in the process).
-const addon = process.env.POPPLER_NATIVE_ADDON || require('bindings')({ bindings: 'poppler.node', path: true });
+const addon = process.env.POPPLER_NATIVE_ADDON || require('node-gyp-build').path(path.join(__dirname, '..'));
 const readelf = (...args) => {
   try {
     return execFileSync('readelf', [...args, addon], { encoding: 'utf8' });

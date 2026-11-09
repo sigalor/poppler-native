@@ -1,29 +1,88 @@
 {
   "name": "poppler-native",
-  "version": "2.3.0",
-  "description": "A native interface to the Poppler PDF parser for NodeJS.",
+  "version": "3.0.0",
+  "description": "Fast, accurate PDF parsing for Node.js on the native Poppler engine: text with positions and fonts, images, links, outline and metadata. Prebuilt for Linux, macOS and Windows.",
+  "keywords": [
+    "pdf",
+    "poppler",
+    "pdftotext",
+    "pdftohtml",
+    "pdf-parser",
+    "pdf-text",
+    "text-extraction",
+    "native",
+    "napi"
+  ],
   "author": "sigalor (https://github.com/sigalor)",
   "license": "GPL-2.0-or-later",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sigalor/poppler-native.git"
+    "url": "git+https://github.com/sigalor/poppler-native.git"
   },
   "bugs": {
     "url": "https://github.com/sigalor/poppler-native/issues"
   },
+  "homepage": "https://github.com/sigalor/poppler-native#readme",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./index.d.mts",
+        "default": "./index.mjs"
+      },
+      "require": {
+        "types": "./index.d.ts",
+        "default": "./index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "poppler-native": "bin/poppler-native.js"
+  },
+  "files": [
+    "index.js",
+    "index.mjs",
+    "index.d.ts",
+    "index.d.mts",
+    "lib/",
+    "bin/",
+    "scripts/install.js",
+    "binding.gyp",
+    "native/",
+    "prebuilds/",
+    "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "gypfile": true,
   "scripts": {
-    "install": "node-gyp rebuild",
-    "test": "jest",
-    "build": "node-gyp build"
+    "install": "node scripts/install.js",
+    "build": "node-gyp rebuild --jobs max",
+    "build:prebuilt": "prebuildify --napi --strip --tag-libc",
+    "test": "jest"
   },
   "dependencies": {
-    "bindings": "^1.5.0",
-    "node-addon-api": "^6.0.0"
+    "node-addon-api": "^8.9.2",
+    "node-gyp-build": "^4.8.4"
   },
   "devDependencies": {
-    "fs-extra": "^11.1.0",
-    "jest": "^29.4.3",
-    "jest-tobetype": "^1.2.3",
-    "node-gyp": "^9.3.1"
+    "@types/node": "^24.19.2",
+    "jest": "^30.5.2",
+    "node-gyp": "^13.1.0",
+    "prebuildify": "^6.0.1",
+    "typescript": "^7.0.2"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/test/fixtures/",
+      "/test/helpers/",
+      "/test/types/"
+    ]
   }
 }
