@@ -39,6 +39,10 @@ void TextRepair::load(GfxFont &gfxFont, Font &font) {
   const bool simple = type == fontTrueType || type == fontTrueTypeOT;
   const bool cid = type == fontCIDType2 || type == fontCIDType2OT;
   if (!simple && !cid) return;
+  // Only an embedded font has a program to read. Asking for the one a font doesn't have fetches an invalid object,
+  // and Poppler then rebuilds the document's cross-reference table, which changes how later streams are read.
+  Ref embedded;
+  if (!gfxFont.getEmbeddedFontID(&embedded)) return;
 
   std::optional<std::vector<unsigned char>> program = gfxFont.readEmbFontFile(xref_);
   if (!program || program->empty()) return;

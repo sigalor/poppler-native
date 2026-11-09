@@ -5,11 +5,12 @@
   encrypted-user.pdf   three-pages.pdf, AES-256, user password "secret"
   encrypted-owner.pdf  three-pages.pdf, AES-256, owner password only (opens without a password)
   outline-unresolved.pdf  an outline whose items point to a missing named destination, to a website and to page 1
+  arial-not-embedded.pdf  text in a TrueType Arial that is not embedded, followed by a JPEG
   images.pdf           one page with one image per way poppler-native emits images: a JPEG (passed through as is),
                        a Flate RGB image, a 1-bit image mask, a JPEG 2000 image and a CMYK JPEG (both re-encoded
                        as PNG)
 
-Usage: python3 test/fixtures/generate/make-fixtures.py [three-pages | outline-unresolved | images ...]
+Usage: python3 test/fixtures/generate/make-fixtures.py [three-pages | outline-unresolved | arial-not-embedded | images ...]
 (all of them by default; three-pages also writes the two encrypted copies, which come out different every time)
 """
 import io
@@ -130,6 +131,27 @@ def images():
     doc.write(os.path.join(OUT, 'images.pdf'), doc.add(b'<< /Type /Catalog /Pages %d 0 R >>' % pages))
 
 
+def arial_not_embedded():
+    # Text in a TrueType Arial that is not embedded (the font descriptor has no font file), then a JPEG: the text
+    # repair must not try to read the missing font program, which made Poppler rebuild the cross-reference table and
+    # changed the bytes of every JPEG drawn after it.
+    doc = Pdf()
+    descriptor = doc.add(b'<< /Type /FontDescriptor /FontName /ArialMT /Flags 32 /FontBBox [-665 -325 2000 1006] '
+                         b'/ItalicAngle 0 /Ascent 905 /Descent -212 /CapHeight 716 /StemV 80 >>')
+    font = doc.add(b'<< /Type /Font /Subtype /TrueType /BaseFont /ArialMT /Encoding /WinAnsiEncoding '
+                   b'/FontDescriptor %d 0 R >>' % descriptor)
+    gradient = Image.new('RGB', (8, 6))
+    gradient.putdata([(x * 32, y * 40, 128) for y in range(6) for x in range(8)])
+    photo = doc.stream(jpeg(gradient), b' /Type /XObject /Subtype /Image /Width 8 /Height 6 /ColorSpace /DeviceRGB '
+                       b'/BitsPerComponent 8 /Filter /DCTDecode')
+    content = b'BT /F1 24 Tf 72 700 Td (Arial, not embedded) Tj ET\nq 80 0 0 60 72 600 cm /Im0 Do Q\n'
+    pages = doc.reserve()
+    page = doc.add(b'<< /Type /Page /Parent %d 0 R /MediaBox %s /Resources << /Font << /F1 %d 0 R >> '
+                   b'/XObject << /Im0 %d 0 R >> >> /Contents %d 0 R >>' % (pages, A4, font, photo, doc.stream(content)))
+    doc.set(pages, b'<< /Type /Pages /Kids [%d 0 R] /Count 1 >>' % page)
+    doc.write(os.path.join(OUT, 'arial-not-embedded.pdf'), doc.add(b'<< /Type /Catalog /Pages %d 0 R >>' % pages))
+
+
 def encrypted(source):
     def qpdf(user, out):
         subprocess.run(['qpdf', '--encrypt', user, 'owner-secret', '256', '--', source,
@@ -141,6 +163,7 @@ def encrypted(source):
 FIXTURES = {
     'three-pages': lambda: encrypted(three_pages()),
     'outline-unresolved': outline_unresolved,
+    'arial-not-embedded': arial_not_embedded,
     'images': images,
 }
 

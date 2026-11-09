@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const pdf = require('../');
 const { decodeDataUrl, decodePng } = require('./helpers/png');
@@ -64,4 +65,22 @@ describe('images.pdf', () => {
     expect(r).toBeGreaterThan(g); // the fill is orange: no cyan, half magenta, full yellow
     expect(g).toBeGreaterThan(b);
   });
+});
+
+// Text in a TrueType Arial that is not embedded used to make the text repair fetch the missing font program, which
+// made Poppler rebuild the cross-reference table, after which JPEGs came out with the line break before "endstream".
+test('a JPEG after text in a non-embedded Arial comes out exactly as embedded', async () => {
+  const file = fixture('arial-not-embedded.pdf');
+  const bytes = fs.readFileSync(file);
+  const text = bytes.toString('latin1');
+  const filter = text.indexOf('/DCTDecode');
+  const length = Number(/\/Length (\d+)/.exec(text.slice(text.lastIndexOf('<<', filter), filter))[1]);
+  const start = text.indexOf('stream\n', filter) + 'stream\n'.length;
+  const embedded = bytes.subarray(start, start + length);
+
+  const { pages } = await pdf.info(file);
+  expect(pages[0].strings.map(s => s.text)).toEqual(['Arial, not embedded']);
+  const [image] = pages[0].images;
+  expect(image.src.startsWith('data:image/jpeg;base64,')).toBe(true);
+  expect(Buffer.from(image.src.slice('data:image/jpeg;base64,'.length), 'base64')).toEqual(embedded);
 });
