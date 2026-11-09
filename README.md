@@ -199,8 +199,9 @@ the text alone wherever Poppler's own decoding agrees with the shape.
 ## Building from source
 
 `npm install` compiles from source when no prebuilt binary matches, and `npm install --build-from-source` always does.
-It needs Python 3 and a C++23 compiler: GCC 12 or newer, Clang 16 or Xcode 16 or newer, or Visual Studio 2022 with the
-"Desktop development with C++" workload. Nothing else: Poppler and its libraries are part of the package.
+It needs Python 3 and a C++23 compiler: GCC 12 or newer, Clang 18 or newer, Xcode 16.4 or newer, or Visual Studio 2022
+or 2026 with the "Desktop development with C++" workload. Visual Studio 2026 needs npm 11, which comes with Node.js 24
+and newer (on Node.js 22: `npm install -g npm@11`). Nothing else: Poppler and its libraries are part of the package.
 
 Working on poppler-native itself:
 

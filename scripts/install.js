@@ -29,9 +29,13 @@ const result = spawnSync(command, args, {
 });
 if (result.status === 0) process.exit(0);
 
+const why = fromSource
+  ? 'compiling it failed (see above).'
+  : `there is no prebuilt binary for ${process.platform}-${process.arch}, and compiling one failed (see above).`;
 console.error(`
-poppler-native: there is no prebuilt binary for ${process.platform}-${process.arch}, and compiling one failed (see above).
-Compiling needs Python 3 and a C++23 compiler: GCC 12 or newer, Clang 16 / Xcode 16 or newer, or Visual Studio 2022
-with the "Desktop development with C++" workload. More: https://github.com/sigalor/poppler-native#building-from-source
+poppler-native: ${why}
+Compiling needs Python 3 and a C++23 compiler: GCC 12 or newer, Clang 18 or newer, Xcode 16.4 or newer, or Visual
+Studio 2022 or 2026 with the "Desktop development with C++" workload (Visual Studio 2026 needs npm 11 or newer).
+More: https://github.com/sigalor/poppler-native#building-from-source
 `);
 process.exit(1);

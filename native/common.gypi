@@ -50,7 +50,11 @@
         },
       }],
       ['OS=="win"', {
-        'defines': ['WIN32_LEAN_AND_MEAN', 'NOMINMAX', '_CRT_SECURE_NO_WARNINGS', '_CRT_NONSTDC_NO_DEPRECATE'],
+        # Node defines _HAS_EXCEPTIONS=0, which puts Microsoft's standard library in its no-exceptions mode: there,
+        # std::runtime_error keeps only a pointer to its message, so what() of an exception thrown with a temporary
+        # string reads freed memory. Every target uses the standard library with exceptions, consistently.
+        'defines!': ['_HAS_EXCEPTIONS=0'],
+        'defines': ['_HAS_EXCEPTIONS=1', 'WIN32_LEAN_AND_MEAN', 'NOMINMAX', '_CRT_SECURE_NO_WARNINGS', '_CRT_NONSTDC_NO_DEPRECATE'],
         'msvs_settings': {
           'VCCLCompilerTool': {
             'LanguageStandard': 'stdcpplatest',

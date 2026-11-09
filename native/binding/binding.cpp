@@ -26,6 +26,13 @@
 #include "text-repair/GlyphFingerprint.hpp"
 #include "text-repair/TextRepair.hpp"
 
+// Errors travel as exceptions with their message (std::runtime_error). In Microsoft's standard library without
+// exceptions (_HAS_EXCEPTIONS=0, Node's default), an exception keeps only a pointer to its message, which then
+// dangles: native/common.gypi turns them on for every target, and this keeps it that way.
+#if defined(_MSC_VER) && !_HAS_EXCEPTIONS
+#error "poppler-native must be compiled with _HAS_EXCEPTIONS=1 (see native/common.gypi)"
+#endif
+
 // Reads a whole file. The name arrives from JavaScript as UTF-8, which Windows needs converted to open it.
 static std::vector<uint8_t> readFile(const std::string &filename) {
 #ifdef _WIN32
