@@ -10,6 +10,16 @@
     'cflags_cc!': ['-fno-exceptions', '-fno-rtti', '-std=gnu++17', '-std=gnu++20'],
     'cflags': ['-fvisibility=hidden'],
     'cflags_cc': ['-std=gnu++2b', '-fexceptions', '-frtti', '-fvisibility-inlines-hidden'],
+    # Whatever Node's own settings add, C++23 comes last on the command line: target_conditions are applied after all
+    # other settings, so a spelling of Node's that the removals above don't know can't win.
+    'target_conditions': [
+      ['_type!="none"', {
+        'cflags_cc': ['-std=gnu++2b'],
+        'xcode_settings': { 'OTHER_CPLUSPLUSFLAGS': ['-std=gnu++2b'] },
+        # spelled with "-": gyp drops a repeated "/" option, which would leave the earlier one in place
+        'msvs_settings': { 'VCCLCompilerTool': { 'AdditionalOptions': ['-std:c++latest'] } },
+      }],
+    ],
     'configurations': {
       'Release': {
         # Poppler's own release builds define NDEBUG; without it an assert() on a malformed PDF would abort Node.

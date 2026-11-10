@@ -7,9 +7,10 @@ Poppler 26.11.0, prebuilt binaries, and everything a new user would expect from 
 - Prebuilt binaries for Linux (x64 and arm64, glibc and musl), macOS (Apple silicon and Intel) and Windows (x64 and
   arm64): `npm install` downloads nothing else and compiles nothing. No system packages are needed any more -- not
   libjpeg, libpng, FreeType, curl, nor mupdf-tools.
-- Where no prebuilt binary fits, the install compiles from source on all cores with nothing but Python 3 and a C++23
-  compiler: Poppler and every library it needs (zlib 1.4, libpng 1.6.59, libjpeg-turbo 3.2.1, OpenJPEG 2.5.4,
-  FreeType 2.15.0) are bundled.
+- Where no prebuilt binary fits, or the one that fits doesn't load (a musl system other than Alpine, say), the install
+  compiles from source with nothing but Python 3 and a C++23 compiler: Poppler and every library it needs (zlib 1.4,
+  libpng 1.6.59, libjpeg-turbo 3.2.1, OpenJPEG 2.5.4, FreeType 2.15.0) are bundled. It compiles on every core, but
+  runs no more compilers at once than memory allows (a container sees all cores and part of the memory).
 - Node.js 22 or newer.
 
 **New**
@@ -39,6 +40,7 @@ Poppler 26.11.0, prebuilt binaries, and everything a new user would expect from 
 - The outline is read up to 256 levels deep: a crafted PDF nesting thousands of levels took quadratic time and then
   crashed the process.
 - A directory passed as the file rejects the promise; 2.3.0 aborted the Node process.
+- A path with a null byte in it is refused, as `fs` does; 2.3.0 read the path cut at the null byte.
 - Files are read off the JavaScript thread, and `info()` can be called concurrently from many places at once.
 - Safe with worker threads: terminating a worker while it parses no longer aborts the process.
 - A result JavaScript can't hold rejects with a message saying what to do, instead of crashing the process: an image

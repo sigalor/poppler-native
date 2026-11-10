@@ -33,6 +33,7 @@
 #if defined(_MSC_VER) && !_HAS_EXCEPTIONS
 #error "poppler-native must be compiled with _HAS_EXCEPTIONS=1 (see native/common.gypi)"
 #endif
+static_assert(__cplusplus > 202002L, "poppler-native must be compiled as C++23 (see native/common.gypi)");
 
 // Reads a whole file. The name arrives from JavaScript as UTF-8, which Windows needs converted to open it.
 static std::vector<uint8_t> readFile(const std::string &filename) {

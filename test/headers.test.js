@@ -16,7 +16,8 @@ const STANDARD_HEADERS = `algorithm any array atomic barrier bit bitset charconv
   unordered_set utility valarray variant vector version cassert cctype cerrno cfenv cfloat cinttypes climits clocale
   cmath csetjmp csignal cstdarg cstddef cstdint cstdio cstdlib cstring ctime cuchar cwchar cwctype assert.h ctype.h
   errno.h fenv.h float.h inttypes.h limits.h locale.h math.h setjmp.h signal.h stdarg.h stddef.h stdint.h stdio.h
-  stdlib.h string.h time.h uchar.h wchar.h wctype.h`.split(/\s+/);
+  stdlib.h string.h time.h uchar.h wchar.h wctype.h stdbool.h stdatomic.h threads.h complex.h tgmath.h iso646.h
+  stdalign.h stdnoreturn.h stdbit.h stdckdint.h ccomplex ciso646 cstdalign cstdbool ctgmath contracts hive meta`.split(/\s+/);
 
 // The include directories of every target, from the gyp files themselves (plain paths; node-addon-api's directory
 // comes from a command there, so it is added directly).

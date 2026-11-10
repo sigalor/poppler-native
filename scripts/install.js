@@ -31,6 +31,7 @@ function main() {
   const nodeGyp = process.env.npm_config_node_gyp;
   const [command, args] =
     nodeGyp && nodeGyp.endsWith('.js') ? [process.execPath, [nodeGyp, 'rebuild']] : [nodeGyp || 'node-gyp', ['rebuild']];
+  // the machine's memory, or the process's limit when there is one (a container's)
   const memory = Math.min(os.totalmem(), process.constrainedMemory() || Infinity);
   const jobs = process.env.JOBS || String(compileJobs(os.availableParallelism(), memory));
   const result = spawnSync(command, args, {

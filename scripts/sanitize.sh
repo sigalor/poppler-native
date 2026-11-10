@@ -12,20 +12,32 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# A run that was killed (no trap runs on SIGKILL) leaves the build from before it aside: don't replace it.
+for stranded in .build-before-sanitize.*/build; do
+  if [ -d "$stranded" ]; then
+    echo "sanitize.sh: the build from before an interrupted run is still in $PWD/${stranded%/build};" \
+      "move its build/ back here (or delete that directory), then run again" >&2
+    exit 1
+  fi
+done
+
 logs=$(mktemp -d)
 saved=""
+restore() {
+  rm -rf "$logs"
+  if [ -n "$saved" ] && [ -d "$saved/build" ]; then
+    rm -rf build
+    mv "$saved/build" build
+    rmdir "$saved"
+  elif [ -z "$saved" ]; then
+    rm -rf build
+  fi
+}
+trap restore EXIT
 if [ -d build ]; then
   saved=$(mktemp -d "$PWD/.build-before-sanitize.XXXXXX")
   mv build "$saved/build"
 fi
-restore() {
-  rm -rf build "$logs"
-  if [ -n "$saved" ]; then
-    mv "$saved/build" build
-    rmdir "$saved"
-  fi
-}
-trap restore EXIT
 
 flags="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -g"
 CFLAGS="$flags" CXXFLAGS="$flags" LDFLAGS="-fsanitize=address,undefined" npx node-gyp rebuild --jobs max >/dev/null
