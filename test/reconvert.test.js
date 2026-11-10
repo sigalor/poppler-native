@@ -58,6 +58,29 @@ describeWithGhostscript('reconvertThroughPS', () => {
     await expect(pdf.info(fixture('not-a-pdf.pdf'), { reconvertThroughPS: true })).rejects.toThrow(/Ghostscript/);
   });
 
+  describe('an encrypted document', () => {
+    const refused = 'file was encrypted and password was incorrect or not supplied';
+
+    test('is read with its password', async () => {
+      const plain = await pdf.info(fixture('three-pages.pdf'), { reconvertThroughPS: true });
+      const encrypted = await pdf.info(fixture('encrypted-user.pdf'), { password: 'secret', reconvertThroughPS: true });
+      expect(encrypted.numPages).toBe(3);
+      expect(texts(encrypted)).toEqual(texts(plain));
+    });
+
+    test('is read with a password that has a space, a quote and a backslash', async () => {
+      const encrypted = await pdf.info(fixture('encrypted-quoted.pdf'), { password: 'pa ss"wo\\rd', reconvertThroughPS: true });
+      expect(encrypted.numPages).toBe(3);
+    });
+
+    test('is refused without its password, or with a wrong one, as without reconverting', async () => {
+      await expect(pdf.info(fixture('encrypted-user.pdf'), { reconvertThroughPS: true })).rejects.toThrow(refused);
+      await expect(pdf.info(fixture('encrypted-user.pdf'), { password: 'wrong', reconvertThroughPS: true })).rejects.toThrow(
+        refused,
+      );
+    });
+  });
+
   test('leaves no temporary files behind', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'poppler-native-tmpdir-'));
     try {
@@ -80,4 +103,18 @@ test('reconvertThroughPS without Ghostscript installed says what is missing', ()
     { PATH: '' },
   );
   expect(out).toMatch(/reconvertThroughPS requires Ghostscript/);
+});
+
+describe('the password, as Ghostscript reads it from its argument file', () => {
+  const { passwordArgument } = require('../lib/ghostscript');
+
+  test('is quoted, with its quotes escaped', () => {
+    expect(passwordArgument('pa ss"wo\\rd')).toBe('-sPDFPassword="pa ss\\"wo\\rd"\n');
+  });
+
+  test("is refused, saying why, where Ghostscript can't read it", () => {
+    for (const password of ['ends with \\', 'has \\" in it', 'a line\nbreak']) {
+      expect(() => passwordArgument(password)).toThrow("reconvertThroughPS can't hand this password to Ghostscript");
+    }
+  });
 });

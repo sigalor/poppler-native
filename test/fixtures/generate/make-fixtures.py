@@ -4,6 +4,7 @@
                        internal link on page 1
   encrypted-user.pdf   three-pages.pdf, AES-256, user password "secret"
   encrypted-owner.pdf  three-pages.pdf, AES-256, owner password only (opens without a password)
+  encrypted-quoted.pdf three-pages.pdf, AES-256, user password 'pa ss"wo\\rd' (a space, a quote and a backslash)
   outline-unresolved.pdf  an outline whose items point to a missing named destination, to a website and to page 1
   arial-not-embedded.pdf  text in a TrueType Arial that is not embedded, followed by a JPEG
   images.pdf           one page with one image per way poppler-native emits images: a JPEG (passed through as is),
@@ -158,6 +159,7 @@ def encrypted(source):
                         os.path.join(OUT, out)], check=True)
     qpdf('secret', 'encrypted-user.pdf')
     qpdf('', 'encrypted-owner.pdf')
+    qpdf('pa ss"wo\\rd', 'encrypted-quoted.pdf')  # a space, a quote and a backslash: pa ss"wo\rd
 
 
 FIXTURES = {

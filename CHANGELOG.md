@@ -44,7 +44,8 @@ Poppler 26.11.0, prebuilt binaries, and everything a new user would expect from 
 - A result JavaScript can't hold, such as an image whose data URL would be longer than the longest string (a few
   kilobytes of compressed data can inflate to gigabytes), rejects with a message saying what to do, instead of
   crashing the process; memory stays bounded by that limit.
-- `reconvertThroughPS` runs Ghostscript without a shell and cleans up after itself; it still needs Ghostscript (`gs`).
+- `reconvertThroughPS` runs Ghostscript without a shell, works with `password` (handed over in a private file, not
+  on the command line) and cleans up after itself; it still needs Ghostscript (`gs`).
 
 # 2.3.0 (2023-09-21)
 
