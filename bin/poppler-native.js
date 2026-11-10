@@ -23,6 +23,12 @@ Options:
 
 class UsageError extends Error {}
 
+// Output into a pipe that was closed (`poppler-native file.pdf --text | head`) is not an error: stop quietly.
+process.stdout.on('error', e => {
+  if (e.code !== 'EPIPE') throw e;
+  process.exit(0);
+});
+
 async function readStdin() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);

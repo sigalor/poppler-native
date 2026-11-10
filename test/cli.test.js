@@ -60,3 +60,15 @@ test('a missing file argument is a usage error', () => {
   expect(status).toBe(2);
   expect(stderr).toContain('Usage: poppler-native');
 });
+
+// `poppler-native file.pdf --text | head` closes the pipe before the output is written: that is not an error.
+test('stops quietly when its output pipe is closed', async () => {
+  const { spawn } = require('child_process');
+  const child = spawn(process.execPath, [cli, fixture('images.pdf')], { stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout.destroy(); // the reader goes away before anything is written
+  let stderr = '';
+  child.stderr.on('data', chunk => (stderr += chunk));
+  const status = await new Promise(resolve => child.on('close', resolve));
+  expect(stderr).toBe('');
+  expect(status).toBe(0);
+});
