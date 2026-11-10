@@ -1,5 +1,6 @@
 const { constants } = require('buffer');
 const fs = require('fs/promises');
+const v8 = require('v8');
 const native = require('./lib/native');
 const { checkArguments } = require('./lib/arguments');
 const { reconvertThroughPostScript } = require('./lib/ghostscript');
@@ -25,8 +26,12 @@ async function readPdfFile(filename) {
   }
 }
 
-// The addon needs to know the longest string JavaScript holds: a result that needs a longer one can't be returned.
-const limits = { _maxStringLength: constants.MAX_STRING_LENGTH };
+// What a result can hold, which the addon needs to know: no string can be longer than the longest JavaScript holds,
+// and all images of a document together may take a quarter of the heap (as data URLs, one byte per character).
+const limits = {
+  _maxStringLength: constants.MAX_STRING_LENGTH,
+  _maxImageBytes: Math.floor(v8.getHeapStatistics().heap_size_limit / 4),
+};
 
 // Ghostscript handles a missing or wrong password badly (an empty document, or a crash), so Poppler checks it first,
 // without reading any page, and refuses as info() does without reconvertThroughPS. Any other problem is left to

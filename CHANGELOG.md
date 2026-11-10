@@ -41,9 +41,10 @@ Poppler 26.11.0, prebuilt binaries, and everything a new user would expect from 
 - A directory passed as the file rejects the promise; 2.3.0 aborted the Node process.
 - Files are read off the JavaScript thread, and `info()` can be called concurrently from many places at once.
 - Safe with worker threads: terminating a worker while it parses no longer aborts the process.
-- A result JavaScript can't hold, such as an image whose data URL would be longer than the longest string (a few
-  kilobytes of compressed data can inflate to gigabytes), rejects with a message saying what to do, instead of
-  crashing the process; memory stays bounded by that limit.
+- A result JavaScript can't hold rejects with a message saying what to do, instead of crashing the process: an image
+  whose data URL would be longer than the longest string, images too large together for a quarter of the JavaScript
+  heap, or text longer than a string (a few kilobytes of compressed data can inflate to gigabytes). Reading stops at
+  that point, so memory stays in proportion to those limits.
 - `reconvertThroughPS` runs Ghostscript without a shell, works with `password` (handed over in a private file, not
   on the command line) and cleans up after itself; it still needs Ghostscript (`gs`).
 

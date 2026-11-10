@@ -145,7 +145,8 @@ file: No such file or directory`, `PDF file was damaged and couldn't be repaired
 incorrect or not supplied`. Invalid arguments reject with a `TypeError` that names them: `firstPage must be a positive
 integer, got 0`, `unknown option "firstpage"; info() accepts password, firstPage, lastPage, images,
 reconvertThroughPS`. A result too large for JavaScript (an image whose data URL would be longer than the longest
-string, as a decompression bomb produces) rejects with a message that suggests `{ images: false }`. Poppler's own
+string, or images too large together for the heap, as decompression bombs produce) rejects with a message that suggests
+`{ images: false }`. Poppler's own
 warnings about broken PDFs are not printed; a damaged PDF that can be repaired simply parses.
 
 ### Command line

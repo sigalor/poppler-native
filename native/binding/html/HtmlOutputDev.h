@@ -248,6 +248,8 @@ public:
 
     // The longest string JavaScript can hold: an image whose data URL would be longer can't be returned.
     void setMaxStringLength(size_t length) { maxStringLength = length; }
+    // How many characters of data URLs one document may return in all, so that they fit in the JavaScript heap.
+    void setMaxImageBytes(size_t bytes) { maxImageBytes = bytes; }
     // Why the result can't be returned (an image too large), or empty. Images after such a one are skipped.
     const std::string &failure() const { return failure_; }
 
@@ -261,10 +263,17 @@ private:
     void drawJpegImage(GfxState *state, Stream *str);
     void drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask = false);
 
-    // The most bytes a data URL starting with <prefix> can encode in base64 and still fit in a JavaScript string.
-    size_t maxDataUrlBytes(size_t prefixLength) const { return maxStringLength > prefixLength ? (maxStringLength - prefixLength) / 4 * 3 : 0; }
-    void imageTooLarge();
+    // The most bytes an image can have so that its data URL, starting with <prefix>, fits in <length> characters.
+    static size_t maxEncodedBytes(size_t prefixLength, size_t length) { return length > prefixLength ? (length - prefixLength) / 4 * 3 : 0; }
+    // The most bytes the next image can have: its data URL must fit in a string and in what is left of the budget.
+    size_t maxImageSize(size_t prefixLength) const;
+    // Records why an image of <bytes> bytes can't be returned, and that the result can't.
+    void imageTooLarge(size_t prefixLength);
+    // Returns the image as a data URL, counting it against the budget.
+    void addDataUrl(const std::string &prefix, const std::vector<unsigned char> &bytes, GfxState *state);
     size_t maxStringLength = (size_t(1) << 29) - 24;
+    size_t maxImageBytes = size_t(1) << 30;
+    size_t imageBytes = 0; // characters of data URLs so far
     std::string failure_;
 
     std::unique_ptr<HtmlPage> pages; // text for the current page

@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -63,7 +64,20 @@ struct Options {
   // The longest string JavaScript can hold (buffer.constants.MAX_STRING_LENGTH), passed by index.js: a result that
   // needs a longer one can't be returned.
   size_t maxStringLength = (size_t(1) << 29) - 24;
+  // How many characters of data URLs one document may return, so that they fit in the JavaScript heap; index.js
+  // passes a quarter of the heap's limit.
+  size_t maxImageBytes = size_t(1) << 30;
 };
+
+// A count from JavaScript as a size_t: anything from 1 up, Infinity and numbers too large for size_t meaning "as many
+// as fit", nothing for NaN or less than 1.
+static std::optional<size_t> toSize(const Napi::Value &value) {
+  if (!value.IsNumber()) return std::nullopt;
+  const double number = value.As<Napi::Number>().DoubleValue();
+  if (!(number >= 1)) return std::nullopt;
+  if (number >= static_cast<double>(std::numeric_limits<size_t>::max())) return std::numeric_limits<size_t>::max();
+  return static_cast<size_t>(number);
+}
 
 // What info() and text() share: checking the arguments, getting the PDF's bytes and opening the document.
 class DocumentWorker : public Napi::AsyncWorker {
@@ -157,9 +171,8 @@ class DocumentWorker : public Napi::AsyncWorker {
     if ((value = object.Get("lastPage")).IsNumber()) options.lastPage = value.As<Napi::Number>().Int32Value();
     if ((value = object.Get("images")).IsBoolean()) options.images = value.As<Napi::Boolean>().Value();
     if ((value = object.Get("layout")).IsBoolean()) options.layout = value.As<Napi::Boolean>().Value();
-    if ((value = object.Get("_maxStringLength")).IsNumber() && value.As<Napi::Number>().DoubleValue() >= 1) {
-      options.maxStringLength = static_cast<size_t>(value.As<Napi::Number>().DoubleValue());
-    }
+    if (auto length = toSize(object.Get("_maxStringLength"))) options.maxStringLength = *length;
+    if (auto bytes = toSize(object.Get("_maxImageBytes"))) options.maxImageBytes = *bytes;
   }
 
   std::string argError;
@@ -186,8 +199,11 @@ class InfoWorker : public DocumentWorker {
     HtmlOutputDev outputDev(doc->getCatalog(), "this", numPages, !options.images, false, false, 0.1, pages,
                             &textRepair);
     outputDev.setMaxStringLength(options.maxStringLength);
+    outputDev.setMaxImageBytes(options.maxImageBytes);
     if (auto range = pageRange(*doc)) {
-      doc->displayPages(&outputDev, range->first, range->second, 108.0, 108.0, 0, true, false, false);
+      // stop at the first page after the result is known to be too large to return
+      auto failed = [](void *dev) { return !static_cast<HtmlOutputDev *>(dev)->failure().empty(); };
+      doc->displayPages(&outputDev, range->first, range->second, 108.0, 108.0, 0, true, false, false, failed, &outputDev);
     }
     if (!outputDev.failure().empty()) throw std::runtime_error(outputDev.failure());
     outputDev.generateOutline(doc.get(), outline);
@@ -217,10 +233,34 @@ class InfoWorker : public DocumentWorker {
   std::vector<ReadPDFOutputs::Page> pages;
 };
 
+// Where text() writes the text: up to the longest string JavaScript holds, counted as it grows. What doesn't fit is
+// dropped and the rest of the document skipped, so memory stays bounded by that length.
+struct TextSink {
+  std::string text;
+  size_t utf16Length = 0;  // what a JavaScript string's length counts
+  size_t maxLength;
+  bool full = false;
+
+  void append(const char *data, int length) {
+    if (full) return;
+    size_t units = 0;
+    for (int i = 0; i < length; ++i) {
+      const auto byte = static_cast<unsigned char>(data[i]);
+      if ((byte & 0xC0) != 0x80) units += byte >= 0xF0 ? 2 : 1;  // a lead byte; 4-byte sequences need a pair
+    }
+    if (units > maxLength - utf16Length) {
+      full = true;
+      return;
+    }
+    utf16Length += units;
+    text.append(data, length);
+  }
+};
+
 // Poppler's pdftotext engine, reading text drawn with an embedded Arial subset the same way info() does.
 class RepairingTextOutputDev : public TextOutputDev {
  public:
-  RepairingTextOutputDev(std::string &out, bool physLayout, TextRepair::TextRepair &repair)
+  RepairingTextOutputDev(TextSink &out, bool physLayout, TextRepair::TextRepair &repair)
       : TextOutputDev(&append, &out, physLayout, 0, false), repair(repair) {}
 
   void drawChar(GfxState *state, double x, double y, double dx, double dy, double originX, double originY,
@@ -234,7 +274,7 @@ class RepairingTextOutputDev : public TextOutputDev {
   }
 
  private:
-  static void append(void *out, const char *text, int length) { static_cast<std::string *>(out)->append(text, length); }
+  static void append(void *out, const char *text, int length) { static_cast<TextSink *>(out)->append(text, length); }
 
   TextRepair::TextRepair &repair;
   std::vector<Unicode> repaired;
@@ -247,34 +287,25 @@ class TextWorker : public DocumentWorker {
   void Execute() override {
     std::unique_ptr<PDFDoc> doc = openDocument();
     TextRepair::TextRepair textRepair(doc->getXRef());
-    RepairingTextOutputDev textOut(text, options.layout, textRepair);
+    sink.maxLength = options.maxStringLength;
+    RepairingTextOutputDev textOut(sink, options.layout, textRepair);
     if (!textOut.isOk()) throw std::runtime_error("couldn't set up text extraction");
     if (auto range = pageRange(*doc)) {
-      doc->displayPages(&textOut, range->first, range->second, 72.0, 72.0, 0, true, false, false);
+      auto full = [](void *out) { return static_cast<TextSink *>(out)->full; };
+      doc->displayPages(&textOut, range->first, range->second, 72.0, 72.0, 0, true, false, false, full, &sink);
     }
-    if (utf16Length(text) > options.maxStringLength) {
+    if (sink.full) {
       throw std::runtime_error(
           "the text is too long for a JavaScript string; read fewer pages at a time with firstPage and lastPage");
     }
   }
 
   void OnOK() override {
-    Settle([this] { return Napi::String::New(Env(), text); });
+    Settle([this] { return Napi::String::New(Env(), sink.text); });
   }
 
  private:
-  // The length of UTF-8 text in UTF-16 code units, which is what a JavaScript string's length counts.
-  static size_t utf16Length(const std::string &utf8) {
-    size_t length = 0;
-    for (const char c : utf8) {
-      const auto byte = static_cast<unsigned char>(c);
-      if ((byte & 0xC0) != 0x80) length += byte >= 0xF0 ? 2 : 1;  // a lead byte; 4-byte sequences need a pair
-    }
-    return length;
-  }
-
- private:
-  std::string text;
+  TextSink sink;
 };
 
 template <typename Worker>
