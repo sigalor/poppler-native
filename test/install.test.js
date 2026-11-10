@@ -53,11 +53,14 @@ describe('npm install', () => {
     expect(pkg.compiled()).toBe(true);
   });
 
-  test("says what couldn't be run when the compiler can't be started", () => {
+  // On Windows, a command that isn't a .js file runs through cmd.exe, which says itself that it doesn't know it.
+  test("names the compiler when it can't be started", () => {
     pkg = scratchPackage();
     const result = install(pkg, { npm_config_node_gyp: 'poppler-native-no-such-command' });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("couldn't run poppler-native-no-such-command");
+    expect(result.stderr).toContain(
+      process.platform === 'win32' ? 'poppler-native-no-such-command' : "couldn't run poppler-native-no-such-command",
+    );
   });
 });
 

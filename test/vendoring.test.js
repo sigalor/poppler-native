@@ -22,8 +22,8 @@ describeOnPosix('the vendoring scripts, when they fail', () => {
     spawnSync(process.execPath, [path.join(scripts, script), ...args], { encoding: 'utf8', env: { ...process.env, TMPDIR: work } });
 
   test('update-poppler says why and leaves no temporary directory behind', () => {
-    const notPoppler = path.join(tmp, 'not-poppler.tar.xz');
-    execFileSync('tar', ['-cJf', notPoppler, '-C', __dirname, 'fixtures/README.md']);
+    const notPoppler = path.join(tmp, 'not-poppler.tar'); // uncompressed: not every system has xz (Alpine)
+    execFileSync('tar', ['-cf', notPoppler, '-C', __dirname, 'fixtures/README.md']);
     const result = run('update-poppler.mjs', ['26.11.0', '--tarball', notPoppler, '--skip-signature']);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(`update-poppler: ${notPoppler} is not poppler-26.11.0`);
