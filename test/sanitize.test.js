@@ -4,8 +4,10 @@ const os = require('os');
 const path = require('path');
 
 // scripts/sanitize.sh moves the existing build aside and puts it back at the end. A run that was killed can't put it
-// back (no trap runs on SIGKILL): the next run must say so instead of replacing that build. (Linux and macOS.)
-(process.platform === 'win32' ? test.skip : test)('sanitize.sh refuses to start while an earlier run left a build aside', () => {
+// back (no trap runs on SIGKILL): the next run must say so instead of replacing that build. It is a bash script for
+// Linux and macOS (with glibc: AddressSanitizer doesn't support musl), so this needs bash.
+const hasBash = process.platform !== 'win32' && spawnSync('bash', ['-c', 'true']).status === 0;
+(hasBash ? test : test.skip)('sanitize.sh refuses to start while an earlier run left a build aside', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poppler-native-sanitize-'));
   try {
     fs.mkdirSync(path.join(dir, 'scripts'));
