@@ -36,6 +36,11 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           test "$(node -p "require('./package.json').version")" = "$version"
           test -f "poppler-native-$version.tgz"
+          heading=$(grep -m1 "^# $version " CHANGELOG.md || true)
+          test -n "$heading" || { echo "CHANGELOG.md has no entry for $version" >&2; exit 1; }
+          case "$heading" in
+            *unreleased*) echo "CHANGELOG.md still calls $version unreleased: put the release date in its heading" >&2; exit 1 ;;
+          esac
           awk -v v="$version" 'index($0, "# " v " ") == 1 {found=1; next} /^# / && found {exit} found' CHANGELOG.md > notes.md
           test -s notes.md || { echo "CHANGELOG.md has no entry for $version" >&2; exit 1; }
       - name: Publish to npm

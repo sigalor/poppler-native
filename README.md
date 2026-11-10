@@ -182,7 +182,9 @@ of that PDF take 2.2 s together. Node's thread pool has four threads unless you 
 Poppler parses the PDF and draws every page into an output device derived from Poppler's own `pdftohtml`, which
 records each run of text with its font and position, every image and every link, instead of writing HTML. `text()`
 uses `pdftotext`'s output device, with the same settings. Poppler and the libraries it needs are compiled into the
-addon from unmodified upstream releases, so it depends on nothing on the system.
+addon from unmodified upstream releases, so it needs nothing on the system. One optional extra: on Linux, Poppler also
+uses the character maps of the `poppler-data` package when it is installed (in `/usr/share/poppler`), which some PDFs
+with Chinese, Japanese or Korean text need to be read.
 
 One addition sits on top: some PDFs draw text with an embedded subset of Arial whose characters cannot be decoded (no
 `ToUnicode` map, glyph numbers instead of character codes), which `pdftotext` turns into control characters.
