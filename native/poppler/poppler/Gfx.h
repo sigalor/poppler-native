@@ -17,15 +17,17 @@
 // Copyright (C) 2007 Iñigo Martínez <inigomartinez@gmail.com>
 // Copyright (C) 2008 Brad Hards <bradh@kde.org>
 // Copyright (C) 2008, 2010 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright (C) 2009-2013, 2017, 2018, 2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2009-2013, 2017, 2018, 2021, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2009, 2010, 2012, 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2010 David Benjamin <davidben@mit.edu>
 // Copyright (C) 2010 Christian Feuersänger <cfeuersaenger@googlemail.com>
 // Copyright (C) 2013 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
-// Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2019, 2022, 2024 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
+// Copyright (C) 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -41,9 +43,9 @@
 #include "Object.h"
 #include "PopplerCache.h"
 
+#include <stack>
 #include <vector>
 
-class GooString;
 class PDFDoc;
 class XRef;
 class Array;
@@ -117,23 +119,25 @@ public:
     GfxResources(const GfxResources &) = delete;
     GfxResources &operator=(const GfxResources &other) = delete;
 
-    GfxFont *lookupFont(const char *name);
-    const GfxFont *lookupFont(const char *name) const;
-    Object lookupXObject(const char *name);
-    Object lookupXObjectNF(const char *name);
-    Object lookupMarkedContentNF(const char *name);
-    Object lookupColorSpace(const char *name);
-    GfxPattern *lookupPattern(const char *name, OutputDev *out, GfxState *state);
-    GfxShading *lookupShading(const char *name, OutputDev *out, GfxState *state);
-    Object lookupGState(const char *name);
-    Object lookupGStateNF(const char *name);
+    std::shared_ptr<GfxFont> lookupFont(std::string_view name);
+    std::shared_ptr<const GfxFont> lookupFont(std::string_view name) const;
+    Object lookupXObject(std::string_view name);
+    Object lookupXObjectNF(std::string_view name);
+    Object lookupMarkedContentNF(std::string_view name);
+    Object lookupColorSpace(std::string_view name);
+    std::unique_ptr<GfxPattern> lookupPattern(std::string_view name, OutputDev *out, GfxState *state);
+    std::unique_ptr<GfxShading> lookupShading(std::string_view name, OutputDev *out, GfxState *state);
+    Object lookupGState(std::string_view name);
+    Object lookupGStateNF(std::string_view name);
 
     GfxResources *getNext() const { return next; }
 
 private:
-    GfxFont *doLookupFont(const char *name) const;
+    std::shared_ptr<GfxFont> doLookupFont(std::string_view name) const;
 
-    GfxFontDict *fonts;
+    Ref fontDictRef;
+    mutable std::unique_ptr<GfxFontDict> fonts;
+    Object fontDict;
     Object xObjDict;
     Object colorSpaceDict;
     Object patternDict;
@@ -153,12 +157,12 @@ class POPPLER_PRIVATE_EXPORT Gfx
 {
 public:
     // Constructor for regular output.
-    Gfx(PDFDoc *docA, OutputDev *outA, int pageNum, Dict *resDict, double hDPI, double vDPI, const PDFRectangle *box, const PDFRectangle *cropBox, int rotate, bool (*abortCheckCbkA)(void *data) = nullptr, void *abortCheckCbkDataA = nullptr,
+    Gfx(PDFDoc *docA, OutputDev *outA, int pageNum, Dict *resDict, double hDPI, double vDPI, const PDFRectangle &box, const PDFRectangle *cropBox, int rotate, bool (*abortCheckCbkA)(void *data) = nullptr, void *abortCheckCbkDataA = nullptr,
         XRef *xrefA = nullptr);
 
     // Constructor for a sub-page object.
-    Gfx(PDFDoc *docA, OutputDev *outA, Dict *resDict, const PDFRectangle *box, const PDFRectangle *cropBox, bool (*abortCheckCbkA)(void *data) = nullptr, void *abortCheckCbkDataA = nullptr, Gfx *gfxA = nullptr);
-#ifdef USE_CMS
+    Gfx(PDFDoc *docA, OutputDev *outA, Dict *resDict, const PDFRectangle &box, const PDFRectangle *cropBox, bool (*abortCheckCbkA)(void *data) = nullptr, void *abortCheckCbkDataA = nullptr, Gfx *gfxA = nullptr);
+#if USE_CMS
     void initDisplayProfile();
 #endif
     ~Gfx();
@@ -169,7 +173,13 @@ public:
     XRef *getXRef() { return xref; }
 
     // Interpret a stream or array of streams.
-    void display(Object *obj, bool topLevel = true);
+    enum class DisplayType
+    {
+        TopLevel,
+        Type3Font,
+        Form
+    };
+    void display(Object *obj, DisplayType displayType = DisplayType::TopLevel);
 
     // Display an annotation, given its appearance (a Form XObject),
     // border style, and bounding box (in default user space).
@@ -192,8 +202,9 @@ public:
 
     bool checkTransparencyGroup(Dict *resDict);
 
-    void drawForm(Object *str, Dict *resDict, const double *matrix, const double *bbox, bool transpGroup = false, bool softMask = false, GfxColorSpace *blendingColorSpace = nullptr, bool isolated = false, bool knockout = false,
-                  bool alpha = false, Function *transferFunc = nullptr, GfxColor *backdropColor = nullptr);
+    // if softMask is true backdropColor must not be null
+    void drawForm(Object *str, Dict *resDict, const std::array<double, 6> &matrix, const std::array<double, 4> &bbox, bool transpGroup = false, bool softMask = false, GfxColorSpace *blendingColorSpace = nullptr, bool isolated = false,
+                  bool knockout = false, bool alpha = false, Function *transferFunc = nullptr, const GfxColor *backdropColor = nullptr);
 
     void pushResources(Dict *resDict);
     void popResources();
@@ -210,14 +221,17 @@ private:
     GfxResources *res; // resource stack
     int updateLevel;
 
+    std::stack<DisplayType> displayTypes;
+    std::stack<bool> type3FontIsD1;
+
     GfxState *state; // current graphics state
     int stackHeight; // the height of the current graphics stack
     std::vector<int> stateGuards; // a stack of state limits; to guard against unmatched pops
     bool fontChanged; // set if font or text matrix has changed
     GfxClipType clip; // do a clip?
     int ignoreUndef; // current BX/EX nesting level
-    double baseMatrix[6]; // default matrix for most recent
-                          //   page/form/pattern
+    std::array<double, 6> baseMatrix; // default matrix for most recent
+                                      //   page/form/pattern
     int displayDepth;
     bool ocState; // true if drawing is enabled, false if
                   //   disabled
@@ -235,10 +249,10 @@ private:
 
     static const Operator opTab[]; // table of operators
 
-    void go(bool topLevel);
+    void go(DisplayType displayType);
     void execOp(Object *cmd, Object args[], int numArgs);
-    const Operator *findOp(const char *name);
-    bool checkArg(Object *arg, TchkType type);
+    static const Operator *findOp(const char *name);
+    static bool checkArg(Object *arg, TchkType type);
     Goffset getPos();
 
     int bottomGuard();
@@ -254,7 +268,7 @@ private:
     void opSetMiterLimit(Object args[], int numArgs);
     void opSetLineWidth(Object args[], int numArgs);
     void opSetExtGState(Object args[], int numArgs);
-    void doSoftMask(Object *str, bool alpha, GfxColorSpace *blendingColorSpace, bool isolated, bool knockout, Function *transferFunc, GfxColor *backdropColor);
+    void doSoftMask(Object *str, bool alpha, GfxColorSpace *blendingColorSpace, bool isolated, bool knockout, Function *transferFunc, const GfxColor &backdropColor);
     void opSetRenderingIntent(Object args[], int numArgs);
 
     // color operators
@@ -337,8 +351,8 @@ private:
     void opMoveShowText(Object args[], int numArgs);
     void opMoveSetShowText(Object args[], int numArgs);
     void opShowSpaceText(Object args[], int numArgs);
-    void doShowText(const GooString *s);
-    void doIncCharCount(const GooString *s);
+    void doShowText(const std::string &s);
+    void doIncCharCount(const std::string &s);
 
     // XObject operators
     void opXObject(Object args[], int numArgs);
@@ -347,7 +361,7 @@ private:
 
     // in-line image operators
     void opBeginImage(Object args[], int numArgs);
-    Stream *buildImageStream();
+    std::unique_ptr<Stream> buildImageStream();
     void opImageData(Object args[], int numArgs);
     void opEndImage(Object args[], int numArgs);
 

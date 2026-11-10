@@ -40,6 +40,7 @@
 
 #include <cstdio>
 
+#include <goo/GooString.h>
 #include <poppler/GfxFont.h>
 #include <poppler/GlobalParams.h>
 #include <poppler/UnicodeMap.h>
@@ -85,9 +86,9 @@ HtmlFontColor::HtmlFontColor(GfxRGB rgb, double opacity_)
     }
 }
 
-GooString *HtmlFontColor::convtoX(unsigned int xcol) const
+std::string HtmlFontColor::convtoX(unsigned int xcol)
 {
-    GooString *xret = new GooString();
+    std::string xret;
     char tmp;
     unsigned int k;
     k = (xcol / 16);
@@ -95,32 +96,26 @@ GooString *HtmlFontColor::convtoX(unsigned int xcol) const
         tmp = (char)('0' + k);
     else
         tmp = (char)('a' + k - 10);
-    xret->append(tmp);
+    xret.push_back(tmp);
     k = (xcol % 16);
     if (k < 10)
         tmp = (char)('0' + k);
     else
         tmp = (char)('a' + k - 10);
-    xret->append(tmp);
+    xret.push_back(tmp);
     return xret;
 }
 
-GooString *HtmlFontColor::toString() const
+std::string HtmlFontColor::toString() const
 {
-    GooString *tmp = new GooString("#");
-    GooString *tmpr = convtoX(r);
-    GooString *tmpg = convtoX(g);
-    GooString *tmpb = convtoX(b);
-    tmp->append(tmpr);
-    tmp->append(tmpg);
-    tmp->append(tmpb);
-    delete tmpr;
-    delete tmpg;
-    delete tmpb;
-    return tmp;
+    std::string color(1, '#');
+    color += convtoX(r);
+    color += convtoX(g);
+    color += convtoX(b);
+    return color;
 }
 
-HtmlFont::HtmlFont(GfxFont *font, int _size, GfxRGB rgb, double opacity)
+HtmlFont::HtmlFont(const GfxFont &font, int _size, GfxRGB rgb, double opacity)
 {
     color = HtmlFontColor(rgb, opacity);
 
@@ -131,74 +126,37 @@ HtmlFont::HtmlFont(GfxFont *font, int _size, GfxRGB rgb, double opacity)
     bold = false;
     rotOrSkewed = false;
 
-    if (font->isBold() || font->getWeight() >= GfxFont::W700)
+    if (font.isBold() || font.getWeight() >= GfxFont::W700)
         bold = true;
-    if (font->isItalic())
+    if (font.isItalic())
         italic = true;
 
-    if (const GooString *fontname = font->getName()) {
-        FontName = new GooString(fontname);
+    if (const std::optional<std::string> &fontname = font.getName()) {
+        FontName = *fontname;
 
-        GooString fontnameLower(fontname);
-        fontnameLower.lowerCase();
+        std::string fontnameLower = *fontname;
+        GooString::lowerCase(fontnameLower);
 
-        if (!bold && strstr(fontnameLower.c_str(), "bold")) {
+        if (!bold && fontnameLower.find("bold") != std::string::npos) {
             bold = true;
         }
 
-        if (!italic && (strstr(fontnameLower.c_str(), "italic") || strstr(fontnameLower.c_str(), "oblique"))) {
+        if (!italic && (fontnameLower.find("italic") != std::string::npos || fontnameLower.find("oblique") != std::string::npos)) {
             italic = true;
         }
 
-        fullName = fontname->c_str();
-        familyName = fontname->c_str();
+        fullName = *fontname;
+        familyName = *fontname;
         removeStyleSuffix(familyName);
     } else {
-        FontName = new GooString(defaultFamilyName);
+        FontName = defaultFamilyName;
         familyName = defaultFamilyName;
         fullName = defaultFamilyName;
     }
 
-    rotSkewMat[0] = rotSkewMat[1] = rotSkewMat[2] = rotSkewMat[3] = 0;
+    rotSkewMat = { 0, 0, 0, 0 };
 
-    hasToUnicodeCMap = font->hasToUnicodeCMap();
-}
-
-HtmlFont::HtmlFont(const HtmlFont &x)
-{
-    size = x.size;
-    lineSize = x.lineSize;
-    italic = x.italic;
-    bold = x.bold;
-    familyName = x.familyName;
-    fullName = x.fullName;
-    color = x.color;
-    FontName = new GooString(x.FontName);
-    rotOrSkewed = x.rotOrSkewed;
-    memcpy(rotSkewMat, x.rotSkewMat, sizeof(rotSkewMat));
-    hasToUnicodeCMap = x.hasToUnicodeCMap;
-}
-
-HtmlFont::~HtmlFont()
-{
-    delete FontName;
-}
-
-HtmlFont &HtmlFont::operator=(const HtmlFont &x)
-{
-    if (this == &x)
-        return *this;
-    size = x.size;
-    lineSize = x.lineSize;
-    italic = x.italic;
-    bold = x.bold;
-    familyName = x.familyName;
-    fullName = x.fullName;
-    color = x.color;
-    delete FontName;
-    FontName = new GooString(x.FontName);
-    hasToUnicodeCMap = x.hasToUnicodeCMap;
-    return *this;
+    hasToUnicodeCMap = font.hasToUnicodeCMap();
 }
 
 /*
@@ -207,7 +165,7 @@ HtmlFont &HtmlFont::operator=(const HtmlFont &x)
 */
 bool HtmlFont::isEqual(const HtmlFont &x) const
 {
-    return (size == x.size) && (lineSize == x.lineSize) && (FontName->cmp(x.FontName) == 0) && (bold == x.bold) && (italic == x.italic) && (color.isEqual(x.getColor())) && isRotOrSkewed() == x.isRotOrSkewed()
+    return (size == x.size) && (lineSize == x.lineSize) && (FontName == x.FontName) && (bold == x.bold) && (italic == x.italic) && (color.isEqual(x.getColor())) && isRotOrSkewed() == x.isRotOrSkewed()
             && (!isRotOrSkewed() || rot_matrices_equal(getRotMat(), x.getRotMat()));
 }
 
@@ -218,16 +176,6 @@ bool HtmlFont::isEqual(const HtmlFont &x) const
 bool HtmlFont::isEqualIgnoreBold(const HtmlFont &x) const
 {
     return ((size == x.size) && (familyName == x.familyName) && (color.isEqual(x.getColor())));
-}
-
-GooString *HtmlFont::getFontName()
-{
-    return new GooString(familyName);
-}
-
-GooString *HtmlFont::getFullName()
-{
-    return new GooString(FontName);
 }
 
 std::string HtmlFont::codepointsEncode(const Unicode *u, int uLen)
@@ -251,13 +199,6 @@ std::string HtmlFont::codepointsEncode(const Unicode *u, int uLen)
     return tmp;
 }
 
-HtmlFontAccu::HtmlFontAccu()
-{
-    accu = std::vector<HtmlFont>();
-}
-
-HtmlFontAccu::~HtmlFontAccu() { }
-
 int HtmlFontAccu::AddFont(const HtmlFont &font)
 {
     std::vector<HtmlFont>::iterator i;
@@ -271,20 +212,18 @@ int HtmlFontAccu::AddFont(const HtmlFont &font)
     return (accu.size() - 1);
 }
 
-ReadPDFOutputs::Font HtmlFontAccu::serialize(int i) {
-  HtmlFont font = accu[i];
-  GooString* colorStr = font.color.toString();
+ReadPDFOutputs::Font HtmlFontAccu::serialize(int i) const
+{
+    const HtmlFont &font = accu[i];
 
-  ReadPDFOutputs::Font ret;
-  ret.id = i;
-  ret.size = font.size;
-  ret.family = font.familyName;
-  ret.fullName = font.fullName;
-  ret.color = colorStr->c_str();
-  ret.bold = font.bold;
-  ret.italic = font.italic;
-  ret.hasToUnicodeCMap = font.hasToUnicodeCMap;
-
-  delete colorStr;
-  return ret;
+    ReadPDFOutputs::Font ret;
+    ret.id = i;
+    ret.size = font.size;
+    ret.family = font.familyName;
+    ret.fullName = font.fullName;
+    ret.color = font.color.toString();
+    ret.bold = font.bold;
+    ret.italic = font.italic;
+    ret.hasToUnicodeCMap = font.hasToUnicodeCMap;
+    return ret;
 }

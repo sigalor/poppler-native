@@ -1,0 +1,8 @@
+/* Linux linker version script for the addon: Node-API's entry points are its only exported symbols. */
+{
+  global:
+    napi_register_module_v1;
+    node_api_module_get_api_version_v1;
+  local:
+    *;
+};

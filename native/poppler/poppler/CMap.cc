@@ -14,11 +14,14 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2008 Koji Otani <sho@bbr.jp>
-// Copyright (C) 2008, 2009, 2017-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2008, 2009, 2017-2021, 2024-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2013 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2019 LE GARREC Vincent <legarrec.vincent@gmail.com>
+// Copyright (C) 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -30,15 +33,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cctype>
 #include "goo/gmem.h"
-#include "goo/gfile.h"
 #include "goo/GooString.h"
 #include "Error.h"
 #include "GlobalParams.h"
 #include "PSTokenizer.h"
 #include "CMap.h"
 #include "Object.h"
+#include "Stream.h"
 
 //------------------------------------------------------------------------
 
@@ -55,58 +57,61 @@ struct CMapVectorEntry
 
 static int getCharFromFile(void *data)
 {
-    return fgetc((FILE *)data);
+    return fgetc(static_cast<FILE *>(data));
 }
 
 static int getCharFromStream(void *data)
 {
-    return ((Stream *)data)->getChar();
+    return (static_cast<Stream *>(data))->getChar();
 }
 
 //------------------------------------------------------------------------
 
-CMap *CMap::parse(CMapCache *cache, const GooString *collectionA, Object *obj)
+std::shared_ptr<CMap> CMap::parse(const std::string &collectionA, Object *obj)
 {
-    CMap *cMap;
-    GooString *cMapNameA;
+    RefRecursionChecker recursion;
+    return parse(collectionA, obj, recursion);
+}
+
+std::shared_ptr<CMap> CMap::parse(const std::string &collectionA, Object *obj, RefRecursionChecker &recursion)
+{
+    std::shared_ptr<CMap> cMap;
 
     if (obj->isName()) {
-        cMapNameA = new GooString(obj->getName());
-        if (!(cMap = globalParams->getCMap(collectionA, cMapNameA))) {
-            error(errSyntaxError, -1, "Unknown CMap '{0:t}' for character collection '{1:t}'", cMapNameA, collectionA);
+        const GooString cMapNameA(obj->getNameString());
+        if (!(cMap = globalParams->getCMap(collectionA, cMapNameA.toStr()))) {
+            error(errSyntaxError, -1, "Unknown CMap '{0:t}' for character collection '{1:r}'", &cMapNameA, &collectionA);
         }
-        delete cMapNameA;
     } else if (obj->isStream()) {
-        if (!(cMap = CMap::parse(nullptr, collectionA, obj->getStream()))) {
+        if (!(cMap = CMap::parse(nullptr, collectionA, obj->getStream(), recursion))) {
             error(errSyntaxError, -1, "Invalid CMap in Type 0 font");
         }
     } else {
         error(errSyntaxError, -1, "Invalid Encoding in Type 0 font");
-        return nullptr;
+        return {};
     }
     return cMap;
 }
 
-CMap *CMap::parse(CMapCache *cache, const GooString *collectionA, const GooString *cMapNameA)
+std::shared_ptr<CMap> CMap::parse(CMapCache *cache, const std::string &collectionA, const std::string &cMapNameA)
 {
     FILE *f;
-    CMap *cMap;
 
     if (!(f = globalParams->findCMapFile(collectionA, cMapNameA))) {
 
         // Check for an identity CMap.
-        if (!cMapNameA->cmp("Identity") || !cMapNameA->cmp("Identity-H")) {
-            return new CMap(collectionA->copy(), cMapNameA->copy(), 0);
+        if (cMapNameA == "Identity" || cMapNameA == "Identity-H") {
+            return std::shared_ptr<CMap>(new CMap(std::make_unique<GooString>(collectionA), std::make_unique<GooString>(cMapNameA), GfxFont::WritingMode::Horizontal));
         }
-        if (!cMapNameA->cmp("Identity-V")) {
-            return new CMap(collectionA->copy(), cMapNameA->copy(), 1);
+        if (cMapNameA == "Identity-V") {
+            return std::shared_ptr<CMap>(new CMap(std::make_unique<GooString>(collectionA), std::make_unique<GooString>(cMapNameA), GfxFont::WritingMode::Vertical));
         }
 
-        error(errSyntaxError, -1, "Couldn't find '{0:t}' CMap file for '{1:t}' collection", cMapNameA, collectionA);
-        return nullptr;
+        error(errSyntaxError, -1, "Couldn't find '{0:r}' CMap file for '{1:r}' collection", &cMapNameA, &collectionA);
+        return {};
     }
 
-    cMap = new CMap(collectionA->copy(), cMapNameA->copy());
+    auto cMap = std::shared_ptr<CMap>(new CMap(std::make_unique<GooString>(collectionA), std::make_unique<GooString>(cMapNameA)));
     cMap->parse2(cache, &getCharFromFile, f);
 
     fclose(f);
@@ -114,16 +119,21 @@ CMap *CMap::parse(CMapCache *cache, const GooString *collectionA, const GooStrin
     return cMap;
 }
 
-CMap *CMap::parse(CMapCache *cache, const GooString *collectionA, Stream *str)
+std::shared_ptr<CMap> CMap::parse(CMapCache *cache, const std::string &collectionA, Stream *str, RefRecursionChecker &recursion)
 {
-    CMap *cMap = new CMap(collectionA->copy(), nullptr);
-    Object obj1 = str->getDict()->lookup("UseCMap");
+    auto cMap = std::shared_ptr<CMap>(new CMap(std::make_unique<GooString>(collectionA), nullptr));
+    Ref ref;
+    Object obj1 = str->getDict()->lookup("UseCMap", &ref);
+    if (!recursion.insert(ref)) {
+        return {};
+    }
     if (!obj1.isNull()) {
-        cMap->useCMap(cache, &obj1);
+        cMap->useCMap(&obj1, recursion);
     }
 
-    str->reset();
-    cMap->parse2(cache, &getCharFromStream, str);
+    if (str->rewind()) {
+        cMap->parse2(cache, &getCharFromStream, str);
+    }
     str->close();
     return cMap;
 }
@@ -144,7 +154,8 @@ void CMap::parse2(CMapCache *cache, int (*getCharFunc)(void *), void *data)
             }
             pst->getToken(tok1, sizeof(tok1), &n1);
         } else if (!strcmp(tok1, "/WMode")) {
-            wMode = atoi(tok2);
+            const int wModeI = atoi(tok2);
+            wMode = wModeI == 1 ? GfxFont::WritingMode::Vertical : GfxFont::WritingMode::Horizontal;
             pst->getToken(tok1, sizeof(tok1), &n1);
         } else if (!strcmp(tok2, "begincidchar")) {
             while (pst->getToken(tok1, sizeof(tok1), &n1)) {
@@ -155,7 +166,7 @@ void CMap::parse2(CMapCache *cache, int (*getCharFunc)(void *), void *data)
                     error(errSyntaxError, -1, "Illegal entry in cidchar block in CMap");
                     break;
                 }
-                if (!(tok1[0] == '<' && tok1[n1 - 1] == '>' && n1 >= 4 && (n1 & 1) == 0)) {
+                if (tok1[0] != '<' || tok1[n1 - 1] != '>' || n1 < 4 || (n1 & 1) != 0) {
                     error(errSyntaxError, -1, "Illegal entry in cidchar block in CMap");
                     continue;
                 }
@@ -165,7 +176,7 @@ void CMap::parse2(CMapCache *cache, int (*getCharFunc)(void *), void *data)
                     continue;
                 }
                 n1 = (n1 - 2) / 2;
-                addCIDs(code, code, n1, (CID)atoi(tok2));
+                addCIDs(code, code, n1, static_cast<CID>(atoi(tok2)));
             }
             pst->getToken(tok1, sizeof(tok1), &n1);
         } else if (!strcmp(tok2, "begincidrange")) {
@@ -182,7 +193,7 @@ void CMap::parse2(CMapCache *cache, int (*getCharFunc)(void *), void *data)
                     sscanf(tok1 + 1, "%x", &start);
                     sscanf(tok2 + 1, "%x", &end);
                     n1 = (n1 - 2) / 2;
-                    addCIDs(start, end, n1, (CID)atoi(tok3));
+                    addCIDs(start, end, n1, static_cast<CID>(atoi(tok3)));
                 }
             }
             pst->getToken(tok1, sizeof(tok1), &n1);
@@ -193,48 +204,38 @@ void CMap::parse2(CMapCache *cache, int (*getCharFunc)(void *), void *data)
     delete pst;
 }
 
-CMap::CMap(GooString *collectionA, GooString *cMapNameA)
+CMap::CMap(std::unique_ptr<GooString> &&collectionA, std::unique_ptr<GooString> &&cMapNameA) : collection(std::move(collectionA)), cMapName(std::move(cMapNameA))
 {
-    int i;
-
-    collection = collectionA;
-    cMapName = cMapNameA;
     isIdent = false;
-    wMode = 0;
-    vector = (CMapVectorEntry *)gmallocn(256, sizeof(CMapVectorEntry));
-    for (i = 0; i < 256; ++i) {
+    wMode = GfxFont::WritingMode::Horizontal;
+    vector = static_cast<CMapVectorEntry *>(gmallocn(256, sizeof(CMapVectorEntry)));
+    for (int i = 0; i < 256; ++i) {
         vector[i].isVector = false;
         vector[i].cid = 0;
     }
-    refCnt = 1;
 }
 
-CMap::CMap(GooString *collectionA, GooString *cMapNameA, int wModeA)
+CMap::CMap(std::unique_ptr<GooString> &&collectionA, std::unique_ptr<GooString> &&cMapNameA, GfxFont::WritingMode wModeA) : collection(std::move(collectionA)), cMapName(std::move(cMapNameA))
 {
-    collection = collectionA;
-    cMapName = cMapNameA;
     isIdent = true;
     wMode = wModeA;
     vector = nullptr;
-    refCnt = 1;
 }
 
 void CMap::useCMap(CMapCache *cache, const char *useName)
 {
-    GooString *useNameStr;
-    CMap *subCMap;
+    std::shared_ptr<CMap> subCMap;
 
-    useNameStr = new GooString(useName);
+    const GooString useNameStr(useName);
     // if cache is non-NULL, we already have a lock, and we can use
     // CMapCache::getCMap() directly; otherwise, we need to use
     // GlobalParams::getCMap() in order to acqure the lock need to use
     // GlobalParams::getCMap
     if (cache) {
-        subCMap = cache->getCMap(collection, useNameStr);
+        subCMap = cache->getCMap(collection->toStr(), useNameStr.toStr());
     } else {
-        subCMap = globalParams->getCMap(collection, useNameStr);
+        subCMap = globalParams->getCMap(collection->toStr(), useNameStr.toStr());
     }
-    delete useNameStr;
     if (!subCMap) {
         return;
     }
@@ -242,14 +243,11 @@ void CMap::useCMap(CMapCache *cache, const char *useName)
     if (subCMap->vector) {
         copyVector(vector, subCMap->vector);
     }
-    subCMap->decRefCnt();
 }
 
-void CMap::useCMap(CMapCache *cache, Object *obj)
+void CMap::useCMap(Object *obj, RefRecursionChecker &recursion)
 {
-    CMap *subCMap;
-
-    subCMap = CMap::parse(cache, collection, obj);
+    std::shared_ptr<CMap> subCMap = CMap::parse(collection->toStr(), obj, recursion);
     if (!subCMap) {
         return;
     }
@@ -257,7 +255,6 @@ void CMap::useCMap(CMapCache *cache, Object *obj)
     if (subCMap->vector) {
         copyVector(vector, subCMap->vector);
     }
-    subCMap->decRefCnt();
 }
 
 void CMap::copyVector(CMapVectorEntry *dest, CMapVectorEntry *src)
@@ -268,7 +265,7 @@ void CMap::copyVector(CMapVectorEntry *dest, CMapVectorEntry *src)
         if (src[i].isVector) {
             if (!dest[i].isVector) {
                 dest[i].isVector = true;
-                dest[i].vector = (CMapVectorEntry *)gmallocn(256, sizeof(CMapVectorEntry));
+                dest[i].vector = static_cast<CMapVectorEntry *>(gmallocn(256, sizeof(CMapVectorEntry)));
                 for (j = 0; j < 256; ++j) {
                     dest[i].vector[j].isVector = false;
                     dest[i].vector[j].cid = 0;
@@ -294,13 +291,13 @@ void CMap::addCIDs(unsigned int start, unsigned int end, unsigned int nBytes, CI
 
     const unsigned int start1 = start & 0xffffff00;
     const unsigned int end1 = end & 0xffffff00;
-    for (unsigned int i = start1; i <= end1; i += 0x100) {
+    for (unsigned int i = start1; i <= end1;) {
         CMapVectorEntry *vec = vector;
         for (unsigned int j = nBytes - 1; j >= 1; --j) {
             const int byte = (i >> (8 * j)) & 0xff;
             if (!vec[byte].isVector) {
                 vec[byte].isVector = true;
-                vec[byte].vector = (CMapVectorEntry *)gmallocn(256, sizeof(CMapVectorEntry));
+                vec[byte].vector = static_cast<CMapVectorEntry *>(gmallocn(256, sizeof(CMapVectorEntry)));
                 for (unsigned int k = 0; k < 256; ++k) {
                     vec[byte].vector[k].isVector = false;
                     vec[byte].vector[k].cid = 0;
@@ -317,13 +314,16 @@ void CMap::addCIDs(unsigned int start, unsigned int end, unsigned int nBytes, CI
                 vec[byte].cid = firstCID + ((i + byte) - start);
             }
         }
+        // Avoid overflow when the final block starts at 0xffffff00.
+        if (i == end1) {
+            break;
+        }
+        i += 0x100;
     }
 }
 
 CMap::~CMap()
 {
-    delete collection;
-    delete cMapName;
     if (vector) {
         freeCMapVector(vector);
     }
@@ -341,21 +341,9 @@ void CMap::freeCMapVector(CMapVectorEntry *vec)
     gfree(vec);
 }
 
-void CMap::incRefCnt()
+bool CMap::match(const std::string &collectionA, const std::string &cMapNameA)
 {
-    ++refCnt;
-}
-
-void CMap::decRefCnt()
-{
-    if (--refCnt == 0) {
-        delete this;
-    }
-}
-
-bool CMap::match(const GooString *collectionA, const GooString *cMapNameA)
-{
-    return !collection->cmp(collectionA) && !cMapName->cmp(cMapNameA);
+    return collection->toStr() == collectionA && cMapName->toStr() == cMapNameA;
 }
 
 CID CMap::getCID(const char *s, int len, CharCode *c, int *nUsed)
@@ -392,8 +380,9 @@ void CMap::setReverseMapVector(unsigned int startCode, CMapVectorEntry *vec, uns
 {
     int i;
 
-    if (vec == nullptr)
+    if (vec == nullptr) {
         return;
+    }
     for (i = 0; i < 256; i++) {
         if (vec[i].isVector) {
             setReverseMapVector((startCode + i) << 8, vec[i].vector, rmap, rmapSize, ncand);
@@ -409,7 +398,8 @@ void CMap::setReverseMapVector(unsigned int startCode, CMapVectorEntry *vec, uns
                     if (rmap[idx] == 0) {
                         rmap[idx] = code;
                         break;
-                    } else if (rmap[idx] == code) {
+                    }
+                    if (rmap[idx] == code) {
                         break;
                     }
                 }
@@ -425,56 +415,32 @@ void CMap::setReverseMap(unsigned int *rmap, unsigned int rmapSize, unsigned int
 
 //------------------------------------------------------------------------
 
-CMapCache::CMapCache()
+CMapCache::CMapCache() = default;
+
+std::shared_ptr<CMap> CMapCache::getCMap(const std::string &collection, const std::string &cMapName)
 {
-    int i;
-
-    for (i = 0; i < cMapCacheSize; ++i) {
-        cache[i] = nullptr;
-    }
-}
-
-CMapCache::~CMapCache()
-{
-    int i;
-
-    for (i = 0; i < cMapCacheSize; ++i) {
-        if (cache[i]) {
-            cache[i]->decRefCnt();
-        }
-    }
-}
-
-CMap *CMapCache::getCMap(const GooString *collection, const GooString *cMapName)
-{
-    CMap *cmap;
     int i, j;
 
     if (cache[0] && cache[0]->match(collection, cMapName)) {
-        cache[0]->incRefCnt();
         return cache[0];
     }
     for (i = 1; i < cMapCacheSize; ++i) {
         if (cache[i] && cache[i]->match(collection, cMapName)) {
-            cmap = cache[i];
+            std::shared_ptr<CMap> cmap = cache[i];
             for (j = i; j >= 1; --j) {
                 cache[j] = cache[j - 1];
             }
             cache[0] = cmap;
-            cmap->incRefCnt();
             return cmap;
         }
     }
-    if ((cmap = CMap::parse(this, collection, cMapName))) {
-        if (cache[cMapCacheSize - 1]) {
-            cache[cMapCacheSize - 1]->decRefCnt();
-        }
+    std::shared_ptr<CMap> cmap = CMap::parse(this, collection, cMapName);
+    if (cmap) {
         for (j = cMapCacheSize - 1; j >= 1; --j) {
             cache[j] = cache[j - 1];
         }
         cache[0] = cmap;
-        cmap->incRefCnt();
         return cmap;
     }
-    return nullptr;
+    return {};
 }

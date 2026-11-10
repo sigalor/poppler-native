@@ -1,0 +1,86 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Pages /Kids [2 0 R 3 0 R 4 0 R] /Count 3 >>
+endobj
+2 0 obj
+<< /Type /Page /Parent 1 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 8 0 R /Annots [6 0 R 7 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 1 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 9 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 1 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 10 0 R >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Type /Annot /Subtype /Link /Rect [70 640 160 670] /Border [0 0 0] /A << /S /URI /URI (https://example.com/poppler-native) >> >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Link /Rect [70 590 220 620] /Border [0 0 0] /Dest [4 0 R /XYZ 0 842 0] >>
+endobj
+8 0 obj
+<< /Length 111 >>
+stream
+BT /F1 24 Tf 1 0 0 1 72 700 Tm (Page 1) Tj 1 0 0 1 72 650 Tm (Visit) Tj 1 0 0 1 72 600 Tm (Go to page 3) Tj ET
+
+endstream
+endobj
+9 0 obj
+<< /Length 46 >>
+stream
+BT /F1 24 Tf 1 0 0 1 72 700 Tm (Page 2) Tj ET
+
+endstream
+endobj
+10 0 obj
+<< /Length 46 >>
+stream
+BT /F1 24 Tf 1 0 0 1 72 700 Tm (Page 3) Tj ET
+
+endstream
+endobj
+11 0 obj
+<< /Type /Outlines /First 12 0 R /Last 14 0 R /Count 3 >>
+endobj
+12 0 obj
+<< /Title <FEFF00430068006100700074006500720020003100202013002000DC0062006500720062006C00690063006B> /Parent 11 0 R /Next 14 0 R /First 13 0 R /Last 13 0 R /Count 1 /Dest [2 0 R /Fit] >>
+endobj
+13 0 obj
+<< /Title (Section 1.1) /Parent 12 0 R /Dest [3 0 R /Fit] >>
+endobj
+14 0 obj
+<< /Title (Chapter 2) /Parent 11 0 R /Prev 12 0 R /Dest [4 0 R /Fit] >>
+endobj
+15 0 obj
+<< /Title <FEFF00DC0062006500720020271300200054006500730074> /Author (poppler-native) /Subject (Test fixture) /Creator (make-fixtures.py) /CreationDate (D:20260101120000Z) >>
+endobj
+16 0 obj
+<< /Type /Catalog /Pages 1 0 R /Outlines 11 0 R /PageMode /UseOutlines >>
+endobj
+xref
+0 17
+0000000000 65535 f 
+0000000015 00000 n 
+0000000084 00000 n 
+0000000232 00000 n 
+0000000358 00000 n 
+0000000485 00000 n 
+0000000582 00000 n 
+0000000729 00000 n 
+0000000844 00000 n 
+0000001006 00000 n 
+0000001102 00000 n 
+0000001199 00000 n 
+0000001273 00000 n 
+0000001476 00000 n 
+0000001553 00000 n 
+0000001641 00000 n 
+0000001832 00000 n 
+trailer
+<< /Size 17 /Root 16 0 R /Info 15 0 R >>
+startxref
+1922
+%%EOF

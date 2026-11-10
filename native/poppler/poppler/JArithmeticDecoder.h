@@ -15,7 +15,7 @@
 // All changes made under the Poppler project to this file are licensed
 // under GPL version 2 or later
 //
-// Copyright (C) 2018 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2018, 2021, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
 // Copyright (C) 2020 Even Rouault <even.rouault@spatialys.com>
 //
@@ -36,14 +36,14 @@ class Stream;
 class JArithmeticDecoderStats
 {
 public:
-    JArithmeticDecoderStats(int contextSizeA);
+    explicit JArithmeticDecoderStats(int contextSizeA);
     ~JArithmeticDecoderStats();
     JArithmeticDecoderStats(const JArithmeticDecoderStats &) = delete;
     JArithmeticDecoderStats &operator=(const JArithmeticDecoderStats &) = delete;
-    JArithmeticDecoderStats *copy();
-    void reset();
-    int getContextSize() { return contextSize; }
-    void copyFrom(JArithmeticDecoderStats *stats);
+    std::unique_ptr<JArithmeticDecoderStats> copy() const;
+    void resetContext();
+    int getContextSize() const { return contextSize; }
+    void copyFrom(const JArithmeticDecoderStats &stats);
     void setEntry(unsigned int cx, int i, int mps);
     bool isValid() const { return cxTab != nullptr; }
 
@@ -104,7 +104,9 @@ public:
     unsigned int decodeIAID(unsigned int codeLen, JArithmeticDecoderStats *stats);
 
     void resetByteCounter() { nBytesRead = 0; }
-    unsigned int getByteCounter() { return nBytesRead; }
+    unsigned int getByteCounter() const { return nBytesRead; }
+
+    bool getReadPastEndOfStream() const { return readPastEndOfStream; }
 
 private:
     unsigned int readByte();
@@ -126,6 +128,7 @@ private:
     unsigned int nBytesRead;
     int dataLen;
     bool limitStream;
+    bool readPastEndOfStream = false;
 };
 
 #endif

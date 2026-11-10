@@ -6,7 +6,9 @@
 // Copyright (C) 2009 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2015 André Guerreiro <aguerreiro1985@gmail.com>
 // Copyright (C) 2015 André Esser <bepandre@hotmail.com>
-// Copyright (C) 2016 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2016, 2021 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2024 Erich E. Hoover <erich.e.hoover@gmail.com>
+// Copyright (C) 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -28,17 +30,23 @@
 #include "poppler_private_export.h"
 #include <ctime>
 
-bool POPPLER_PRIVATE_EXPORT parseDateString(const char *string, int *year, int *month, int *day, int *hour, int *minute, int *second, char *tz, int *tzHour, int *tzMinute);
+bool POPPLER_PRIVATE_EXPORT parseDateString(const std::string &date, int *year, int *month, int *day, int *hour, int *minute, int *second, char *tz, int *tzHour, int *tzMinute);
 
 /* Converts the time_t into a PDF Date format string.
  * If timeA is NULL, current time is used.
- * Returns new GooString. Free with delete.
+ * Returns goostring.
  */
-GooString POPPLER_PRIVATE_EXPORT *timeToDateString(const time_t *timeA);
+std::unique_ptr<GooString> POPPLER_PRIVATE_EXPORT timeToDateString(const time_t *timeA);
+
+/* Converts the time_t into a string with the specified format.
+ * If timeA is NULL, current time is used.
+ * Returns std::string
+ */
+std::string POPPLER_PRIVATE_EXPORT timeToStringWithFormat(const time_t *timeA, const char *format);
 
 /* Convert PDF date string to time.
  * Returns -1 if conversion fails.
  */
-time_t POPPLER_PRIVATE_EXPORT dateStringToTime(const GooString *dateString);
+time_t POPPLER_PRIVATE_EXPORT dateStringToTime(const std::string &dateString);
 
 #endif

@@ -2,7 +2,7 @@
 //
 // XRef.cc
 //
-// Copyright 1996-2003 Glyph & Cog, LLC
+// Copyright 1996-2003, 2025 Glyph & Cog, LLC
 //
 //========================================================================
 
@@ -15,7 +15,7 @@
 //
 // Copyright (C) 2005 Dan Sheridan <dan.sheridan@postman.org.uk>
 // Copyright (C) 2005 Brad Hards <bradh@frogmouth.net>
-// Copyright (C) 2006, 2008, 2010, 2012-2014, 2016-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006, 2008, 2010, 2012-2014, 2016-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2007-2008 Julien Rebetez <julienr@svn.gnome.org>
 // Copyright (C) 2007 Carlos Garcia Campos <carlosgc@gnome.org>
 // Copyright (C) 2009, 2010 Ilya Gorenbein <igorenbein@finjan.com>
@@ -30,6 +30,18 @@
 // Copyright (C) 2019 LE GARREC Vincent <legarrec.vincent@gmail.com>
 // Copyright (C) 2020 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by Technische Universität Dresden
 // Copyright (C) 2010 William Bader <william@newspapersystems.com>
+// Copyright (C) 2021 Mahmoud Khalil <mahmoudkhalil11@gmail.com>
+// Copyright (C) 2021 Georgiy Sgibnev <georgiy@sgibnev.com>. Work sponsored by lab50.net.
+// Copyright (C) 2023, 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2023 Ilaï Deutel <idtl@google.com>
+// Copyright (C) 2023 Even Rouault <even.rouault@spatialys.com>
+// Copyright (C) 2024 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2024 Vincent Lefevre <vincent@vinc17.net>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
+// Copyright (C) 2026 Ojas Maheshwari <workonlyojas@gmail.com>
+// Copyright (C) 2026 Adam Sampson <ats@offog.org>
+// Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
+// Copyright (C) 2026 Dirk Müller <dmueller@suse.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -37,15 +49,13 @@
 //========================================================================
 
 #include <config.h>
-#include "poppler-config.h"
 
+#include <array>
 #include <cstdlib>
 #include <cstddef>
 #include <cstring>
-#include <cmath>
 #include <cctype>
 #include <climits>
-#include <cfloat>
 #include <limits>
 #include "goo/gfile.h"
 #include "goo/gmem.h"
@@ -63,15 +73,15 @@
 // Note that the PDF spec uses 1 base (eg bit 3 is 1<<2)
 //------------------------------------------------------------------------
 
-#define permPrint (1 << 2) // bit 3
-#define permChange (1 << 3) // bit 4
-#define permCopy (1 << 4) // bit 5
-#define permNotes (1 << 5) // bit 6
-#define permFillForm (1 << 8) // bit 9
-#define permAccessibility (1 << 9) // bit 10
-#define permAssemble (1 << 10) // bit 11
-#define permHighResPrint (1 << 11) // bit 12
-#define defPermFlags 0xfffc
+constexpr int permPrint = 1 << 2; // bit 3
+constexpr int permChange = 1 << 3; // bit 4
+constexpr int permCopy = 1 << 4; // bit 5
+constexpr int permNotes = 1 << 5; // bit 6
+constexpr int permFillForm = 1 << 8; // bit 9
+constexpr int permAccessibility = 1 << 9; // bit 10
+constexpr int permAssemble = 1 << 10; // bit 11
+constexpr int permHighResPrint = 1 << 11; // bit 12
+constexpr int defPermFlags = 0xfffc;
 
 //------------------------------------------------------------------------
 // ObjectStream
@@ -84,7 +94,7 @@ public:
     // generation 0.
     ObjectStream(XRef *xref, int objStrNumA, int recursion = 0);
 
-    bool isOk() { return ok; }
+    bool isOk() const { return ok; }
 
     ~ObjectStream();
 
@@ -92,7 +102,7 @@ public:
     ObjectStream &operator=(const ObjectStream &) = delete;
 
     // Return the object number of this object stream.
-    int getObjStrNum() { return objStrNum; }
+    int getObjStrNum() const { return objStrNum; }
 
     // Get the <objIdx>th object from this stream, which should be
     // object number <objNum>, generation 0.
@@ -108,10 +118,9 @@ private:
 
 ObjectStream::ObjectStream(XRef *xref, int objStrNumA, int recursion)
 {
-    Stream *str;
     Parser *parser;
     Goffset *offsets;
-    Object objStr, obj1;
+    Object obj1;
     Goffset first;
     int i;
 
@@ -121,12 +130,14 @@ ObjectStream::ObjectStream(XRef *xref, int objStrNumA, int recursion)
     objNums = nullptr;
     ok = false;
 
-    objStr = xref->fetch(objStrNum, 0, recursion);
+    const Object objStr = xref->fetch(objStrNum, 0, recursion);
     if (!objStr.isStream()) {
         return;
     }
+    Stream *objStrStream = objStr.getStream();
+    Dict *objStrStreamDict = objStrStream->getDict();
 
-    obj1 = objStr.streamGetDict()->lookup("N", recursion);
+    obj1 = objStrStreamDict->lookup("N", recursion);
     if (!obj1.isInt()) {
         return;
     }
@@ -135,14 +146,15 @@ ObjectStream::ObjectStream(XRef *xref, int objStrNumA, int recursion)
         return;
     }
 
-    obj1 = objStr.streamGetDict()->lookup("First", recursion);
+    obj1 = objStrStreamDict->lookup("First", recursion);
     if (!obj1.isInt() && !obj1.isInt64()) {
         return;
     }
-    if (obj1.isInt())
+    if (obj1.isInt()) {
         first = obj1.getInt();
-    else
+    } else {
         first = obj1.getInt64();
+    }
     if (first < 0) {
         return;
     }
@@ -154,14 +166,16 @@ ObjectStream::ObjectStream(XRef *xref, int objStrNumA, int recursion)
         error(errSyntaxError, -1, "Too many objects in an object stream");
         return;
     }
+    if (!objStrStream->rewind()) {
+        return;
+    }
     objs = new Object[nObjects];
-    objNums = (int *)gmallocn(nObjects, sizeof(int));
-    offsets = (Goffset *)gmallocn(nObjects, sizeof(Goffset));
+    objNums = static_cast<int *>(gmallocn(nObjects, sizeof(int)));
+    offsets = static_cast<Goffset *>(gmallocn(nObjects, sizeof(Goffset)));
 
     // parse the header: object numbers and offsets
-    objStr.streamReset();
-    str = new EmbedStream(objStr.getStream(), Object(objNull), true, first);
-    parser = new Parser(xref, str, false);
+    auto embedStr = std::make_unique<EmbedStream>(objStrStream, Object::null(), true, first);
+    parser = new Parser(xref, std::move(embedStr), false);
     for (i = 0; i < nObjects; ++i) {
         obj1 = parser->getObj();
         Object obj2 = parser->getObj();
@@ -171,18 +185,23 @@ ObjectStream::ObjectStream(XRef *xref, int objStrNumA, int recursion)
             return;
         }
         objNums[i] = obj1.getInt();
-        if (obj2.isInt())
+        if (obj2.isInt()) {
             offsets[i] = obj2.getInt();
-        else
+        } else {
             offsets[i] = obj2.getInt64();
+        }
         if (objNums[i] < 0 || offsets[i] < 0 || (i > 0 && offsets[i] < offsets[i - 1])) {
             delete parser;
             gfree(offsets);
             return;
         }
     }
-    while (str->getChar() != EOF)
-        ;
+    {
+        auto *str = parser->getStream();
+        while (str && str->getChar() != EOF) {
+            ;
+        }
+    }
     delete parser;
 
     // skip to the first object - this shouldn't be necessary because
@@ -194,15 +213,18 @@ ObjectStream::ObjectStream(XRef *xref, int objStrNumA, int recursion)
 
     // parse the objects
     for (i = 0; i < nObjects; ++i) {
+        std::unique_ptr<Stream> strPtr;
         if (i == nObjects - 1) {
-            str = new EmbedStream(objStr.getStream(), Object(objNull), false, 0);
+            strPtr = std::make_unique<EmbedStream>(objStr.getStream(), Object::null(), false, 0);
         } else {
-            str = new EmbedStream(objStr.getStream(), Object(objNull), true, offsets[i + 1] - offsets[i]);
+            strPtr = std::make_unique<EmbedStream>(objStr.getStream(), Object::null(), true, offsets[i + 1] - offsets[i]);
         }
-        parser = new Parser(xref, str, false);
+        parser = new Parser(xref, std::move(strPtr), false);
         objs[i] = parser->getObj();
-        while (str->getChar() != EOF)
+        auto *str = parser->getStream();
+        while (str && str->getChar() != EOF) {
             ;
+        }
         delete parser;
     }
 
@@ -219,7 +241,7 @@ ObjectStream::~ObjectStream()
 Object ObjectStream::getObject(int objIdx, int objNum)
 {
     if (objIdx < 0 || objIdx >= nObjects || objNum != objNums[objIdx]) {
-        return Object(objNull);
+        return Object::null();
     }
     return objs[objIdx].copy();
 }
@@ -228,9 +250,9 @@ Object ObjectStream::getObject(int objIdx, int objNum)
 // XRef
 //------------------------------------------------------------------------
 
-#define xrefLocker() std::unique_lock<std::recursive_mutex> locker(mutex)
+#define xrefLocker() const std::scoped_lock locker(mutex)
 
-XRef::XRef() : objStrs { 5 }
+XRef::XRef()
 {
     ok = true;
     errCode = errNone;
@@ -247,22 +269,26 @@ XRef::XRef() : objStrs { 5 }
     permFlags = defPermFlags;
     ownerPasswordOk = false;
     rootNum = -1;
-    strOwner = false;
+    rootGen = -1;
     xrefReconstructed = false;
     encAlgorithm = cryptNone;
+    keyLength = 0;
 }
 
 XRef::XRef(const Object *trailerDictA) : XRef {}
 {
-    if (trailerDictA->isDict())
+    if (trailerDictA->isDict()) {
         trailerDict = trailerDictA->copy();
+    }
 }
 
-XRef::XRef(BaseStream *strA, Goffset pos, Goffset mainXRefEntriesOffsetA, bool *wasReconstructed, bool reconstruct) : XRef {}
+XRef::XRef(BaseStream *strA, Goffset pos, Goffset mainXRefEntriesOffsetA, bool *wasReconstructed, bool reconstruct, const std::function<void()> &xrefReconstructedCallback) : XRef {}
 {
     Object obj;
 
     mainXRefEntriesOffset = mainXRefEntriesOffsetA;
+
+    xrefReconstructedCb = xrefReconstructedCallback;
 
     // read the trailer
     str = strA;
@@ -272,57 +298,57 @@ XRef::XRef(BaseStream *strA, Goffset pos, Goffset mainXRefEntriesOffsetA, bool *
     if (reconstruct && !(ok = constructXRef(wasReconstructed))) {
         errCode = errDamaged;
         return;
+    }
+    // if there was a problem with the 'startxref' position, try to
+    // reconstruct the xref table
+    if (prevXRefOffset == 0) {
+        if (!(ok = constructXRef(wasReconstructed))) {
+            errCode = errDamaged;
+            return;
+        }
+
+        // read the xref table
     } else {
-        // if there was a problem with the 'startxref' position, try to
-        // reconstruct the xref table
-        if (prevXRefOffset == 0) {
-            if (!(ok = constructXRef(wasReconstructed))) {
-                errCode = errDamaged;
-                return;
-            }
+        std::vector<Goffset> followedXRefStm;
+        readXRef(&prevXRefOffset, &followedXRefStm, nullptr);
 
-            // read the xref table
-        } else {
-            std::vector<Goffset> followedXRefStm;
-            readXRef(&prevXRefOffset, &followedXRefStm, nullptr);
-
-            // if there was a problem with the xref table,
-            // try to reconstruct it
-            if (!ok) {
-                if (!(ok = constructXRef(wasReconstructed))) {
-                    errCode = errDamaged;
-                    return;
-                }
-            }
-        }
-
-        // set size to (at least) the size specified in trailer dict
-        obj = trailerDict.dictLookupNF("Size").copy();
-        if (!obj.isInt()) {
-            error(errSyntaxWarning, -1, "No valid XRef size in trailer");
-        } else {
-            if (obj.getInt() > size) {
-                if (resize(obj.getInt()) != obj.getInt()) {
-                    if (!(ok = constructXRef(wasReconstructed))) {
-                        errCode = errDamaged;
-                        return;
-                    }
-                }
-            }
-        }
-
-        // get the root dictionary (catalog) object
-        obj = trailerDict.dictLookupNF("Root").copy();
-        if (obj.isRef()) {
-            rootNum = obj.getRefNum();
-            rootGen = obj.getRefGen();
-        } else {
+        // if there was a problem with the xref table,
+        // try to reconstruct it
+        if (!ok) {
             if (!(ok = constructXRef(wasReconstructed))) {
                 errCode = errDamaged;
                 return;
             }
         }
     }
+
+    // set size to (at least) the size specified in trailer dict
+    obj = trailerDict.dictLookupNF("Size").copy();
+    if (!obj.isInt()) {
+        error(errSyntaxWarning, -1, "No valid XRef size in trailer");
+    } else {
+        if (obj.getInt() > size) {
+            if (resize(obj.getInt()) != obj.getInt()) {
+                if (!(ok = constructXRef(wasReconstructed))) {
+                    errCode = errDamaged;
+                    return;
+                }
+            }
+        }
+    }
+
+    // get the root dictionary (catalog) object
+    obj = trailerDict.dictLookupNF("Root").copy();
+    if (obj.isRef()) {
+        rootNum = obj.getRefNum();
+        rootGen = obj.getRefGen();
+    } else {
+        if (!(ok = constructXRef(wasReconstructed))) {
+            errCode = errDamaged;
+            return;
+        }
+    }
+
     // now set the trailer dictionary's xref pointer so we can fetch
     // indirect objects from it
     trailerDict.getDict()->setXRef(this);
@@ -342,16 +368,13 @@ XRef::~XRef()
     if (streamEnds) {
         gfree(streamEnds);
     }
-    if (strOwner) {
-        delete str;
-    }
 }
 
-XRef *XRef::copy() const
+std::unique_ptr<XRef> XRef::copy() const
 {
-    XRef *xref = new XRef();
-    xref->str = str->copy();
-    xref->strOwner = true;
+    auto xref = std::make_unique<XRef>();
+    xref->strOwner = str->copy();
+    xref->str = xref->strOwner.get();
     xref->encrypted = encrypted;
     xref->permFlags = permFlags;
     xref->ownerPasswordOk = ownerPasswordOk;
@@ -375,20 +398,26 @@ XRef *XRef::copy() const
 
     if (xref->reserve(size) == 0) {
         error(errSyntaxError, -1, "unable to allocate {0:d} entries", size);
-        delete xref;
         return nullptr;
     }
     xref->size = size;
     for (int i = 0; i < size; ++i) {
         xref->entries[i].offset = entries[i].offset;
         xref->entries[i].type = entries[i].type;
-        new (&xref->entries[i].obj) Object(objNull);
+        // set the object to null, it will be fetched from the stream when needed
+        new (&xref->entries[i].obj) Object(Object::null());
         xref->entries[i].flags = entries[i].flags;
         xref->entries[i].gen = entries[i].gen;
+
+        // If entry has been changed from the stream value we need to copy it
+        // otherwise it's lost
+        if (entries[i].getFlag(XRefEntry::Updated)) {
+            xref->entries[i].obj = entries[i].obj.copy();
+        }
     }
     xref->streamEndsLen = streamEndsLen;
     if (streamEndsLen != 0) {
-        xref->streamEnds = (Goffset *)gmalloc(streamEndsLen * sizeof(Goffset));
+        xref->streamEnds = static_cast<Goffset *>(gmalloc(streamEndsLen * sizeof(Goffset)));
         for (int i = 0; i < streamEndsLen; i++) {
             xref->streamEnds[i] = streamEnds[i];
         }
@@ -399,21 +428,34 @@ XRef *XRef::copy() const
 int XRef::reserve(int newSize)
 {
     if (newSize > capacity) {
-
-        int realNewSize;
-        for (realNewSize = capacity ? 2 * capacity : 1024; newSize > realNewSize && realNewSize > 0; realNewSize <<= 1)
-            ;
-        if ((realNewSize < 0) || (realNewSize >= INT_MAX / (int)sizeof(XRefEntry))) {
+        int newCapacity = 1024;
+        if (capacity) {
+            if (capacity <= INT_MAX / 2) {
+                newCapacity = capacity * 2;
+            } else {
+                newCapacity = newSize;
+            }
+        }
+        while (newSize > newCapacity) {
+            if (newCapacity > INT_MAX / 2) {
+                std::fputs("Too large XRef size\n", stderr);
+                return 0;
+            }
+            newCapacity *= 2;
+        }
+        if (newCapacity >= INT_MAX / static_cast<int>(sizeof(XRefEntry))) {
+            std::fputs("Too large XRef size\n", stderr);
             return 0;
         }
 
-        void *p = greallocn_checkoverflow(entries, realNewSize, sizeof(XRefEntry));
+        void *p = grealloc(entries, newCapacity * sizeof(XRefEntry),
+                           /* checkoverflow=*/true);
         if (p == nullptr) {
             return 0;
         }
 
-        entries = (XRefEntry *)p;
-        capacity = realNewSize;
+        entries = static_cast<XRefEntry *>(p);
+        capacity = newCapacity;
     }
 
     return capacity;
@@ -423,13 +465,14 @@ int XRef::resize(int newSize)
 {
     if (newSize > size) {
 
-        if (reserve(newSize) < newSize)
+        if (reserve(newSize) < newSize) {
             return size;
+        }
 
         for (int i = size; i < newSize; ++i) {
             entries[i].offset = -1;
             entries[i].type = xrefEntryNone;
-            new (&entries[i].obj) Object(objNull);
+            new (&entries[i].obj) Object(Object::null());
             entries[i].flags = 0;
             entries[i].gen = 0;
         }
@@ -474,7 +517,7 @@ bool XRef::readXRef(Goffset *pos, std::vector<Goffset> *followedXRefStm, std::ve
     }
 
     // start up a parser, parse one token
-    parser = new Parser(nullptr, str->makeSubStream(parsePos, false, 0, Object(objNull)), true);
+    parser = new Parser(nullptr, str->makeSubStream(parsePos, false, 0, Object::null()), true);
     obj = parser->getObj(true);
 
     // parse an old-style xref table
@@ -590,6 +633,9 @@ bool XRef::readXRefTable(Parser *parser, Goffset *pos, std::vector<Goffset> *fol
                     entries[1].obj.setToNull();
                 }
             }
+            if (i > last) {
+                last = i;
+            }
         }
     }
 
@@ -602,10 +648,11 @@ bool XRef::readXRefTable(Parser *parser, Goffset *pos, std::vector<Goffset> *fol
     // get the 'Prev' pointer
     obj2 = obj.getDict()->lookupNF("Prev").copy();
     if (obj2.isInt() || obj2.isInt64()) {
-        if (obj2.isInt())
+        if (obj2.isInt()) {
             pos2 = obj2.getInt();
-        else
+        } else {
             pos2 = obj2.getInt64();
+        }
         if (pos2 != *pos) {
             *pos = pos2;
             more = true;
@@ -616,7 +663,7 @@ bool XRef::readXRefTable(Parser *parser, Goffset *pos, std::vector<Goffset> *fol
     } else if (obj2.isRef()) {
         // certain buggy PDF generators generate "/Prev NNN 0 R" instead
         // of "/Prev NNN"
-        pos2 = (unsigned int)obj2.getRefNum();
+        pos2 = static_cast<unsigned int>(obj2.getRefNum());
         if (pos2 != *pos) {
             *pos = pos2;
             more = true;
@@ -636,11 +683,12 @@ bool XRef::readXRefTable(Parser *parser, Goffset *pos, std::vector<Goffset> *fol
     // check for an 'XRefStm' key
     obj2 = obj.getDict()->lookup("XRefStm");
     if (obj2.isInt() || obj2.isInt64()) {
-        if (obj2.isInt())
+        if (obj2.isInt()) {
             pos2 = obj2.getInt();
-        else
+        } else {
             pos2 = obj2.getInt64();
-        for (size_t i = 0; ok == true && i < followedXRefStm->size(); ++i) {
+        }
+        for (size_t i = 0; ok && i < followedXRefStm->size(); ++i) {
             if (followedXRefStm->at(i) == pos2) {
                 ok = false;
             }
@@ -692,7 +740,7 @@ bool XRef::readXRefStream(Stream *xrefStr, Goffset *pos)
     }
 
     obj = dict->lookupNF("W").copy();
-    if (!obj.isArray() || obj.arrayGetLength() < 3) {
+    if (!obj.isArrayOfLengthAtLeast(3)) {
         return false;
     }
     for (int i = 0; i < 3; ++i) {
@@ -705,11 +753,17 @@ bool XRef::readXRefStream(Stream *xrefStr, Goffset *pos)
             return false;
         }
     }
-    if (w[0] > (int)sizeof(int) || w[1] > (int)sizeof(long long) || w[2] > (int)sizeof(long long)) {
+
+    constexpr int intNBytes = sizeof(int);
+    constexpr int longLongNBytes = sizeof(long long);
+    if (w[0] > intNBytes || w[1] > longLongNBytes || w[2] > longLongNBytes) {
         return false;
     }
 
-    xrefStr->reset();
+    if (!xrefStr->rewind()) {
+        return false;
+    }
+
     const Object &idx = dict->lookupNF("Index");
     if (idx.isArray()) {
         for (int i = 0; i + 1 < idx.arrayGetLength(); i += 2) {
@@ -754,7 +808,7 @@ bool XRef::readXRefStream(Stream *xrefStr, Goffset *pos)
 bool XRef::readXRefStreamSection(Stream *xrefStr, const int *w, int first, int n)
 {
     unsigned long long offset, gen;
-    int type, c, i, j;
+    const unsigned long long offsetMax = GoffsetMax();
 
     if (first > INT_MAX - n) {
         return false;
@@ -772,31 +826,36 @@ bool XRef::readXRefStreamSection(Stream *xrefStr, const int *w, int first, int n
             return false;
         }
     }
-    for (i = first; i < first + n; ++i) {
-        if (w[0] == 0) {
-            type = 1;
-        } else {
-            for (type = 0, j = 0; j < w[0]; ++j) {
-                if ((c = xrefStr->getChar()) == EOF) {
-                    return false;
-                }
+
+    constexpr int intNBytes = sizeof(int);
+    constexpr int longLongNBytes = sizeof(long long);
+    const int nChars = w[0] + w[1] + w[2];
+    std::array<unsigned char, intNBytes + 2 * longLongNBytes> xrefEntryBuffer;
+
+    for (int i = first; i < first + n; ++i) {
+        if (xrefStr->doGetChars(nChars, xrefEntryBuffer.data()) < nChars) {
+            return false;
+        }
+
+        int type = 1;
+        int j = 0;
+
+        if (w[0] != 0) {
+            for (type = 0; j < w[0]; ++j) {
+                const unsigned char c = xrefEntryBuffer[j];
                 type = (type << 8) + c;
             }
         }
-        for (offset = 0, j = 0; j < w[1]; ++j) {
-            if ((c = xrefStr->getChar()) == EOF) {
-                return false;
-            }
+        for (offset = 0; j < (w[1] + w[0]); ++j) {
+            const unsigned char c = xrefEntryBuffer[j];
             offset = (offset << 8) + c;
         }
-        if (offset > (unsigned long long)GoffsetMax()) {
+        if (offset > offsetMax) {
             error(errSyntaxError, -1, "Offset inside xref table too large for fseek");
             return false;
         }
-        for (gen = 0, j = 0; j < w[2]; ++j) {
-            if ((c = xrefStr->getChar()) == EOF) {
-                return false;
-            }
+        for (gen = 0; j < (w[2] + w[1] + w[0]); ++j) {
+            const unsigned char c = xrefEntryBuffer[j];
             gen = (gen << 8) + c;
         }
         if (gen > INT_MAX) {
@@ -812,17 +871,17 @@ bool XRef::readXRefStreamSection(Stream *xrefStr, const int *w, int first, int n
             switch (type) {
             case 0:
                 entries[i].offset = offset;
-                entries[i].gen = gen;
+                entries[i].gen = static_cast<int>(gen);
                 entries[i].type = xrefEntryFree;
                 break;
             case 1:
                 entries[i].offset = offset;
-                entries[i].gen = gen;
+                entries[i].gen = static_cast<int>(gen);
                 entries[i].type = xrefEntryUncompressed;
                 break;
             case 2:
                 entries[i].offset = offset;
-                entries[i].gen = gen;
+                entries[i].gen = static_cast<int>(gen);
                 entries[i].type = xrefEntryCompressed;
                 break;
             default:
@@ -835,168 +894,281 @@ bool XRef::readXRefStreamSection(Stream *xrefStr, const int *w, int first, int n
 }
 
 // Attempt to construct an xref table for a damaged file.
-// Warning: Reconstruction of files where last XRef section is a stream
-//          or where some objects are defined inside an object stream is not yet supported.
-//          Existing data in XRef::entries may get corrupted if applied anyway.
 bool XRef::constructXRef(bool *wasReconstructed, bool needCatalogDict)
 {
-    Parser *parser;
-    char buf[256];
-    Goffset pos;
-    int num, gen;
-    int streamEndsSize;
-    char *p;
-    bool gotRoot;
-    char *token = nullptr;
-    bool oneCycle = true;
-    int offset = 0;
+    int *streamObjNums = nullptr;
+    int streamObjNumsLen = 0;
+    int streamObjNumsSize = 0;
+    int lastObjNum = -1;
+    rootNum = -1;
+    int streamEndsSize = 0;
+    streamEndsLen = 0;
 
     resize(0); // free entries properly
     gfree(entries);
     capacity = 0;
     size = 0;
+    last = -1;
     entries = nullptr;
-
-    gotRoot = false;
-    streamEndsLen = streamEndsSize = 0;
 
     if (wasReconstructed) {
         *wasReconstructed = true;
     }
 
-    str->reset();
+    if (xrefReconstructedCb) {
+        xrefReconstructedCb();
+    }
+
+    if (!str->rewind()) {
+        return false;
+    }
+    char buf[4096 + 1];
+
+    intptr_t bufPos = start;
+    char *p = buf;
+    char *end = buf;
+    bool startOfLine = true;
+    bool space = true;
+    bool eof = false;
     while (true) {
-        pos = str->getPos();
-        if (!str->getLine(buf, 256)) {
+        if (end - p < 256 && !eof) {
+            memmove(buf, p, end - p);
+            bufPos += p - buf;
+            p = buf + (end - p);
+            int n = static_cast<int>(buf + 4096 - p);
+            int m = str->doGetChars(n, reinterpret_cast<unsigned char *>(p));
+            end = p + m;
+            *end = '\0';
+            p = buf;
+            eof = m < n;
+        }
+        if (p == end && eof) {
             break;
         }
-        p = buf;
-
-        // skip whitespace
-        while (*p && Lexer::isSpace(*p & 0xff))
-            ++p;
-
-        oneCycle = true;
-        offset = 0;
-
-        while ((token = strstr(p, "endobj")) || oneCycle) {
-            oneCycle = false;
-
-            if (token) {
-                oneCycle = true;
-                token[0] = '\0';
-                offset = token - p;
+        if (startOfLine && !strncmp(p, "trailer", 7)) {
+            constructTrailerDict(static_cast<intptr_t>(bufPos + (p + 7 - buf)), needCatalogDict);
+            p += 7;
+            startOfLine = false;
+            space = false;
+        } else if (startOfLine && !strncmp(p, "endstream", 9)) {
+            if (streamEndsLen == streamEndsSize) {
+                streamEndsSize += 64;
+                streamEnds = static_cast<Goffset *>(greallocn(streamEnds, streamEndsSize, sizeof(Goffset)));
             }
-
-            // got trailer dictionary
-            if (!strncmp(p, "trailer", 7)) {
-                parser = new Parser(nullptr, str->makeSubStream(pos + 7, false, 0, Object(objNull)), false);
-                Object newTrailerDict = parser->getObj();
-                if (newTrailerDict.isDict()) {
-                    const Object &obj = newTrailerDict.dictLookupNF("Root");
-                    if (obj.isRef() && (!gotRoot || !needCatalogDict) && rootNum != obj.getRefNum()) {
-                        rootNum = obj.getRefNum();
-                        rootGen = obj.getRefGen();
-                        trailerDict = newTrailerDict.copy();
-                        gotRoot = true;
-                    }
+            streamEnds[streamEndsLen++] = (static_cast<Goffset>(bufPos) + (p - buf));
+            p += 9;
+            startOfLine = false;
+            space = false;
+        } else if (space && *p >= '0' && *p <= '9') {
+            p = constructObjectEntry(p, (static_cast<Goffset>(bufPos) + (p - buf)), &lastObjNum);
+            startOfLine = false;
+            space = false;
+        } else if (p[0] == '>' && p[1] == '>') {
+            p += 2;
+            startOfLine = false;
+            space = false;
+            // skip any PDF whitespace except for '\0'
+            while (*p == '\t' || *p == '\n' || *p == '\x0c' || *p == '\r' || *p == ' ') {
+                if (*p == '\n' || *p == '\r') {
+                    startOfLine = true;
                 }
-                delete parser;
-
-                // look for object
-            } else if (isdigit(*p & 0xff)) {
-                num = atoi(p);
-                if (num > 0) {
-                    do {
-                        ++p;
-                    } while (*p && isdigit(*p & 0xff));
-                    if ((*p & 0xff) == 0 || isspace(*p & 0xff)) {
-                        if ((*p & 0xff) == 0) {
-                            // new line, continue with next line!
-                            str->getLine(buf, 256);
-                            p = buf;
-                        } else {
-                            ++p;
-                        }
-                        while (*p && isspace(*p & 0xff))
-                            ++p;
-                        if (isdigit(*p & 0xff)) {
-                            gen = atoi(p);
-                            do {
-                                ++p;
-                            } while (*p && isdigit(*p & 0xff));
-                            if ((*p & 0xff) == 0 || isspace(*p & 0xff)) {
-                                if ((*p & 0xff) == 0) {
-                                    // new line, continue with next line!
-                                    str->getLine(buf, 256);
-                                    p = buf;
-                                } else {
-                                    ++p;
-                                }
-                                while (*p && isspace(*p & 0xff))
-                                    ++p;
-                                if (!strncmp(p, "obj", 3)) {
-                                    if (num >= size) {
-                                        if (unlikely(num >= INT_MAX - 1 - 255)) {
-                                            error(errSyntaxError, -1, "Bad object number");
-                                            return false;
-                                        }
-                                        const int newSize = (num + 1 + 255) & ~255;
-                                        if (newSize < 0) {
-                                            error(errSyntaxError, -1, "Bad object number");
-                                            return false;
-                                        }
-                                        if (resize(newSize) != newSize) {
-                                            error(errSyntaxError, -1, "Invalid 'obj' parameters");
-                                            return false;
-                                        }
-                                    }
-                                    if (entries[num].type == xrefEntryFree || gen >= entries[num].gen) {
-                                        entries[num].offset = pos - start;
-                                        entries[num].gen = gen;
-                                        entries[num].type = xrefEntryUncompressed;
-                                    }
-                                }
-                            }
-                        }
+                space = true;
+                ++p;
+            }
+            if (!strncmp(p, "stream", 6)) {
+                if (lastObjNum >= 0) {
+                    if (streamObjNumsLen == streamObjNumsSize) {
+                        streamObjNumsSize += 64;
+                        streamObjNums = static_cast<int *>(greallocn(streamObjNums, streamObjNumsSize, sizeof(int)));
                     }
+                    streamObjNums[streamObjNumsLen++] = lastObjNum;
                 }
-
+                p += 6;
+                startOfLine = false;
+                space = false;
+            }
+        } else {
+            if (*p == '\n' || *p == '\r') {
+                startOfLine = true;
+                space = true;
+            } else if (Lexer::isSpace(*p & 0xff)) {
+                space = true;
             } else {
-                char *endstream = strstr(p, "endstream");
-                if (endstream) {
-                    int endstreamPos = endstream - p;
-                    if ((endstreamPos == 0 || Lexer::isSpace(p[endstreamPos - 1] & 0xff)) // endstream is either at beginning or preceeded by space
-                        && (endstreamPos + 9 >= 256 || Lexer::isSpace(p[endstreamPos + 9] & 0xff))) // endstream is either at end or followed by space
-                    {
-                        if (streamEndsLen == streamEndsSize) {
-                            streamEndsSize += 64;
-                            if (streamEndsSize >= INT_MAX / (int)sizeof(int)) {
-                                error(errSyntaxError, -1, "Invalid 'endstream' parameter.");
-                                return false;
-                            }
-                            streamEnds = (Goffset *)greallocn(streamEnds, streamEndsSize, sizeof(Goffset));
-                        }
-                        streamEnds[streamEndsLen++] = pos + endstreamPos;
-                    }
-                }
+                startOfLine = false;
+                space = false;
             }
-            if (token) {
-                p = token + 6; // strlen( "endobj" ) = 6
-                pos += offset + 6; // strlen( "endobj" ) = 6
-                while (*p && Lexer::isSpace(*p & 0xff)) {
-                    ++p;
-                    ++pos;
-                }
+            ++p;
+        }
+    }
+
+    // read each stream object, check for xref or object stream
+    for (int i = 0; i < streamObjNumsLen; ++i) {
+        Object obj = fetch(streamObjNums[i], entries[streamObjNums[i]].gen);
+        if (obj.isStream()) {
+            Dict *dict = obj.getStream()->getDict();
+            Object type = dict->lookup("Type");
+            if (type.isName("XRef")) {
+                saveTrailerDict(dict, true, needCatalogDict);
+            } else if (type.isName("ObjStm")) {
+                constructObjectStreamEntries(&obj, streamObjNums[i]);
             }
         }
     }
 
-    if (gotRoot)
-        return true;
+    gfree(streamObjNums);
 
-    error(errSyntaxError, -1, "Couldn't find trailer dictionary");
-    return false;
+    if (rootNum < 0) {
+        error(errSyntaxError, -1, "Couldn't find trailer dictionary");
+        return false;
+    }
+    return true;
+}
+
+// Attempt to construct a trailer dict at [pos] in the stream.
+void XRef::constructTrailerDict(Goffset pos, bool needCatalogDict)
+{
+    Parser parser { nullptr,
+
+                    str->makeSubStream(pos, false, 0, Object {}), false };
+    Object newTrailerDict = parser.getObj();
+    if (newTrailerDict.isDict()) {
+        saveTrailerDict(newTrailerDict.getDict(), false, needCatalogDict);
+    }
+}
+
+// If [dict] "looks like" a trailer dict (i.e., has a Root entry),
+// save it as the trailer dict.
+void XRef::saveTrailerDict(Dict *dict, bool isXRefStream, bool needCatalogDict)
+{
+    const Object &obj = dict->lookupNF("Root");
+    if (obj.isRef() && (rootNum == -1 || !needCatalogDict)) {
+        int newRootNum = obj.getRefNum();
+        // the xref stream scanning code runs after all objects are found,
+        // so we can check for a valid root object number at that point
+        if (!isXRefStream || newRootNum <= last) {
+            rootNum = newRootNum;
+            rootGen = obj.getRefGen();
+            trailerDict = Object { dict->copy(this) };
+        }
+    }
+}
+
+// Look for an object header ("nnn ggg obj") at [p].  The first
+// character at *[p] is a digit.  [pos] is the position of *[p].
+char *XRef::constructObjectEntry(char *p, Goffset pos, int *objNum)
+{
+    // we look for non-end-of-line space characters here, to deal with
+    // situations like:
+    //    nnn          <-- garbage digits on a line
+    //    nnn nnn obj  <-- actual object
+    // and we also ignore '\0' (because it's used to terminate the
+    // buffer in this damage-scanning code)
+    // though some documents seems to also have nnn\nnn\nobj\n so
+    // in those cases, we should not actually consume the newline from
+    // the data if this is not a object entry like that.
+    ptrdiff_t ateNewLines = 0;
+    int num = 0;
+    do {
+        num = (num * 10) + (*p - '0');
+        ++p;
+    } while (std::isdigit(static_cast<unsigned char>(*p)) && num < 100000000);
+    if (!std::isspace(static_cast<unsigned char>(*p))) {
+        return p;
+    }
+    do {
+        if (*p == '\n' || ateNewLines > 0) {
+            ateNewLines++;
+        }
+        ++p;
+    } while (std::isspace(static_cast<unsigned char>(*p)));
+    if (*p < '0' || *p > '9') {
+        if (ateNewLines > 0) {
+            p -= ateNewLines;
+        }
+        return p;
+    }
+    int gen = 0;
+    do {
+        gen = (gen * 10) + (*p - '0');
+        if (ateNewLines > 0) {
+            ateNewLines++;
+        }
+        ++p;
+    } while (std::isdigit(static_cast<unsigned char>(*p)) && gen < 100000000);
+    if (!std::isspace(static_cast<unsigned char>(*p))) {
+        return p;
+    }
+    do {
+        if (*p == '\n' || ateNewLines > 0) {
+            ateNewLines++;
+        }
+        ++p;
+    } while (std::isspace(static_cast<unsigned char>(*p)));
+    if (strncmp(p, "obj", 3) != 0) {
+        if (ateNewLines > 0) {
+            p -= ateNewLines;
+        }
+        return p;
+    }
+
+    if (constructXRefEntry(num, gen, pos - start, xrefEntryUncompressed)) {
+        *objNum = num;
+    }
+
+    return p;
+}
+
+// Read the header from an object stream, and add xref entries for all
+// of its objects.
+void XRef::constructObjectStreamEntries(Object *objStr, int objStrObjNum)
+{
+    Object objN = objStr->getStream()->getDict()->lookup("N");
+
+    // get the object count
+    if (!objN.isInt()) {
+        return;
+    }
+    int nObjects = objN.getInt();
+    if (nObjects <= 0 || nObjects > 1000000) {
+        return;
+    }
+
+    // parse the header: object numbers and offsets
+    Parser parser { nullptr, objStr, false };
+    for (int i = 0; i < nObjects; ++i) {
+        auto obj1 = parser.getObj(true);
+        auto obj2 = parser.getObj(true);
+        if (obj1.isInt() && obj2.isInt()) {
+            int num = obj1.getInt();
+            if (num >= 0 && num < 1000000) {
+                constructXRefEntry(num, i, objStrObjNum, xrefEntryCompressed);
+            }
+        }
+    }
+}
+
+bool XRef::constructXRefEntry(int num, int gen, Goffset pos, XRefEntryType type)
+{
+    if (num >= size) {
+        const int newSize = (num + 1 + 255) & ~255;
+        if (newSize < 0) {
+            return false;
+        }
+        if (resize(newSize) != newSize) {
+            return false;
+        }
+    }
+
+    if (entries[num].type == xrefEntryFree || gen >= entries[num].gen) {
+        entries[num].offset = pos;
+        entries[num].gen = gen;
+        entries[num].type = type;
+        if (num > last) {
+            last = num;
+        }
+    }
+
+    return true;
 }
 
 void XRef::setEncryption(int permFlagsA, bool ownerPasswordOkA, const unsigned char *fileKeyA, int keyLengthA, int encVersionA, int encRevisionA, CryptAlgorithm encAlgorithmA)
@@ -1048,7 +1220,12 @@ bool XRef::isRefEncrypted(Ref r)
     }
 
     case xrefEntryCompressed: {
-        const Object objStr = fetch(e->offset, 0);
+        const Goffset objStrNum = e->offset;
+        if (unlikely(objStrNum < 0 || objStrNum >= size)) {
+            error(errSyntaxError, -1, "XRef::isRefEncrypted - Compressed object offset out of xref bounds");
+            return false;
+        }
+        const Object objStr = fetch(static_cast<int>(e->offset), 0);
         return objStr.getStream()->isEncrypted();
     }
 
@@ -1072,15 +1249,14 @@ bool XRef::okToPrintHighRes(bool ignoreOwnerPW) const
     if (encrypted) {
         if (2 == encRevision) {
             return (okToPrint(ignoreOwnerPW));
-        } else if (encRevision >= 3) {
-            return (okToPrint(ignoreOwnerPW) && (permFlags & permHighResPrint));
-        } else {
-            // something weird - unknown security handler version
-            return false;
         }
-    } else {
-        return true;
+        if (encRevision >= 3) {
+            return (okToPrint(ignoreOwnerPW) && (permFlags & permHighResPrint));
+        }
+        // something weird - unknown security handler version
+        return false;
     }
+    return true;
 }
 
 bool XRef::okToChange(bool ignoreOwnerPW) const
@@ -1137,6 +1313,16 @@ Object XRef::fetch(int num, int gen, int recursion, Goffset *endPos)
     Object obj1, obj2, obj3;
 
     xrefLocker();
+
+    const Ref ref = { .num = num, .gen = gen };
+
+    if (!refsBeingFetched.insert(ref)) {
+        return Object::null();
+    }
+
+    // Will remove ref from refsBeingFetched once it's destroyed, i.e. the function returns
+    auto remover = std::make_unique<RefRecursionCheckerRemover>(refsBeingFetched, ref);
+
     // check for bogus ref - this can happen in corrupted PDF files
     if (num < 0 || num >= size) {
         goto err;
@@ -1153,7 +1339,11 @@ Object XRef::fetch(int num, int gen, int recursion, Goffset *endPos)
         if (e->gen != gen || e->offset < 0) {
             goto err;
         }
-        Parser parser { this, str->makeSubStream(start + e->offset, false, 0, Object(objNull)), true };
+        Goffset subStreamOffset;
+        if (checkedAdd(start, e->offset, &subStreamOffset)) {
+            goto err;
+        }
+        Parser parser { this, str->makeSubStream(subStreamOffset, false, 0, Object::null()), true };
         obj1 = parser.getObj(recursion);
         obj2 = parser.getObj(recursion);
         obj3 = parser.getObj(recursion);
@@ -1185,19 +1375,22 @@ Object XRef::fetch(int num, int gen, int recursion, Goffset *endPos)
     }
 
     case xrefEntryCompressed: {
-#if 0 // Adobe apparently ignores the generation number on compressed objects
-    if (gen != 0) {
-      goto err;
-    }
+#define FOLLOW_SPECIFICATION_STRICTLY 0 // Adobe apparently ignores the generation number on compressed objects
+#if FOLLOW_SPECIFICATION_STRICTLY
+        if (gen != 0) {
+            goto err;
+        }
 #endif
-        if (e->offset >= (unsigned int)size || (entries[e->offset].type != xrefEntryUncompressed && entries[e->offset].type != xrefEntryNone)) {
+        if (e->offset >= static_cast<unsigned int>(size) || (entries[e->offset].type != xrefEntryUncompressed && entries[e->offset].type != xrefEntryNone)) {
             error(errSyntaxError, -1, "Invalid object stream");
             goto err;
         }
 
-        ObjectStream *objStr = objStrs.lookup(e->offset);
-        if (!objStr) {
-            objStr = new ObjectStream(this, e->offset, recursion + 1);
+        ObjectStream *objStr = nullptr;
+        if (const auto it = objStrs.find(e->offset); it != objStrs.end()) {
+            objStr = it->second.get();
+        } else {
+            objStr = new ObjectStream(this, static_cast<int>(e->offset), recursion + 1);
             if (!objStr->isOk()) {
                 delete objStr;
                 objStr = nullptr;
@@ -1205,7 +1398,12 @@ Object XRef::fetch(int num, int gen, int recursion, Goffset *endPos)
             } else {
                 // XRef could be reconstructed in constructor of ObjectStream:
                 e = getEntry(num);
-                objStrs.put(e->offset, objStr);
+                const auto [_, inserted] = objStrs.emplace(e->offset, std::unique_ptr<ObjectStream>(objStr));
+                if (!inserted) {
+                    // this happens when indeed the xref was reconstructed, and the reconstuction ended up adding an ObjectStream
+                    // for that offset, so fetch the good objStr because the one we had was just deleted by emplace failing
+                    objStr = objStrs.find(e->offset)->second.get();
+                }
             }
         }
         if (endPos) {
@@ -1229,21 +1427,22 @@ err:
             }
         }
         if (xrefHasChanges) {
-            error(errInternal, -1, "xref num {0:d} not found but needed, document has changes, reconstruct aborted\n", num);
+            error(errInternal, -1, "xref num {0:d} not found but needed, document has changes, reconstruct aborted", num);
             // pretend we constructed the xref, otherwise we will do this check again and again
             xrefReconstructed = true;
-            return Object(objNull);
+            return Object::null();
         }
 
-        error(errInternal, -1, "xref num {0:d} not found but needed, try to reconstruct\n", num);
+        error(errInternal, -1, "xref num {0:d} not found but needed, try to reconstruct", num);
         rootNum = -1;
         constructXRef(&xrefReconstructed);
+        remover.reset(); // Manually delete the remover since we're calling ourselves so recursion for this one is valid
         return fetch(num, gen, ++recursion, endPos);
     }
     if (endPos) {
         *endPos = -1;
     }
-    return Object(objNull);
+    return Object::null();
 }
 
 void XRef::lock()
@@ -1279,8 +1478,8 @@ Object XRef::createDocInfoIfNeeded(Ref *ref)
 
     removeDocInfo();
 
-    obj = Object(new Dict(this));
-    *ref = addIndirectObject(&obj);
+    obj = Object(std::make_unique<Dict>(this));
+    *ref = addIndirectObject(obj);
     trailerDict.dictSet("Info", Object(*ref));
 
     return obj;
@@ -1337,8 +1536,8 @@ int XRef::getNumEntry(Goffset offset)
             }
         }
         return res;
-    } else
-        return -1;
+    }
+    return -1;
 }
 
 void XRef::add(Ref ref, Goffset offs, bool used)
@@ -1346,18 +1545,24 @@ void XRef::add(Ref ref, Goffset offs, bool used)
     add(ref.num, ref.gen, offs, used);
 }
 
-void XRef::add(int num, int gen, Goffset offs, bool used)
+bool XRef::add(int num, int gen, Goffset offs, bool used)
 {
     xrefLocker();
     if (num >= size) {
         if (num >= capacity) {
-            entries = (XRefEntry *)greallocn(entries, num + 1, sizeof(XRefEntry));
+            entries = static_cast<XRefEntry *>(greallocn_checkoverflow(entries, num + 1, sizeof(XRefEntry)));
+            if (unlikely(entries == nullptr)) {
+                size = 0;
+                capacity = 0;
+                return false;
+            }
+
             capacity = num + 1;
         }
         for (int i = size; i < num + 1; ++i) {
             entries[i].offset = -1;
             entries[i].type = xrefEntryFree;
-            new (&entries[i].obj) Object(objNull);
+            new (&entries[i].obj) Object(Object::null());
             entries[i].flags = 0;
             entries[i].gen = 0;
         }
@@ -1374,22 +1579,26 @@ void XRef::add(int num, int gen, Goffset offs, bool used)
         e->type = xrefEntryFree;
         e->offset = 0;
     }
+    return true;
 }
 
 void XRef::setModifiedObject(const Object *o, Ref r)
 {
     xrefLocker();
     if (r.num < 0 || r.num >= size) {
-        error(errInternal, -1, "XRef::setModifiedObject on unknown ref: {0:d}, {1:d}\n", r.num, r.gen);
+        error(errInternal, -1, "XRef::setModifiedObject on unknown ref: {0:d}, {1:d}", r.num, r.gen);
         return;
     }
     XRefEntry *e = getEntry(r.num);
+    if (unlikely(e->type == xrefEntryFree)) {
+        error(errInternal, -1, "XRef::setModifiedObject on ref: {0:d}, {1:d} that is marked as free. This will cause a memory leak", r.num, r.gen);
+    }
     e->obj = o->copy();
     e->setFlag(XRefEntry::Updated, true);
     setModified();
 }
 
-Ref XRef::addIndirectObject(const Object *o)
+Ref XRef::addIndirectObject(const Object &o)
 {
     int entryIndexToUse = -1;
     for (int i = 1; entryIndexToUse == -1 && i < size; ++i) {
@@ -1411,7 +1620,7 @@ Ref XRef::addIndirectObject(const Object *o)
         // incremented when the object was deleted
     }
     e->type = xrefEntryUncompressed;
-    e->obj = o->copy();
+    e->obj = o.copy();
     e->setFlag(XRefEntry::Updated, true);
     setModified();
 
@@ -1425,14 +1634,14 @@ void XRef::removeIndirectObject(Ref r)
 {
     xrefLocker();
     if (r.num < 0 || r.num >= size) {
-        error(errInternal, -1, "XRef::removeIndirectObject on unknown ref: {0:d}, {1:d}\n", r.num, r.gen);
+        error(errInternal, -1, "XRef::removeIndirectObject on unknown ref: {0:d}, {1:d}", r.num, r.gen);
         return;
     }
     XRefEntry *e = getEntry(r.num);
     if (e->type == xrefEntryFree) {
         return;
     }
-    e->obj.~Object();
+    e->obj = Object();
     e->type = xrefEntryFree;
     if (likely(e->gen < 65535)) {
         e->gen++;
@@ -1441,11 +1650,26 @@ void XRef::removeIndirectObject(Ref r)
     setModified();
 }
 
+Ref XRef::addStreamObject(std::unique_ptr<Dict> dict, std::vector<char> buffer, StreamCompression compression)
+{
+    dict->add("Length", Object(static_cast<int>(buffer.size())));
+    auto stream = std::make_unique<AutoFreeMemStream>(std::move(buffer), Object(std::move(dict)));
+    stream->setFilterRemovalForbidden(true);
+    switch (compression) {
+    case StreamCompression::None:;
+        break;
+    case StreamCompression::Compress:
+        stream->getDict()->add("Filter", Object::name("FlateDecode"));
+        break;
+    }
+    return addIndirectObject(Object(std::move(stream)));
+}
+
 void XRef::writeXRef(XRef::XRefWriter *writer, bool writeAllEntries)
 {
     // create free entries linked-list
     if (getEntry(0)->gen != 65535) {
-        error(errInternal, -1, "XRef::writeXRef, entry 0 of the XRef is invalid (gen != 65535)\n");
+        error(errInternal, -1, "XRef::writeXRef, entry 0 of the XRef is invalid (gen != 65535)");
     }
     int lastFreeEntry = 0;
     for (int i = 0; i < size; i++) {
@@ -1460,8 +1684,9 @@ void XRef::writeXRef(XRef::XRefWriter *writer, bool writeAllEntries)
         writer->startSection(0, size);
         for (int i = 0; i < size; i++) {
             XRefEntry *e = getEntry(i);
-            if (e->gen > 65535)
+            if (e->gen > 65535) {
                 e->gen = 65535; // cap generation number to 65535 (required by PDFReference)
+            }
             writer->writeEntry(e->offset, e->gen, e->type);
         }
     } else {
@@ -1469,20 +1694,23 @@ void XRef::writeXRef(XRef::XRefWriter *writer, bool writeAllEntries)
         while (i < size) {
             int j;
             for (j = i; j < size; j++) { // look for consecutive entries
-                if ((getEntry(j)->type == xrefEntryFree) && (getEntry(j)->gen == 0))
+                if ((getEntry(j)->type == xrefEntryFree) && (getEntry(j)->gen == 0)) {
                     break;
+                }
             }
             if (j - i != 0) {
                 writer->startSection(i, j - i);
                 for (int k = i; k < j; k++) {
                     XRefEntry *e = getEntry(k);
-                    if (e->gen > 65535)
+                    if (e->gen > 65535) {
                         e->gen = 65535; // cap generation number to 65535 (required by PDFReference)
+                    }
                     writer->writeEntry(e->offset, e->gen, e->type);
                 }
                 i = j;
-            } else
+            } else {
                 ++i;
+            }
         }
     }
 }
@@ -1499,7 +1727,7 @@ void XRef::XRefTableWriter::startSection(int first, int count)
 
 void XRef::XRefTableWriter::writeEntry(Goffset offset, int gen, XRefEntryType type)
 {
-    outStr->printf("%010lli %05i %c\r\n", (long long)offset, gen, (type == xrefEntryFree) ? 'f' : 'n');
+    outStr->printf("%010lli %05i %c\r\n", static_cast<long long>(offset), gen, (type == xrefEntryFree) ? 'f' : 'n');
 }
 
 void XRef::writeTableToFile(OutStream *outStr, bool writeAllEntries)
@@ -1541,17 +1769,18 @@ XRef::XRefPreScanWriter::XRefPreScanWriter()
     hasOffsetsBeyond4GB = false;
 }
 
-void XRef::XRefPreScanWriter::startSection(int first, int count) { }
+void XRef::XRefPreScanWriter::startSection(int /*first*/, int /*count*/) { }
 
-void XRef::XRefPreScanWriter::writeEntry(Goffset offset, int gen, XRefEntryType type)
+void XRef::XRefPreScanWriter::writeEntry(Goffset offset, int /*gen*/, XRefEntryType /*type*/)
 {
-    if (offset >= 0x100000000ll)
+    if (offset >= 0x100000000LL) {
         hasOffsetsBeyond4GB = true;
+    }
 }
 
 void XRef::writeStreamToBuffer(GooString *stmBuf, Dict *xrefDict, XRef *xref)
 {
-    Array *index = new Array(xref);
+    auto index = std::make_unique<Array>(xref);
     stmBuf->clear();
 
     // First pass: determine whether all offsets fit in 4 bytes or not
@@ -1560,33 +1789,35 @@ void XRef::writeStreamToBuffer(GooString *stmBuf, Dict *xrefDict, XRef *xref)
     const int offsetSize = prescan.hasOffsetsBeyond4GB ? sizeof(Goffset) : 4;
 
     // Second pass: actually write the xref stream
-    XRefStreamWriter writer(index, stmBuf, offsetSize);
+    XRefStreamWriter writer(index.get(), stmBuf, offsetSize);
     writeXRef(&writer, false);
 
-    xrefDict->set("Type", Object(objName, "XRef"));
-    xrefDict->set("Index", Object(index));
-    Array *wArray = new Array(xref);
+    xrefDict->set("Type", Object::name("XRef"));
+    xrefDict->set("Index", Object(std::move(index)));
+    auto wArray = std::make_unique<Array>(xref);
     wArray->add(Object(1));
     wArray->add(Object(offsetSize));
     wArray->add(Object(2));
-    xrefDict->set("W", Object(wArray));
+    xrefDict->set("W", Object(std::move(wArray)));
 }
 
 bool XRef::parseEntry(Goffset offset, XRefEntry *entry)
 {
     bool r;
 
-    if (unlikely(entry == nullptr))
+    if (unlikely(entry == nullptr)) {
         return false;
+    }
 
-    Parser parser(nullptr, str->makeSubStream(offset, false, 20, Object(objNull)), true);
+    Parser parser(nullptr, str->makeSubStream(offset, false, 20, Object::null()), true);
 
     Object obj1, obj2, obj3;
     if (((obj1 = parser.getObj(), obj1.isInt()) || obj1.isInt64()) && (obj2 = parser.getObj(), obj2.isInt()) && (obj3 = parser.getObj(), obj3.isCmd("n") || obj3.isCmd("f"))) {
-        if (obj1.isInt64())
+        if (obj1.isInt64()) {
             entry->offset = obj1.getInt64();
-        else
+        } else {
             entry->offset = obj1.getInt();
+        }
         entry->gen = obj2.getInt();
         entry->type = obj3.isCmd("n") ? xrefEntryUncompressed : xrefEntryFree;
         entry->obj.setToNull();
@@ -1648,10 +1879,11 @@ struct DummyXRefEntry : XRefEntry
 {
     DummyXRefEntry()
     {
-        offset = 0;
-        gen = -1;
+        offset = -1;
+        gen = 0;
         type = xrefEntryNone;
         flags = 0;
+        obj = Object::null();
     }
 };
 
@@ -1669,7 +1901,7 @@ XRefEntry *XRef::getEntry(int i, bool complainIfMissing)
     if (i >= size || entries[i].type == xrefEntryNone) {
 
         if ((!xRefStream) && mainXRefEntriesOffset) {
-            if (unlikely(i >= capacity)) {
+            if (unlikely(i >= size)) {
                 error(errInternal, -1, "Request for out-of-bounds XRef entry [{0:d}]", i);
                 return &dummyXRefEntry;
             }
@@ -1732,8 +1964,9 @@ void XRef::markUnencrypted(Object *obj)
     case objRef: {
         const Ref ref = obj->getRef();
         XRefEntry *e = getEntry(ref.num);
-        if (e->getFlag(XRefEntry::Unencrypted))
+        if (e->getFlag(XRefEntry::Unencrypted)) {
             return; // We've already been here: prevent infinite recursion
+        }
         e->setFlag(XRefEntry::Unencrypted, true);
         obj1 = fetch(ref);
         markUnencrypted(&obj1);
@@ -1764,11 +1997,11 @@ void XRef::scanSpecialFlags()
     // individually in full rewrite mode.
     for (int i = 0; i < size; ++i) {
         if (entries[i].type == xrefEntryCompressed) {
-            const int objStmNum = entries[i].offset;
+            const Goffset objStmNum = entries[i].offset;
             if (unlikely(objStmNum < 0 || objStmNum >= size)) {
                 error(errSyntaxError, -1, "Compressed object offset out of xref bounds");
             } else {
-                getEntry(objStmNum)->setFlag(XRefEntry::DontRewrite, true);
+                getEntry(static_cast<int>(objStmNum))->setFlag(XRefEntry::DontRewrite, true);
             }
         }
     }

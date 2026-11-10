@@ -4,14 +4,17 @@
 //
 // This file is licensed under the GPLv2 or later
 //
-// Copyright 2010, 2012 Hib Eris <hib@hiberis.nl>
-// Copyright 2010, 2011, 2013, 2014, 2016-2019 Albert Astals Cid <aacid@kde.org>
+// Copyright 2010, 2012, 2013 Hib Eris <hib@hiberis.nl>
+// Copyright 2010, 2011, 2013, 2014, 2016-2019, 2021, 2022, 2025, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright 2010, 2013 Pino Toscano <pino@kde.org>
 // Copyright 2013 Adrian Johnson <ajohnson@redneon.com>
 // Copyright 2014 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright 2016 Jeffrey Morlan <jmmorlan@sonic.net>
 // Copyright 2019 LE GARREC Vincent <legarrec.vincent@gmail.com>
 // Copyright 2019 Adam Reichold <adam.reichold@t-online.de>
+// Copyright 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Jonathan Hähne <jonathan.haehne@hotmail.com>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
 //
 //========================================================================
 
@@ -26,13 +29,14 @@
 #include "Parser.h"
 #include "Lexer.h"
 #include "SecurityHandler.h"
+#include "goo/gmem.h"
 
 #include <climits>
 
 class StreamBitReader
 {
 public:
-    StreamBitReader(Stream *strA) : str(strA), inputBits(0), isAtEof(false) { }
+    explicit StreamBitReader(Stream *strA) : str(strA) { }
 
     void resetInputBits() { inputBits = 0; }
 
@@ -46,7 +50,7 @@ public:
         if (inputBits == 0) {
             if ((c = str->getChar()) == EOF) {
                 isAtEof = true;
-                return (unsigned int)-1;
+                return static_cast<unsigned int>(-1);
             }
             bitsBuffer = c;
             inputBits = 8;
@@ -60,32 +64,37 @@ public:
     {
         unsigned int bit, bits;
 
-        if (n < 0)
+        if (n < 0) {
             return -1;
-        if (n == 0)
+        }
+        if (n == 0) {
             return 0;
+        }
 
-        if (n == 1)
+        if (n == 1) {
             return readBit();
+        }
 
         bit = readBit();
-        if (bit == (unsigned int)-1)
+        if (isAtEof) {
             return -1;
+        }
 
         bit = bit << (n - 1);
 
         bits = readBits(n - 1);
-        if (bits == (unsigned int)-1)
+        if (isAtEof) {
             return -1;
+        }
 
         return bit | bits;
     }
 
 private:
     Stream *str;
-    int inputBits;
+    int inputBits = 0;
     char bitsBuffer;
-    bool isAtEof;
+    bool isAtEof = false;
 };
 
 //------------------------------------------------------------------------
@@ -111,17 +120,17 @@ Hints::Hints(BaseStream *str, Linearization *linearization, XRef *xref, Security
         pageOffsetFirst = pageObjectFirstXRefEntry->offset;
     }
 
-    if (nPages >= INT_MAX / (int)sizeof(unsigned int)) {
+    if (nPages >= INT_MAX / static_cast<int>(sizeof(unsigned int))) {
         error(errSyntaxWarning, -1, "Invalid number of pages ({0:d}) for hints table", nPages);
         nPages = 0;
     }
-    nObjects = (unsigned int *)gmallocn_checkoverflow(nPages, sizeof(unsigned int));
-    pageObjectNum = (int *)gmallocn_checkoverflow(nPages, sizeof(int));
-    xRefOffset = (unsigned int *)gmallocn_checkoverflow(nPages, sizeof(unsigned int));
-    pageLength = (unsigned int *)gmallocn_checkoverflow(nPages, sizeof(unsigned int));
-    pageOffset = (Goffset *)gmallocn_checkoverflow(nPages, sizeof(Goffset));
-    numSharedObject = (unsigned int *)gmallocn_checkoverflow(nPages, sizeof(unsigned int));
-    sharedObjectId = (unsigned int **)gmallocn_checkoverflow(nPages, sizeof(unsigned int *));
+    nObjects = static_cast<unsigned int *>(gmallocn_checkoverflow(nPages, sizeof(unsigned int)));
+    pageObjectNum = static_cast<int *>(gmallocn_checkoverflow(nPages, sizeof(int)));
+    xRefOffset = static_cast<unsigned int *>(gmallocn_checkoverflow(nPages, sizeof(unsigned int)));
+    pageLength = static_cast<unsigned int *>(gmallocn_checkoverflow(nPages, sizeof(unsigned int)));
+    pageOffset = static_cast<Goffset *>(gmallocn_checkoverflow(nPages, sizeof(Goffset)));
+    numSharedObject = static_cast<unsigned int *>(gmallocn_checkoverflow(nPages, sizeof(unsigned int)));
+    sharedObjectId = static_cast<unsigned int **>(gmallocn_checkoverflow(nPages, sizeof(unsigned int *)));
     if (!nObjects || !pageObjectNum || !xRefOffset || !pageLength || !pageOffset || !numSharedObject || !sharedObjectId) {
         error(errSyntaxWarning, -1, "Failed to allocate memory for hints table");
         nPages = 0;
@@ -156,7 +165,7 @@ Hints::~Hints()
             gfree(sharedObjectId[i]);
         }
     }
-    gfree(sharedObjectId);
+    gfree(static_cast<void *>(sharedObjectId));
     gfree(numSharedObject);
 
     gfree(groupLength);
@@ -181,48 +190,70 @@ void Hints::readTables(BaseStream *str, Linearization *linearization, XRef *xref
     }
 
     std::vector<char> buf(bufLength);
-    char *p = &buf[0];
+    char *p = buf.data();
 
     if (hintsOffset && hintsLength) {
-        Stream *s = str->makeSubStream(hintsOffset, false, hintsLength, Object(objNull));
-        s->reset();
-        for (unsigned int i = 0; i < hintsLength; i++) {
-            *p++ = s->getChar();
+        std::unique_ptr<Stream> s(str->makeSubStream(hintsOffset, false, hintsLength, Object::null()));
+        if (!s->rewind()) {
+            ok = false;
+            return;
         }
-        delete s;
+        for (unsigned int i = 0; i < hintsLength; i++) {
+            const int c = s->getChar();
+            if (unlikely(c == EOF)) {
+                error(errSyntaxWarning, -1, "Found EOF while reading hints");
+                ok = false;
+                return;
+            }
+            *p++ = c;
+        }
     }
 
     if (hintsOffset2 && hintsLength2) {
-        Stream *s = str->makeSubStream(hintsOffset2, false, hintsLength2, Object(objNull));
-        s->reset();
-        for (unsigned int i = 0; i < hintsLength2; i++) {
-            *p++ = s->getChar();
+        std::unique_ptr<Stream> s(str->makeSubStream(hintsOffset2, false, hintsLength2, Object::null()));
+        if (!s->rewind()) {
+            ok = false;
+            return;
         }
-        delete s;
+        for (unsigned int i = 0; i < hintsLength2; i++) {
+            const int c = s->getChar();
+            if (unlikely(c == EOF)) {
+                error(errSyntaxWarning, -1, "Found EOF while reading hints2");
+                ok = false;
+                return;
+            }
+            *p++ = c;
+        }
     }
 
-    MemStream *memStream = new MemStream(&buf[0], 0, bufLength, Object(objNull));
+    auto memStream = std::make_unique<MemStream>(buf.data(), 0, bufLength, Object::null());
 
-    Parser *parser = new Parser(xref, memStream, true);
+    auto *parser = new Parser(xref, std::move(memStream), true);
 
     int num, gen;
     Object obj;
     if ((obj = parser->getObj(), obj.isInt()) && (num = obj.getInt(), obj = parser->getObj(), obj.isInt()) && (gen = obj.getInt(), obj = parser->getObj(), obj.isCmd("obj"))
         && (obj = parser->getObj(false, secHdlr ? secHdlr->getFileKey() : nullptr, secHdlr ? secHdlr->getEncAlgorithm() : cryptRC4, secHdlr ? secHdlr->getFileKeyLength() : 0, num, gen, 0, true), obj.isStream())) {
         Stream *hintsStream = obj.getStream();
-        Dict *hintsDict = obj.streamGetDict();
+        Dict *hintsDict = hintsStream->getDict();
 
         int sharedStreamOffset = 0;
-        if (hintsDict->lookupInt("S", nullptr, &sharedStreamOffset) && sharedStreamOffset > 0) {
+        if (hintsDict->lookupInt("S", {}, &sharedStreamOffset) && sharedStreamOffset > 0) {
 
-            hintsStream->reset();
-            ok = readPageOffsetTable(hintsStream);
-
-            if (ok) {
-                hintsStream->reset();
-                for (int i = 0; i < sharedStreamOffset; i++)
-                    hintsStream->getChar();
-                ok = readSharedObjectsTable(hintsStream);
+            if (!hintsStream->rewind()) {
+                ok = false;
+            } else {
+                ok = readPageOffsetTable(hintsStream);
+                if (ok) {
+                    if (hintsStream->rewind()) {
+                        for (int i = 0; i < sharedStreamOffset; i++) {
+                            hintsStream->getChar();
+                        }
+                        ok = readSharedObjectsTable(hintsStream);
+                    } else {
+                        ok = false;
+                    }
+                }
             }
         } else {
             error(errSyntaxWarning, -1, "Invalid shared object hint table offset");
@@ -253,8 +284,9 @@ bool Hints::readPageOffsetTable(Stream *str)
     }
 
     objectOffsetFirst = sbr.readBits(32);
-    if (objectOffsetFirst >= hintsOffset)
+    if (objectOffsetFirst >= hintsOffset) {
         objectOffsetFirst += hintsLength;
+    }
 
     nBitsDiffObjects = sbr.readBits(16);
     if (nBitsDiffObjects > 32) {
@@ -283,11 +315,17 @@ bool Hints::readPageOffsetTable(Stream *str)
 
     denominator = sbr.readBits(16);
 
+    if ((nBitsDiffPageLength > 32) || (nBitsOffsetStream > 32) || (nBitsLengthStream > 32) || (nBitsNumShared > 32) || (nBitsShared > 32) || (nBitsNumerator > 32)) {
+        error(errSyntaxWarning, -1, "Invalid number of bits reading page offset hints table");
+        return false;
+    }
+
     for (int i = 0; i < nPages && !sbr.atEOF(); i++) {
         nObjects[i] = nObjectLeast + sbr.readBits(nBitsDiffObjects);
     }
-    if (sbr.atEOF())
+    if (sbr.atEOF()) {
         return false;
+    }
 
     nObjects[0] = 0;
     xRefOffset[0] = mainXRefEntriesOffset + 20;
@@ -305,8 +343,9 @@ bool Hints::readPageOffsetTable(Stream *str)
     for (int i = 0; i < nPages && !sbr.atEOF(); i++) {
         pageLength[i] = pageLengthLeast + sbr.readBits(nBitsDiffPageLength);
     }
-    if (sbr.atEOF())
+    if (sbr.atEOF()) {
         return false;
+    }
 
     sbr.resetInputBits(); // reset on byte boundary. Not in specs!
     numSharedObject[0] = sbr.readBits(nBitsNumShared);
@@ -314,20 +353,21 @@ bool Hints::readPageOffsetTable(Stream *str)
     sharedObjectId[0] = nullptr;
     for (int i = 1; i < nPages && !sbr.atEOF(); i++) {
         numSharedObject[i] = sbr.readBits(nBitsNumShared);
-        if (numSharedObject[i] >= INT_MAX / (int)sizeof(unsigned int)) {
+        if (numSharedObject[i] >= INT_MAX / static_cast<int>(sizeof(unsigned int))) {
             error(errSyntaxWarning, -1, "Invalid number of shared objects");
             numSharedObject[i] = 0;
             return false;
         }
-        sharedObjectId[i] = (unsigned int *)gmallocn_checkoverflow(numSharedObject[i], sizeof(unsigned int));
+        sharedObjectId[i] = static_cast<unsigned int *>(gmallocn_checkoverflow(numSharedObject[i], sizeof(unsigned int)));
         if (numSharedObject[i] && !sharedObjectId[i]) {
             error(errSyntaxWarning, -1, "Failed to allocate memory for shared object IDs");
             numSharedObject[i] = 0;
             return false;
         }
     }
-    if (sbr.atEOF())
+    if (sbr.atEOF()) {
         return false;
+    }
 
     sbr.resetInputBits(); // reset on byte boundary. Not in specs!
     for (int i = 1; i < nPages; i++) {
@@ -363,7 +403,7 @@ bool Hints::readSharedObjectsTable(Stream *str)
 
     const unsigned int nBitsDiffGroupLength = sbr.readBits(16);
 
-    if ((!nSharedGroups) || (nSharedGroups >= INT_MAX / (int)sizeof(unsigned int))) {
+    if ((!nSharedGroups) || (nSharedGroups >= INT_MAX / static_cast<int>(sizeof(unsigned int)))) {
         error(errSyntaxWarning, -1, "Invalid number of shared object groups");
         return false;
     }
@@ -376,11 +416,11 @@ bool Hints::readSharedObjectsTable(Stream *str)
         return false;
     }
 
-    groupLength = (unsigned int *)gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int));
-    groupOffset = (unsigned int *)gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int));
-    groupHasSignature = (unsigned int *)gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int));
-    groupNumObjects = (unsigned int *)gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int));
-    groupXRefOffset = (unsigned int *)gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int));
+    groupLength = static_cast<unsigned int *>(gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int)));
+    groupOffset = static_cast<unsigned int *>(gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int)));
+    groupHasSignature = static_cast<unsigned int *>(gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int)));
+    groupNumObjects = static_cast<unsigned int *>(gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int)));
+    groupXRefOffset = static_cast<unsigned int *>(gmallocn_checkoverflow(nSharedGroups, sizeof(unsigned int)));
     if (!groupLength || !groupOffset || !groupHasSignature || !groupNumObjects || !groupXRefOffset) {
         error(errSyntaxWarning, -1, "Failed to allocate memory for shared object groups");
         return false;
@@ -390,8 +430,9 @@ bool Hints::readSharedObjectsTable(Stream *str)
     for (unsigned int i = 0; i < nSharedGroups && !sbr.atEOF(); i++) {
         groupLength[i] = groupLengthLeast + sbr.readBits(nBitsDiffGroupLength);
     }
-    if (sbr.atEOF())
+    if (sbr.atEOF()) {
         return false;
+    }
 
     groupOffset[0] = objectOffsetFirst;
     for (unsigned int i = 1; i < nSharedGroupsFirst; i++) {
@@ -408,8 +449,9 @@ bool Hints::readSharedObjectsTable(Stream *str)
     for (unsigned int i = 0; i < nSharedGroups && !sbr.atEOF(); i++) {
         groupHasSignature[i] = sbr.readBits(1);
     }
-    if (sbr.atEOF())
+    if (sbr.atEOF()) {
         return false;
+    }
 
     sbr.resetInputBits(); // reset on byte boundary. Not in specs!
     for (unsigned int i = 0; i < nSharedGroups && !sbr.atEOF(); i++) {
@@ -421,8 +463,9 @@ bool Hints::readSharedObjectsTable(Stream *str)
             sbr.readBits(32);
         }
     }
-    if (sbr.atEOF())
+    if (sbr.atEOF()) {
         return false;
+    }
 
     sbr.resetInputBits(); // reset on byte boundary. Not in specs!
     for (unsigned int i = 0; i < nSharedGroups && !sbr.atEOF(); i++) {
@@ -450,65 +493,30 @@ bool Hints::isOk() const
 
 Goffset Hints::getPageOffset(int page)
 {
-    if ((page < 1) || (page > nPages))
+    if ((page < 1) || (page > nPages)) {
         return 0;
-
-    if (page - 1 > pageFirst)
-        return pageOffset[page - 1];
-    else if (page - 1 < pageFirst)
-        return pageOffset[page];
-    else
-        return pageOffset[0];
-}
-
-std::vector<ByteRange> *Hints::getPageRanges(int page)
-{
-    if ((page < 1) || (page > nPages))
-        return nullptr;
-
-    int idx;
-    if (page - 1 > pageFirst)
-        idx = page - 1;
-    else if (page - 1 < pageFirst)
-        idx = page;
-    else
-        idx = 0;
-
-    ByteRange pageRange;
-    std::vector<ByteRange> *v = new std::vector<ByteRange>;
-
-    pageRange.offset = pageOffset[idx];
-    pageRange.length = pageLength[idx];
-    v->push_back(pageRange);
-
-    pageRange.offset = xRefOffset[idx];
-    pageRange.length = 20 * nObjects[idx];
-    v->push_back(pageRange);
-
-    for (unsigned int j = 0; j < numSharedObject[idx]; j++) {
-        unsigned int k = sharedObjectId[idx][j];
-
-        pageRange.offset = groupOffset[k];
-        pageRange.length = groupLength[k];
-        v->push_back(pageRange);
-
-        pageRange.offset = groupXRefOffset[k];
-        pageRange.length = 20 * groupNumObjects[k];
-        v->push_back(pageRange);
     }
 
-    return v;
+    if (page - 1 > pageFirst) {
+        return pageOffset[page - 1];
+    }
+    if (page - 1 < pageFirst) {
+        return pageOffset[page];
+    }
+    return pageOffset[0];
 }
 
 int Hints::getPageObjectNum(int page)
 {
-    if ((page < 1) || (page > nPages))
+    if ((page < 1) || (page > nPages)) {
         return 0;
+    }
 
-    if (page - 1 > pageFirst)
+    if (page - 1 > pageFirst) {
         return pageObjectNum[page - 1];
-    else if (page - 1 < pageFirst)
+    }
+    if (page - 1 < pageFirst) {
         return pageObjectNum[page];
-    else
-        return pageObjectNum[0];
+    }
+    return pageObjectNum[0];
 }

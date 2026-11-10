@@ -32,15 +32,17 @@
 
 #pragma once
 
+#include <array>
+#include <cstring>
 #include <string>
 #include <vector>
 
-#include <goo/GooString.h>
 #include <poppler/CharTypes.h>
 #include <poppler/GfxState.h>
 
 #include "../ReadPDFOutputs.hpp"
 
+class GfxFont;
 class HtmlFontColor;
 class HtmlFont;
 class HtmlFontAccu;
@@ -53,28 +55,12 @@ private:
     unsigned int b;
     unsigned int opacity;
     bool Ok(unsigned int xcol) { return xcol <= 255; }
-    GooString *convtoX(unsigned int xcol) const;
+    static std::string convtoX(unsigned int xcol);
 
 public:
     HtmlFontColor() : r(0), g(0), b(0), opacity(255) { }
     HtmlFontColor(GfxRGB rgb, double opacity);
-    HtmlFontColor(const HtmlFontColor &x)
-    {
-        r = x.r;
-        g = x.g;
-        b = x.b;
-        opacity = x.opacity;
-    }
-    HtmlFontColor &operator=(const HtmlFontColor &x)
-    {
-        r = x.r;
-        g = x.g;
-        b = x.b;
-        opacity = x.opacity;
-        return *this;
-    }
-    ~HtmlFontColor() {};
-    GooString *toString() const;
+    std::string toString() const;
     double getOpacity() const { return opacity / 255.0; }
     bool isEqual(const HtmlFontColor &col) const { return ((r == col.r) && (g == col.g) && (b == col.b) && (opacity == col.opacity)); }
 };
@@ -88,34 +74,32 @@ private:
     bool bold;
     bool rotOrSkewed;
     std::string familyName, fullName;
-    GooString *FontName;
+    std::string FontName;
     HtmlFontColor color;
-    double rotSkewMat[4]; // only four values needed for rotation and skew
+    std::array<double, 4> rotSkewMat; // only four values needed for rotation and skew
     bool hasToUnicodeCMap;
+
 public:
-    HtmlFont(GfxFont *font, int _size, GfxRGB rgb, double opacity);
-    HtmlFont(const HtmlFont &x);
-    HtmlFont &operator=(const HtmlFont &x);
+    HtmlFont(const GfxFont &font, int _size, GfxRGB rgb, double opacity);
     HtmlFontColor getColor() const { return color; }
-    ~HtmlFont();
-    GooString *getFullName();
+    const std::string &getFullName() const { return FontName; }
     bool isItalic() const { return italic; }
     bool isBold() const { return bold; }
     bool isRotOrSkewed() const { return rotOrSkewed; }
     int getSize() const { return size; }
     int getLineSize() const { return lineSize; }
     void setLineSize(int _lineSize) { lineSize = _lineSize; }
-    void setRotMat(const double *const mat)
+    void setRotMat(const std::array<double, 4> &mat)
     {
         rotOrSkewed = true;
-        memcpy(rotSkewMat, mat, sizeof(rotSkewMat));
+        rotSkewMat = mat;
     }
-    const double *getRotMat() const { return rotSkewMat; }
-    GooString *getFontName();
-    static std::string codepointsEncode(const Unicode *u, int uLen); // char* s);
+    const std::array<double, 4> &getRotMat() const { return rotSkewMat; }
+    const std::string &getFontName() const { return familyName; }
+    static std::string codepointsEncode(const Unicode *u, int uLen);
     bool isEqual(const HtmlFont &x) const;
     bool isEqualIgnoreBold(const HtmlFont &x) const;
-    
+
     friend class HtmlFontAccu;
 };
 
@@ -125,12 +109,11 @@ private:
     std::vector<HtmlFont> accu;
 
 public:
-    HtmlFontAccu();
-    ~HtmlFontAccu();
+    HtmlFontAccu() = default;
     HtmlFontAccu(const HtmlFontAccu &) = delete;
     HtmlFontAccu &operator=(const HtmlFontAccu &) = delete;
     int AddFont(const HtmlFont &font);
     const HtmlFont *Get(int i) const { return &accu[i]; }
-    ReadPDFOutputs::Font serialize(int i);
+    ReadPDFOutputs::Font serialize(int i) const;
     int size() const { return accu.size(); }
 };

@@ -46,7 +46,11 @@
       }
     </style>
 
-    <script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script
+      src="https://code.jquery.com/jquery-4.0.0.min.js"
+      integrity="sha384-fgGyf7Mo7DURSOMnOy7ed+dkq5Job205Gnzu6QIg0BOHKaqt4D76Dt8VlDCzcMHV"
+      crossorigin="anonymous"
+    ></script>
     <script type="text/javascript">
       let lastFileDropTarget = null;
       let currHoveredString = null;
@@ -83,7 +87,8 @@
         let ret = $(`<${name}></${name}>`);
         for (let k in attrs) ret.attr(k, attrs[k]);
         for (let k in css) ret.css(k, css[k]);
-        if (children.length === 1 && typeof children[0] === 'string') ret.html(children[0]);
+        // text from a PDF is shown, never interpreted: a PDF can contain anything, including markup
+        if (children.length === 1 && (typeof children[0] === 'string' || typeof children[0] === 'number')) ret.text(String(children[0]));
         else ret.append(children);
         return ret;
       }
@@ -100,16 +105,19 @@
         return tag('table', ...Object.keys(obj).map(k => tag('tr', tag('td', k), tag('td', obj[k]))));
       }
 
+      // Lengths in CSS pixels, spelled out: jQuery adds "px" to a bare number for some properties only (not font-size).
+      const px = n => `${n}px`;
+
       function renderString(str, font) {
         if (font === undefined) font = {};
         let css = {
           position: 'absolute',
-          top: str.top,
-          left: str.left,
-          width: str.width,
-          height: str.height,
+          top: px(str.top),
+          left: px(str.left),
+          width: px(str.width),
+          height: px(str.height),
           'font-family': font.family,
-          'font-size': font.size,
+          'font-size': px(font.size),
           color: font.color || "#000000"
         };
         if (font.bold) css['font-weight'] = 'bold';
@@ -129,7 +137,7 @@
         return tagAttrsCss(
           'div',
           { class: 'pdf-text' },
-          { position: 'absolute', top: img.top, left: img.left, width: img.width, height: img.height },
+          { position: 'absolute', top: px(img.top), left: px(img.left), width: px(img.width), height: px(img.height) },
           tagAttrs('img', { src: img.src, width: '100%', height: '100%' }),
         );
       }
@@ -138,7 +146,7 @@
         const page = tagAttrsCss(
           'div',
           { class: 'page-container' },
-          { width, height },
+          { width: px(width), height: px(height) },
           ...strings.filter(s => s.text.trim().length > 0).map(s => renderString(s, allFonts[s.font])),
           ...images.map(i => renderImage(i)),
         );
@@ -148,8 +156,8 @@
         page.on('mouseenter', e =>
           tooltip
             .css('display', 'inline')
-            .css('top', e.originalEvent.clientY)
-            .css('left', e.originalEvent.clientX),
+            .css('top', px(e.originalEvent.clientY))
+            .css('left', px(e.originalEvent.clientX)),
         );
 
         page.on('mousemove', ({ originalEvent: e }) => {
@@ -162,8 +170,8 @@
           }
 
           tooltip
-            .css('top', e.clientY)
-            .css('left', e.clientX)
+            .css('top', px(e.clientY))
+            .css('left', px(e.clientX))
             .html(tooltipHtml);
         });
 
@@ -172,7 +180,7 @@
         return tag('div', tag('h3', `Page ${number}, width ${width}, height ${height}`), page, tooltip);
       }
 
-      function renderDocument(name, { meta, fonts, pages }) {
+      function renderDocument(name, { meta, fonts, pages, numPages }) {
         const allFonts = fonts.reduce((prev, curr) => ((prev[curr.id] = curr), prev), {});
         $('#pages-output')
           .empty()
@@ -182,7 +190,7 @@
             Object.keys(meta).length === 0 ? tag('i', 'PDF has no meta data.') : objectToTable(meta),
             tag('h2', 'Statistics'),
             objectToTable({
-              'Number of pages': pages.length,
+              'Number of pages': numPages === undefined ? pages.length : `${pages.length} read of ${numPages}`,
               'Number of images': sum(pages.map(p => p.images.length)),
               'Number of strings': sum(pages.map(p => p.strings.length)),
             }),

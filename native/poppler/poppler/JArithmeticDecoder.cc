@@ -15,6 +15,7 @@
 //
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
 // Copyright (C) 2020 Even Rouault <even.rouault@spatialys.com>
+// Copyright (C) 2025, 2026 Albert Astals Cid <aacid@kde.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -26,6 +27,7 @@
 #include "Object.h"
 #include "Stream.h"
 #include "JArithmeticDecoder.h"
+#include "goo/gmem.h"
 
 //------------------------------------------------------------------------
 // JArithmeticDecoderStates
@@ -34,9 +36,9 @@
 JArithmeticDecoderStats::JArithmeticDecoderStats(int contextSizeA)
 {
     contextSize = contextSizeA;
-    cxTab = (unsigned char *)gmallocn_checkoverflow(contextSize, sizeof(unsigned char));
+    cxTab = static_cast<unsigned char *>(gmallocn_checkoverflow(contextSize, sizeof(unsigned char)));
     if (cxTab) {
-        reset();
+        resetContext();
     }
 }
 
@@ -45,23 +47,21 @@ JArithmeticDecoderStats::~JArithmeticDecoderStats()
     gfree(cxTab);
 }
 
-JArithmeticDecoderStats *JArithmeticDecoderStats::copy()
+std::unique_ptr<JArithmeticDecoderStats> JArithmeticDecoderStats::copy() const
 {
-    JArithmeticDecoderStats *stats;
-
-    stats = new JArithmeticDecoderStats(contextSize);
+    auto stats = std::make_unique<JArithmeticDecoderStats>(contextSize);
     memcpy(stats->cxTab, cxTab, contextSize);
     return stats;
 }
 
-void JArithmeticDecoderStats::reset()
+void JArithmeticDecoderStats::resetContext()
 {
     memset(cxTab, 0, contextSize);
 }
 
-void JArithmeticDecoderStats::copyFrom(JArithmeticDecoderStats *stats)
+void JArithmeticDecoderStats::copyFrom(const JArithmeticDecoderStats &stats)
 {
-    memcpy(cxTab, stats->cxTab, contextSize);
+    memcpy(cxTab, stats.cxTab, contextSize);
 }
 
 void JArithmeticDecoderStats::setEntry(unsigned int cx, int i, int mps)
@@ -97,11 +97,14 @@ inline unsigned int JArithmeticDecoder::readByte()
     if (limitStream) {
         --dataLen;
         if (dataLen < 0) {
+            readPastEndOfStream = true;
             return 0xff;
         }
     }
     ++nBytesRead;
-    return (unsigned int)str->getChar() & 0xff;
+    const int strChar = str->getChar();
+    readPastEndOfStream = strChar == EOF;
+    return static_cast<unsigned int>(strChar) & 0xff;
 }
 
 JArithmeticDecoder::~JArithmeticDecoder()
@@ -111,6 +114,7 @@ JArithmeticDecoder::~JArithmeticDecoder()
 
 void JArithmeticDecoder::start()
 {
+    readPastEndOfStream = false;
     buf0 = readByte();
     buf1 = readByte();
 
@@ -127,6 +131,8 @@ void JArithmeticDecoder::restart(int dataLenA)
     unsigned int cAdd;
     bool prevFF;
     int k, nBits;
+
+    readPastEndOfStream = false;
 
     if (dataLen >= 0) {
         dataLen = dataLenA;
@@ -303,9 +309,9 @@ bool JArithmeticDecoder::decodeInt(int *x, JArithmeticDecoderStats *stats)
         if (v == 0) {
             return false;
         }
-        *x = -(int)v;
+        *x = -static_cast<int>(v);
     } else {
-        *x = (int)v;
+        *x = static_cast<int>(v);
     }
     return true;
 }

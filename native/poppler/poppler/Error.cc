@@ -14,11 +14,14 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2005, 2007 Jeff Muizelaar <jeff@infidigm.net>
-// Copyright (C) 2005, 2018 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005, 2018, 2022, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2007 Krzysztof Kowalczyk <kkowalczyk@gmail.com>
 // Copyright (C) 2012 Marek Kasik <mkasik@redhat.com>
 // Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2020 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2024 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2024 Vincent Lefevre <vincent@vinc17.net>
+// Copyright (C) 2024, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -29,9 +32,8 @@
 #include <poppler-config.h>
 
 #include <cstdio>
-#include <cstddef>
 #include <cstdarg>
-#include "GooString.h"
+#include "goo/GooString.h"
 #include "GlobalParams.h"
 #include "Error.h"
 
@@ -47,36 +49,32 @@ void setErrorCallback(ErrorCallback cbk)
 void CDECL error(ErrorCategory category, Goffset pos, const char *msg, ...)
 {
     va_list args;
-    GooString *s, *sanitized;
 
     // NB: this can be called before the globalParams object is created
     if (!errorCbk && globalParams && globalParams->getErrQuiet()) {
         return;
     }
     va_start(args, msg);
-    s = GooString::formatv(msg, args);
+    const std::string s = GooString::formatv(msg, args);
     va_end(args);
 
-    sanitized = new GooString();
-    for (int i = 0; i < s->getLength(); ++i) {
-        const char c = s->getChar(i);
-        if (c < (char)0x20 || c >= (char)0x7f) {
-            sanitized->appendf("<{0:02x}>", c & 0xff);
+    std::string sanitized;
+    for (const char c : s) {
+        if (c < static_cast<char>(0x20) || c >= static_cast<char>(0x7f)) {
+            GooString::appendf(sanitized, "<{0:02x}>", c & 0xff);
         } else {
-            sanitized->append(c);
+            sanitized.push_back(c);
         }
     }
 
     if (errorCbk) {
-        (*errorCbk)(category, pos, sanitized->c_str());
+        (*errorCbk)(category, pos, sanitized.c_str());
     } else {
         if (pos >= 0) {
-            fprintf(stderr, "%s (%lld): %s\n", errorCategoryNames[category], (long long)pos, sanitized->c_str());
+            fprintf(stderr, "%s (%lld): %s\n", errorCategoryNames[category], static_cast<long long>(pos), sanitized.c_str());
         } else {
-            fprintf(stderr, "%s: %s\n", errorCategoryNames[category], sanitized->c_str());
+            fprintf(stderr, "%s: %s\n", errorCategoryNames[category], sanitized.c_str());
         }
         fflush(stderr);
     }
-    delete s;
-    delete sanitized;
 }

@@ -5,15 +5,14 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2020 sgerwk <sgerwk@aol.com>
+// Copyright 2022 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright 2025, 2026 Albert Astals Cid <aacid@kde.org>
 //
 //========================================================================
 
 #include <cmath>
 #include <BBoxOutputDev.h>
 #include <GfxFont.h>
-
-#define writingModeHorizontal 0
-#define writingModeVertical 1
 
 BBoxOutputDev::BBoxOutputDev() : BBoxOutputDev(true, true, true) { }
 
@@ -70,49 +69,51 @@ void BBoxOutputDev::eoFill(GfxState *state)
     updatePath(&bb, state->getPath(), state);
 }
 
-void BBoxOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool interpolate, bool inlineImg)
+void BBoxOutputDev::drawImageMask(GfxState *state, Object * /*ref*/, Stream * /*str*/, int /*width*/, int /*height*/, bool /*invert*/, bool /*interpolate*/, bool /*inlineImg*/)
 {
     updateImage(&bb, state);
 }
 
-void BBoxOutputDev::drawImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, const int *maskColors, bool inlineImg)
+void BBoxOutputDev::drawImage(GfxState *state, Object * /*ref*/, Stream * /*str*/, int /*width*/, int /*height*/, GfxImageColorMap * /*colorMap*/, bool /*interpolate*/, const int * /*maskColors*/, bool /*inlineImg*/)
 {
     updateImage(&bb, state);
 }
 
-void BBoxOutputDev::drawMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert, bool maskInterpolate)
+void BBoxOutputDev::drawMaskedImage(GfxState *state, Object * /*ref*/, Stream * /*str*/, int /*width*/, int /*height*/, GfxImageColorMap * /*colorMap*/, bool /*interpolate*/, Stream * /*maskStr*/, int /*maskWidth*/, int /*maskHeight*/,
+                                    bool /*maskInvert*/, bool /*maskInterpolate*/)
 {
     updateImage(&bb, state);
 }
 
-void BBoxOutputDev::drawSoftMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream *maskStr, int maskWidth, int maskHeight, GfxImageColorMap *maskColorMap,
-                                        bool maskInterpolate)
+void BBoxOutputDev::drawSoftMaskedImage(GfxState *state, Object * /*ref*/, Stream * /*str*/, int /*width*/, int /*height*/, GfxImageColorMap * /*colorMap*/, bool /*interpolate*/, Stream * /*maskStr*/, int /*maskWidth*/, int /*maskHeight*/,
+                                        GfxImageColorMap * /*maskColorMap*/, bool /*maskInterpolate*/)
 {
     updateImage(&bb, state);
 }
 
-void BBoxOutputDev::drawChar(GfxState *state, double x, double y, double dx, double dy, double originX, double originY, CharCode code, int nBytes, const Unicode *u, int uLen)
+void BBoxOutputDev::drawChar(GfxState *state, double x, double y, double dx, double dy, double /*originX*/, double /*originY*/, CharCode code, int /*nBytes*/, const Unicode * /*u*/, int /*uLen*/)
 {
-    GfxFont *font;
     double leftent, rightent, ascent, descent;
-    const double *fm, *fb;
     double fontSize, w, adjust;
     double fx, fy;
 
-    if (!text)
+    if (!text) {
         return;
+    }
 
-    font = state->getFont();
-    if (!font)
+    const GfxFont *const font = state->getFont().get();
+    if (!font) {
         return;
+    }
 
-    if (code == (CharCode)0x20)
+    if (code == static_cast<CharCode>(0x20)) {
         return;
+    }
 
     fontSize = state->getFontSize();
 
-    fb = font->getFontBBox();
-    if (font->getWMode() == writingModeHorizontal) {
+    const std::array<double, 4> &fb = font->getFontBBox();
+    if (font->getWMode() == GfxFont::WritingMode::Horizontal) {
         leftent = 0;
         rightent = 0;
         ascent = font->getAscent();
@@ -129,16 +130,17 @@ void BBoxOutputDev::drawChar(GfxState *state, double x, double y, double dx, dou
         descent = 0;
     }
 
-    if (font->getType() != fontType3)
+    if (font->getType() != fontType3) {
         adjust = 1;
-    else {
+    } else {
         // adjust font size for type3 fonts,
         // similar to TextPage::updateFont()
-        w = ((Gfx8BitFont *)font)->getWidth(code);
+        w = static_cast<const Gfx8BitFont *>(font)->getWidth(code);
         adjust = w / 0.5;
-        fm = font->getFontMatrix();
-        if (fm[0] != 0)
+        const std::array<double, 6> &fm = font->getFontMatrix();
+        if (fm[0] != 0) {
             adjust *= fabs(fm[3] / fm[0]);
+        }
     }
 
     ascent *= adjust * fontSize;
@@ -176,14 +178,18 @@ void BBoxOutputDev::updatePoint(PDFRectangle *bbA, double x, double y, const Gfx
     ty = ty < yMin ? yMin : ty > yMax ? yMax : ty;
     o.transform(tx, ty, &x, &y);
 
-    if (!hasGraphics || bbA->x1 > x)
+    if (!hasGraphics || bbA->x1 > x) {
         bbA->x1 = x;
-    if (!hasGraphics || bbA->y1 > y)
+    }
+    if (!hasGraphics || bbA->y1 > y) {
         bbA->y1 = y;
-    if (!hasGraphics || bbA->x2 < x)
+    }
+    if (!hasGraphics || bbA->x2 < x) {
         bbA->x2 = x;
-    if (!hasGraphics || bbA->y2 < y)
+    }
+    if (!hasGraphics || bbA->y2 < y) {
         bbA->y2 = y;
+    }
     hasGraphics = true;
 }
 
@@ -194,8 +200,9 @@ void BBoxOutputDev::updatePath(PDFRectangle *bbA, const GfxPath *path, const Gfx
     const GfxSubpath *subpath;
     double x, y;
     double w;
-    if (!vector)
+    if (!vector) {
         return;
+    }
     w = lwidth ? state->getLineWidth() : 0;
     for (i = 0; i < path->getNumSubpaths(); i++) {
         subpath = path->getSubpath(i);
@@ -211,8 +218,9 @@ void BBoxOutputDev::updatePath(PDFRectangle *bbA, const GfxPath *path, const Gfx
 /* update the bounding box with a new image */
 void BBoxOutputDev::updateImage(PDFRectangle *bbA, const GfxState *state)
 {
-    if (!raster)
+    if (!raster) {
         return;
+    }
     updatePoint(bbA, 0, 1, state);
     updatePoint(bbA, 1, 0, state);
 }

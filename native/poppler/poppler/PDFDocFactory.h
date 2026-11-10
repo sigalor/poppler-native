@@ -5,8 +5,9 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2010 Hib Eris <hib@hiberis.nl>
-// Copyright 2010, 2018 Albert Astals Cid <aacid@kde.org>
+// Copyright 2010, 2018, 2021, 2022 Albert Astals Cid <aacid@kde.org>
 // Copyright 2019, 2021 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 //========================================================================
 
@@ -37,7 +38,7 @@ class POPPLER_PRIVATE_EXPORT PDFDocFactory
 {
 
 public:
-    PDFDocFactory(std::vector<PDFDocBuilder *> *pdfDocBuilders = nullptr);
+    explicit PDFDocFactory(std::vector<PDFDocBuilder *> *pdfDocBuilders = nullptr);
     ~PDFDocFactory();
 
     PDFDocFactory(const PDFDocFactory &) = delete;
@@ -45,8 +46,7 @@ public:
 
     // Create a PDFDoc. Returns a PDFDoc. You should check this PDFDoc
     // with PDFDoc::isOk() for failures.
-    // The caller is responsible for deleting ownerPassword, userPassWord and guiData.
-    std::unique_ptr<PDFDoc> createPDFDoc(const GooString &uri, GooString *ownerPassword = nullptr, GooString *userPassword = nullptr, void *guiDataA = nullptr);
+    std::unique_ptr<PDFDoc> createPDFDoc(const GooString &uri, const std::optional<GooString> &ownerPassword = {}, const std::optional<GooString> &userPassword = {});
 
     // Extend supported URIs with the ones from the PDFDocBuilder.
     void registerPDFDocBuilder(PDFDocBuilder *pdfDocBuilder);

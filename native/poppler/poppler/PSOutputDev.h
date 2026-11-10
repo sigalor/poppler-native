@@ -15,19 +15,22 @@
 //
 // Copyright (C) 2005 Martin Kretzschmar <martink@gnome.org>
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
-// Copyright (C) 2006-2008, 2012, 2013, 2015, 2017-2021 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2006-2008, 2012, 2013, 2015, 2017-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2007 Brad Hards <bradh@kde.org>
 // Copyright (C) 2009-2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2009 Till Kamppeter <till.kamppeter@gmail.com>
 // Copyright (C) 2009 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright (C) 2009, 2011, 2015-2017, 2020 William Bader <williambader@hotmail.com>
+// Copyright (C) 2009, 2011, 2015-2017, 2020, 2026 William Bader <williambader@hotmail.com>
 // Copyright (C) 2010 Hib Eris <hib@hiberis.nl>
 // Copyright (C) 2011, 2014, 2017, 2020 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2012 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2018, 2020 Philipp Knechtges <philipp-dev@knechtges.com>
-// Copyright (C) 2019 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2019, 2023, 2024 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2021 Hubert Figuiere <hub@figuiere.net>
+// Copyright (C) 2021 Christian Persch <chpe@src.gnome.org>
+// Copyright (C) 2023, 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -37,23 +40,19 @@
 #ifndef PSOUTPUTDEV_H
 #define PSOUTPUTDEV_H
 
-#include "poppler-config.h"
 #include "poppler_private_export.h"
-#include <cstddef>
 #include "Object.h"
 #include "GfxState.h"
 #include "GlobalParams.h"
 #include "OutputDev.h"
+#include "fofi/FoFiBase.h"
+#include "splash/SplashTypes.h"
 #include <set>
 #include <map>
 #include <vector>
 #include <unordered_set>
 #include <unordered_map>
 #include <string>
-
-#ifdef HAVE_SPLASH
-#    include "splash/Splash.h"
-#endif
 
 class PDFDoc;
 class XRef;
@@ -94,7 +93,6 @@ enum PSOutMode
 enum PSFileType
 {
     psFile, // write to file
-    psPipe, // write to pipe
     psStdout, // write to stdout
     psGeneric // write to a generic stream
 };
@@ -112,9 +110,7 @@ enum PSForceRasterize
     psNeverRasterize // never rasterize, may produce incorrect output
 };
 
-typedef void (*PSOutputFunc)(void *stream, const char *data, int len);
-
-typedef GooString *(*PSOutCustomCodeCbk)(PSOutputDev *psOut, PSOutCustomCodeLocation loc, int n, void *data);
+using PSOutCustomCodeCbk = GooString *(*)(PSOutputDev *psOut, PSOutCustomCodeLocation loc, int n, void *data);
 
 class POPPLER_PRIVATE_EXPORT PSOutputDev : public OutputDev
 {
@@ -125,9 +121,13 @@ public:
                 int imgURXA = 0, int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr, void *customCodeCbkDataA = nullptr,
                 PSLevel levelA = psLevel2);
 
+    // Open a PSOutputDev that will write to a file descriptor
+    PSOutputDev(int fdA, PDFDoc *docA, char *psTitleA, const std::vector<int> &pages, PSOutMode modeA, int paperWidthA = -1, int paperHeightA = -1, bool noCrop = false, bool duplexA = true, int imgLLXA = 0, int imgLLYA = 0, int imgURXA = 0,
+                int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr, void *customCodeCbkDataA = nullptr, PSLevel levelA = psLevel2);
+
     // Open a PSOutputDev that will write to a generic stream.
     // pages has to be sorted in increasing order
-    PSOutputDev(PSOutputFunc outputFuncA, void *outputStreamA, char *psTitleA, PDFDoc *docA, const std::vector<int> &pages, PSOutMode modeA, int paperWidthA = -1, int paperHeightA = -1, bool noCrop = false, bool duplexA = true,
+    PSOutputDev(FoFiOutputFunc outputFuncA, void *outputStreamA, char *psTitleA, PDFDoc *docA, const std::vector<int> &pages, PSOutMode modeA, int paperWidthA = -1, int paperHeightA = -1, bool noCrop = false, bool duplexA = true,
                 int imgLLXA = 0, int imgLLYA = 0, int imgURXA = 0, int imgURYA = 0, PSForceRasterize forceRasterizeA = psRasterizeWhenNeeded, bool manualCtrlA = false, PSOutCustomCodeCbk customCodeCbkA = nullptr,
                 void *customCodeCbkDataA = nullptr, PSLevel levelA = psLevel2);
 
@@ -169,7 +169,7 @@ public:
     //----- header/trailer (used only if manualCtrl is true)
 
     // Write the document-level header.
-    void writeHeader(int nPages, const PDFRectangle *mediaBox, const PDFRectangle *cropBox, int pageRotate, const char *title);
+    void writeHeader(int nPages, const PDFRectangle &mediaBox, const PDFRectangle *cropBox, int pageRotate, const char *title);
 
     // Write the Xpdf procset.
     void writeXpdfProcset();
@@ -233,7 +233,7 @@ public:
     void stroke(GfxState *state) override;
     void fill(GfxState *state) override;
     void eoFill(GfxState *state) override;
-    bool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, GfxTilingPattern *tPat, const double *mat, int x0, int y0, int x1, int y1, double xStep, double yStep) override;
+    bool tilingPatternFill(GfxState *state, Gfx *gfx, Catalog *cat, GfxTilingPattern *tPat, const std::array<double, 6> &mat, int x0, int y0, int x1, int y1, double xStep, double yStep) override;
     bool functionShadedFill(GfxState *state, GfxFunctionShading *shading) override;
     bool axialShadedFill(GfxState *state, GfxAxialShading *shading, double /*tMin*/, double /*tMax*/) override;
     bool radialShadedFill(GfxState *state, GfxRadialShading *shading, double /*sMin*/, double /*sMax*/) override;
@@ -245,22 +245,20 @@ public:
     void clipToStrokePath(GfxState *state) override;
 
     //----- text drawing
-    void drawString(GfxState *state, const GooString *s) override;
+    void drawString(GfxState *state, const std::string &s) override;
     void beginTextObject(GfxState *state) override;
     void endTextObject(GfxState *state) override;
 
     //----- image drawing
     void drawImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool interpolate, bool inlineImg) override;
-    void setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool inlineImg, double *baseMatrix) override;
-    void unsetSoftMaskFromImageMask(GfxState *state, double *baseMatrix) override;
+    bool setSoftMaskFromImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool inlineImg, std::array<double, 6> &baseMatrix) override;
+    void unsetSoftMaskFromImageMask(GfxState *state, std::array<double, 6> &baseMatrix) override;
     void drawImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, const int *maskColors, bool inlineImg) override;
     void drawMaskedImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert, bool maskInterpolate) override;
 
-#ifdef OPI_SUPPORT
     //----- OPI functions
-    void opiBegin(GfxState *state, Dict *opiDict) override;
-    void opiEnd(GfxState *state, Dict *opiDict) override;
-#endif
+    void opiBegin(GfxState *state, const Dict &opiDict) override;
+    void opiEnd(GfxState *state, const Dict &opiDict) override;
 
     //----- Type 3 font operators
     void type3D0(GfxState *state, double wx, double wy) override;
@@ -304,15 +302,16 @@ public:
     void setDisplayText(bool display) { displayText = display; }
 
     void setPSCenter(bool center) { psCenter = center; }
+    void setPSExpandSmaller(bool expand) { psExpandSmaller = expand; }
+    void setPSShrinkLarger(bool shrink) { psShrinkLarger = shrink; }
+    void setOverprintPreview(bool overprintPreviewA) { overprintPreview = overprintPreviewA; }
     void setRasterAntialias(bool a) { rasterAntialias = a; }
     void setForceRasterize(PSForceRasterize f) { forceRasterize = f; }
     void setRasterResolution(double r) { rasterResolution = r; }
-    void setRasterMono(bool b)
+    void setRasterMono()
     {
-#ifdef HAVE_SPLASH
         processColorFormat = splashModeMono8;
         processColorFormatSpecified = true;
-#endif
     }
 
     void setUncompressPreloadedImages(bool b) { uncompressPreloadedImages = b; }
@@ -325,16 +324,7 @@ public:
     bool getOptimizeColorSpace() const { return optimizeColorSpace; }
     bool getPassLevel1CustomColor() const { return passLevel1CustomColor; }
     bool getEnableLZW() const { return enableLZW; };
-    bool getEnableFlate() const
-#ifdef ENABLE_ZLIB
-    {
-        return enableFlate;
-    }
-#else
-    {
-        return false;
-    }
-#endif
+    bool getEnableFlate() const { return enableFlate; }
     void setEmbedType1(bool b) { embedType1 = b; }
     void setEmbedTrueType(bool b) { embedTrueType = b; }
     void setEmbedCIDPostScript(bool b) { embedCIDPostScript = b; }
@@ -349,69 +339,77 @@ public:
     void setEnableLZW(bool b) { enableLZW = b; }
     void setEnableFlate(bool b) { enableFlate = b; }
 
-#ifdef HAVE_SPLASH
     void setProcessColorFormat(SplashColorMode format)
     {
         processColorFormat = format;
         processColorFormatSpecified = true;
     }
-#endif
 
 private:
-    void init(PSOutputFunc outputFuncA, void *outputStreamA, PSFileType fileTypeA, char *psTitleA, PDFDoc *doc, const std::vector<int> &pages, PSOutMode modeA, int imgLLXA, int imgLLYA, int imgURXA, int imgURYA, bool manualCtrlA,
+    struct PSOutPaperSize
+    {
+        PSOutPaperSize() = default;
+        PSOutPaperSize(std::string &&nameA, int wA, int hA) : name(nameA), w(wA), h(hA) { }
+        ~PSOutPaperSize() = default;
+        PSOutPaperSize &operator=(const PSOutPaperSize &) = delete;
+        std::string name;
+        int w, h;
+    };
+
+    void init(FoFiOutputFunc outputFuncA, void *outputStreamA, PSFileType fileTypeA, char *psTitleA, PDFDoc *doc, const std::vector<int> &pages, PSOutMode modeA, int imgLLXA, int imgLLYA, int imgURXA, int imgURYA, bool manualCtrlA,
               int paperWidthA, int paperHeightA, bool noCropA, bool duplexA, PSLevel levelA);
     void postInit();
     void setupResources(Dict *resDict);
     void setupFonts(Dict *resDict);
     void setupFont(GfxFont *font, Dict *parentResDict);
-    void setupEmbeddedType1Font(Ref *id, GooString *psName);
+    void setupEmbeddedType1Font(const Ref *id, const std::string &psName);
     void updateFontMaxValidGlyph(GfxFont *font, int maxValidGlyph);
-    void setupExternalType1Font(GooString *fileName, GooString *psName);
-    void setupEmbeddedType1CFont(GfxFont *font, Ref *id, GooString *psName);
-    void setupEmbeddedOpenTypeT1CFont(GfxFont *font, Ref *id, GooString *psName);
-    void setupEmbeddedTrueTypeFont(GfxFont *font, Ref *id, GooString *psName);
-    void setupExternalTrueTypeFont(GfxFont *font, GooString *fileName, GooString *psName);
-    void setupEmbeddedCIDType0Font(GfxFont *font, Ref *id, GooString *psName);
-    void setupEmbeddedCIDTrueTypeFont(GfxFont *font, Ref *id, GooString *psName, bool needVerticalMetrics);
-    void setupExternalCIDTrueTypeFont(GfxFont *font, GooString *fileName, GooString *psName, bool needVerticalMetrics);
-    void setupEmbeddedOpenTypeCFFFont(GfxFont *font, Ref *id, GooString *psName);
-    void setupType3Font(GfxFont *font, GooString *psName, Dict *parentResDict);
-    GooString *makePSFontName(GfxFont *font, const Ref *id);
+    void setupExternalType1Font(const std::string &fileName, const std::string &psName);
+    void setupEmbeddedType1CFont(GfxFont *font, const Ref *id, GooString *psName);
+    void setupEmbeddedOpenTypeT1CFont(GfxFont *font, const Ref *id, GooString *psName, int faceIndex);
+    void setupEmbeddedTrueTypeFont(GfxFont *font, const std::string &psName, int faceIndex);
+    void setupExternalTrueTypeFont(GfxFont *font, const std::string &fileName, const std::string &psName, int faceIndex);
+    void setupEmbeddedCIDType0Font(GfxFont *font, const Ref *id, GooString *psName);
+    void setupEmbeddedCIDTrueTypeFont(GfxFont *font, const std::string &psName, bool needVerticalMetrics, int faceIndex);
+    void setupExternalCIDTrueTypeFont(GfxFont *font, const std::string &fileName, const std::string &psName, bool needVerticalMetrics, int faceIndex);
+    void setupEmbeddedOpenTypeCFFFont(GfxFont *font, const Ref *id, GooString *psName, int faceIndex);
+    void setupType3Font(GfxFont *font, const std::string &psName, Dict *parentResDict);
+    std::unique_ptr<GooString> makePSFontName(const GfxFont *font, const Ref *id);
     void setupImages(Dict *resDict);
-    void setupImage(Ref id, Stream *str, bool mask);
+    void setupImage(Ref id, Stream *str, bool mask, GfxImageColorMap *colorMap = nullptr, int width = 0, int height = 0);
     void setupForms(Dict *resDict);
     void setupForm(Ref id, Object *strObj);
     void addProcessColor(double c, double m, double y, double k);
-    void addCustomColor(GfxSeparationColorSpace *sepCS);
+    void addCustomColor(const GfxSeparationColorSpace &sepCS);
     void doPath(const GfxPath *path);
     void maskToClippingPath(Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert);
-    void doImageL1(Object *ref, GfxImageColorMap *colorMap, bool invert, bool inlineImg, Stream *str, int width, int height, int len, const int *maskColors, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert);
-    void doImageL1Sep(Object *ref, GfxImageColorMap *colorMap, bool invert, bool inlineImg, Stream *str, int width, int height, int len, const int *maskColors, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert);
-    void doImageL2(GfxState *state, Object *ref, GfxImageColorMap *colorMap, bool invert, bool inlineImg, Stream *str, int width, int height, int len, const int *maskColors, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert);
-    void doImageL3(GfxState *state, Object *ref, GfxImageColorMap *colorMap, bool invert, bool inlineImg, Stream *str, int width, int height, int len, const int *maskColors, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert);
-    void dumpColorSpaceL2(GfxState *state, GfxColorSpace *colorSpace, bool genXform, bool updateColors, bool map01);
-    bool tilingPatternFillL1(GfxState *state, Catalog *cat, Object *str, const double *pmat, int paintType, int tilingType, Dict *resDict, const double *mat, const double *bbox, int x0, int y0, int x1, int y1, double xStep, double yStep);
-    bool tilingPatternFillL2(GfxState *state, Catalog *cat, Object *str, const double *pmat, int paintType, int tilingType, Dict *resDict, const double *mat, const double *bbox, int x0, int y0, int x1, int y1, double xStep, double yStep);
+    void doImageL1(const Object *ref, const GfxImageColorMap *colorMap, bool invert, bool inlineImg, Stream *str, int width, int height, int len, const int *maskColors, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert);
+    void doImageL1Sep(const GfxImageColorMap *colorMap, Stream *str, int width, int height, const int *maskColors, Stream *maskStr, int maskWidth, int maskHeight, bool maskInvert);
+    void doImageL2(const GfxState *state, const Object *ref, GfxImageColorMap *colorMap, bool invert, bool inlineImg, Stream *str, int width, int height, int len, const int *maskColors, Stream *maskStr, int maskWidth, int maskHeight,
+                   bool maskInvert);
+    void doImageL3(const GfxState *state, const Object *ref, GfxImageColorMap *colorMap, bool invert, bool inlineImg, Stream *str, int width, int height, int len, const int *maskColors, Stream *maskStr, int maskWidth, int maskHeight,
+                   bool maskInvert);
+    void dumpColorSpaceL2(const GfxState *state, GfxColorSpace *colorSpace, bool genXform, bool updateColors, bool map01);
+    bool tilingPatternFillL1(Object *str, int paintType, Dict *resDict, const std::array<double, 6> &mat, const std::array<double, 4> &bbox, int x0, int y0, int x1, int y1, double xStep, double yStep);
+    bool tilingPatternFillL2(Object *str, int paintType, int tilingType, Dict *resDict, const std::array<double, 6> &mat, const std::array<double, 4> &bbox, double xStep, double yStep);
 
-#ifdef OPI_SUPPORT
-    void opiBegin20(GfxState *state, Dict *dict);
-    void opiBegin13(GfxState *state, Dict *dict);
-    void opiTransform(GfxState *state, double x0, double y0, double *x1, double *y1);
-#endif
+    void opiBegin20(GfxState *state, const Dict &dict);
+    void opiBegin13(GfxState *state, const Dict &dict);
+    void opiTransform(GfxState *state, double x0, double y0, double *x1, double *y1) const;
     void cvtFunction(const Function *func, bool invertPSFunction = false);
-    GooString *filterPSName(const GooString *name);
+    static std::string filterPSName(const std::string &name);
 
     // Write the document-level setup.
     void writeDocSetup(Catalog *catalog, const std::vector<int> &pageList, bool duplexA);
 
     void writePSChar(char c);
-    void writePS(const char *s);
-    void writePSBuf(const char *s, int len);
-    void writePSFmt(const char *fmt, ...);
+    void writePS(std::string_view s);
+    void writePSBuf(const char *s, size_t len);
+    void writePSFmt(const char *fmt, ...) GOOSTRING_FORMAT;
     void writePSString(const std::string &s);
     void writePSName(const char *s);
-    GooString *filterPSLabel(GooString *label, bool *needParens = nullptr);
-    void writePSTextLine(const GooString *s);
+    static GooString *filterPSLabel(const std::string &label, bool *needParens = nullptr);
+    void writePSTextLine(const std::string &s);
 
     PSLevel level; // PostScript level (1, 2, separation)
     PSOutMode mode; // PostScript mode (PS, EPS, form)
@@ -430,7 +428,7 @@ private:
     char *psTitle;
     bool postInitDone; // true if postInit() was called
 
-    PSOutputFunc outputFunc;
+    FoFiOutputFunc outputFunc;
     void *outputStream;
     PSFileType fileType; // file / pipe / stdout
     bool manualCtrl;
@@ -445,24 +443,16 @@ private:
     PDFDoc *doc;
     XRef *xref; // the xref table for this PDF file
 
-    Ref *fontIDs; // list of object IDs of all used fonts
-    int fontIDLen; // number of entries in fontIDs array
-    int fontIDSize; // size of fontIDs array
+    std::vector<Ref> fontIDs; // list of object IDs of all used fonts
     std::set<int> resourceIDs; // list of object IDs of objects containing Resources we've already set up
     std::unordered_set<std::string> fontNames; // all used font names
     std::unordered_map<std::string, int> perFontMaxValidGlyph; // max valid glyph of each font
-    PST1FontName *t1FontNames; // font names for Type 1/1C fonts
-    int t1FontNameLen; // number of entries in t1FontNames array
-    int t1FontNameSize; // size of t1FontNames array
-    PSFont8Info *font8Info; // info for 8-bit fonts
-    int font8InfoLen; // number of entries in font8Info array
-    int font8InfoSize; // size of font8Info array
+    std::vector<PST1FontName> t1FontNames; // font names for Type 1/1C fonts
+    std::vector<PSFont8Info> font8Info; // info for 8-bit fonts
     PSFont16Enc *font16Enc; // encodings for substitute 16-bit fonts
     int font16EncLen; // number of entries in font16Enc array
     int font16EncSize; // size of font16Enc array
-    Ref *imgIDs; // list of image IDs for in-memory images
-    int imgIDLen; // number of entries in imgIDs array
-    int imgIDSize; // size of imgIDs array
+    std::set<Ref> imgIDs; // set of image IDs for in-memory images
     Ref *formIDs; // list of IDs for predefined forms
     int formIDLen; // number of entries in formIDs array
     int formIDSize; // size of formIDs array
@@ -470,9 +460,9 @@ private:
     int numTilingPatterns; // current number of nested tiling patterns
     int nextFunc; // next unique number to use for a function
 
-    std::vector<PSOutPaperSize *> *paperSizes; // list of used paper sizes, if paperMatch
-                                               //   is true
-    std::map<int, int> pagePaperSize; // page num to paperSize entry mapping
+    std::vector<PSOutPaperSize> paperSizes; // list of used paper sizes, if paperMatch
+                                            //   is true
+    std::map<int, size_t> pagePaperSize; // page num to paperSize entry mapping
     double tx0, ty0; // global translation
     double xScale0, yScale0; // global scaling
     int rotate0; // rotation angle (0, 90, 180, 270)
@@ -483,7 +473,7 @@ private:
     double epsX1, epsY1, // EPS bounding box (unrotated)
             epsX2, epsY2;
 
-    GooString *embFontList; // resource comments for embedded fonts
+    std::string embFontList; // resource comments for embedded fonts
 
     int processColors; // used process colors
     PSOutCustomColor // used custom colors
@@ -503,6 +493,9 @@ private:
     PSForceRasterize forceRasterize; // controls the rasterization of pages into images
     bool displayText; // displayText
     bool psCenter; // center pages on the paper
+    bool psExpandSmaller = false; // expand smaller pages to fill paper
+    bool psShrinkLarger = true; // shrink larger pages to fit paper
+    bool overprintPreview = false; // enable overprint preview
     bool rasterAntialias; // antialias on rasterize
     bool uncompressPreloadedImages;
     double rasterResolution; // PostScript rasterization resolution (dpi)
@@ -524,17 +517,13 @@ private:
     bool enableLZW; // enable LZW compression
     bool enableFlate; // enable Flate compression
 
-#ifdef HAVE_SPLASH
     SplashColorMode processColorFormat;
     bool processColorFormatSpecified;
-#endif
 
     std::unordered_set<std::string> iccEmitted; // contains ICCBased CSAs that have been emitted
 
-#ifdef OPI_SUPPORT
     int opi13Nest; // nesting level of OPI 1.3 objects
     int opi20Nest; // nesting level of OPI 2.0 objects
-#endif
 
     bool ok; // set up ok?
     std::set<int> patternsBeingTiled; // the patterns that are being tiled

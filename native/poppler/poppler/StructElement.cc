@@ -6,18 +6,20 @@
 //
 // Copyright 2013, 2014 Igalia S.L.
 // Copyright 2014 Luigi Scarso <luigi.scarso@gmail.com>
-// Copyright 2014, 2017-2019 Albert Astals Cid <aacid@kde.org>
+// Copyright 2014, 2017-2019, 2021, 2023-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright 2015 Dmytro Morgun <lztoad@gmail.com>
-// Copyright 2018 Adrian Johnson <ajohnson@redneon.com>
+// Copyright 2018, 2021, 2023 Adrian Johnson <ajohnson@redneon.com>
 // Copyright 2018 Klarälvdalens Datakonsult AB, a KDAB Group company, <info@kdab.com>. Work sponsored by the LiMux project of the city of Munich
 // Copyright 2018 Adam Reichold <adam.reichold@t-online.de>
+// Copyright 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2026 Adam Sampson <ats@offog.org>
+// Copyright 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
 //
 //========================================================================
 
 #include "StructElement.h"
 #include "StructTreeRoot.h"
 #include "GlobalParams.h"
-#include "UnicodeMap.h"
 #include "PDFDoc.h"
 #include "Dict.h"
 
@@ -109,8 +111,9 @@ static bool isTableScopeName(Object *value)
 
 static bool isRGBColor(Object *value)
 {
-    if (!(value->isArray() && value->arrayGetLength() == 3))
+    if (!value->isArrayOfLength(3)) {
         return false;
+    }
 
     bool okay = true;
     for (int i = 0; i < 3; i++) {
@@ -153,15 +156,15 @@ static bool isTextString(Object *value)
     static bool name(Object *value)                                                                                                                                                                                                            \
     {                                                                                                                                                                                                                                          \
         if (!value->isArray())                                                                                                                                                                                                                 \
-            return allowSingle ? checkItem(value) : false;                                                                                                                                                                                     \
+            return (allowSingle) ? checkItem(value) : false;                                                                                                                                                                                   \
                                                                                                                                                                                                                                                \
-        if (length && value->arrayGetLength() != length)                                                                                                                                                                                       \
+        if ((length) && value->arrayGetLength() != (length))                                                                                                                                                                                   \
             return false;                                                                                                                                                                                                                      \
                                                                                                                                                                                                                                                \
         bool okay = true;                                                                                                                                                                                                                      \
         for (int i = 0; i < value->arrayGetLength(); i++) {                                                                                                                                                                                    \
             Object obj = value->arrayGet(i);                                                                                                                                                                                                   \
-            if ((!allowNulls && obj.isNull()) || !checkItem(&obj)) {                                                                                                                                                                           \
+            if ((!(allowNulls) && obj.isNull()) || !checkItem(&obj)) {                                                                                                                                                                         \
                 okay = false;                                                                                                                                                                                                                  \
                 break;                                                                                                                                                                                                                         \
             }                                                                                                                                                                                                                                  \
@@ -178,7 +181,7 @@ ARRAY_CHECKER(isNumberOrArrayN, isNumber, 0, true, false)
 ARRAY_CHECKER(isTableHeaders, isTextString, 0, false, false)
 
 // Type of functions used to do type-checking on attribute values
-typedef bool (*AttributeCheckFunc)(Object *);
+using AttributeCheckFunc = bool (*)(Object *);
 
 // Maps attributes to their names and whether the attribute can be inherited.
 struct AttributeMapEntry
@@ -192,37 +195,28 @@ struct AttributeMapEntry
 
 struct AttributeDefaults
 {
-    AttributeDefaults() {}; // needed to support old clang
+    AttributeDefaults() = default; // needed to support old clang
 
-    Object Inline = Object(objName, "Inline");
-    Object LrTb = Object(objName, "LrTb");
-    Object Normal = Object(objName, "Normal");
-    Object Distribute = Object(objName, "Distribute");
-    Object off = Object(objName, "off");
+    Object Inline = Object::name("Inline");
+    Object LrTb = Object::name("LrTb");
+    Object Normal = Object::name("Normal");
+    Object Distribute = Object::name("Distribute");
+    Object off = Object::name("off");
     Object Zero = Object(0.0);
-    Object Auto = Object(objName, "Auto");
-    Object Start = Object(objName, "Start");
-    Object None = Object(objName, "None");
-    Object Before = Object(objName, "Before");
+    Object Auto = Object::name("Auto");
+    Object Start = Object::name("Start");
+    Object None = Object::name("None");
+    Object Before = Object::name("Before");
     Object Nat1 = Object(1);
 };
 
 static const AttributeDefaults attributeDefaults;
 
-#define ATTR_LIST_END                                                                                                                                                                                                                          \
-    {                                                                                                                                                                                                                                          \
-        Attribute::Unknown, nullptr, nullptr, false, nullptr                                                                                                                                                                                   \
-    }
+#define ATTR_LIST_END { Attribute::Unknown, nullptr, nullptr, false, nullptr }
 
-#define ATTR_WITH_DEFAULT(name, inherit, check, defval)                                                                                                                                                                                        \
-    {                                                                                                                                                                                                                                          \
-        Attribute::name, #name, &attributeDefaults.defval, inherit, check                                                                                                                                                                      \
-    }
+#define ATTR_WITH_DEFAULT(name, inherit, check, defval) { Attribute::name, #name, &attributeDefaults.defval, inherit, check }
 
-#define ATTR(name, inherit, check)                                                                                                                                                                                                             \
-    {                                                                                                                                                                                                                                          \
-        Attribute::name, #name, nullptr, inherit, check                                                                                                                                                                                        \
-    }
+#define ATTR(name, inherit, check) { Attribute::name, #name, nullptr, inherit, check }
 
 static const AttributeMapEntry attributeMapCommonShared[] = { ATTR_WITH_DEFAULT(Placement, false, isPlacementName, Inline),
                                                               ATTR_WITH_DEFAULT(WritingMode, true, isWritingModeName, LrTb),
@@ -343,9 +337,9 @@ static const struct OwnerMapEntry
     // XXX: Those are sorted in the owner priority resolution order. If the
     //      same attribute is defined with two owners, the order in the table
     //      can be used to know which one has more priority.
-    { Attribute::XML_1_00, "XML-1.00" },     { Attribute::HTML_3_20, "HTML-3.20" }, { Attribute::HTML_4_01, "HTML-4.01" }, { Attribute::OEB_1_00, "OEB-1.00" },
-    { Attribute::RTF_1_05, "RTF-1.05" },     { Attribute::CSS_1_00, "CSS-1.00" },   { Attribute::CSS_2_00, "CSS-2.00" },   { Attribute::Layout, "Layout" },
-    { Attribute::PrintField, "PrintField" }, { Attribute::Table, "Table" },         { Attribute::List, "List" },           { Attribute::UserProperties, "UserProperties" },
+    { .owner = Attribute::XML_1_00, .name = "XML-1.00" },     { .owner = Attribute::HTML_3_20, .name = "HTML-3.20" }, { .owner = Attribute::HTML_4_01, .name = "HTML-4.01" }, { .owner = Attribute::OEB_1_00, .name = "OEB-1.00" },
+    { .owner = Attribute::RTF_1_05, .name = "RTF-1.05" },     { .owner = Attribute::CSS_1_00, .name = "CSS-1.00" },   { .owner = Attribute::CSS_2_00, .name = "CSS-2.00" },   { .owner = Attribute::Layout, .name = "Layout" },
+    { .owner = Attribute::PrintField, .name = "PrintField" }, { .owner = Attribute::Table, .name = "Table" },         { .owner = Attribute::List, .name = "List" },           { .owner = Attribute::UserProperties, .name = "UserProperties" },
 };
 
 static bool ownerHasMorePriority(Attribute::Owner a, Attribute::Owner b)
@@ -353,10 +347,12 @@ static bool ownerHasMorePriority(Attribute::Owner a, Attribute::Owner b)
     size_t aIndex, bIndex, i;
 
     for (i = aIndex = bIndex = 0; i < sizeof(ownerMap) / sizeof(ownerMap[0]); i++) {
-        if (ownerMap[i].owner == a)
+        if (ownerMap[i].owner == a) {
             aIndex = i;
-        if (ownerMap[i].owner == b)
+        }
+        if (ownerMap[i].owner == b) {
             bIndex = i;
+        }
     }
 
     return aIndex < bIndex;
@@ -376,59 +372,59 @@ enum ElementType
 static const struct TypeMapEntry
 {
     StructElement::Type type;
-    const char *name;
+    const std::string name;
     ElementType elementType;
     const AttributeMapEntry **attributes;
 } typeMap[] = {
-    { StructElement::Document, "Document", elementTypeGrouping, attributeMapShared },
-    { StructElement::Part, "Part", elementTypeGrouping, attributeMapShared },
-    { StructElement::Art, "Art", elementTypeGrouping, attributeMapColumns },
-    { StructElement::Sect, "Sect", elementTypeGrouping, attributeMapColumns },
-    { StructElement::Div, "Div", elementTypeGrouping, attributeMapColumns },
-    { StructElement::BlockQuote, "BlockQuote", elementTypeGrouping, attributeMapInline },
-    { StructElement::Caption, "Caption", elementTypeGrouping, attributeMapInline },
-    { StructElement::NonStruct, "NonStruct", elementTypeGrouping, attributeMapInline },
-    { StructElement::Index, "Index", elementTypeGrouping, attributeMapInline },
-    { StructElement::Private, "Private", elementTypeGrouping, attributeMapInline },
-    { StructElement::Span, "Span", elementTypeInline, attributeMapInline },
-    { StructElement::Quote, "Quote", elementTypeInline, attributeMapInline },
-    { StructElement::Note, "Note", elementTypeInline, attributeMapInline },
-    { StructElement::Reference, "Reference", elementTypeInline, attributeMapInline },
-    { StructElement::BibEntry, "BibEntry", elementTypeInline, attributeMapInline },
-    { StructElement::Code, "Code", elementTypeInline, attributeMapInline },
-    { StructElement::Link, "Link", elementTypeInline, attributeMapInline },
-    { StructElement::Annot, "Annot", elementTypeInline, attributeMapInline },
-    { StructElement::Ruby, "Ruby", elementTypeInline, attributeMapRubyText },
-    { StructElement::RB, "RB", elementTypeUndefined, attributeMapRubyText },
-    { StructElement::RT, "RT", elementTypeUndefined, attributeMapRubyText },
-    { StructElement::RP, "RP", elementTypeUndefined, attributeMapShared },
-    { StructElement::Warichu, "Warichu", elementTypeInline, attributeMapRubyText },
-    { StructElement::WT, "WT", elementTypeUndefined, attributeMapShared },
-    { StructElement::WP, "WP", elementTypeUndefined, attributeMapShared },
-    { StructElement::P, "P", elementTypeBlock, attributeMapBlock },
-    { StructElement::H, "H", elementTypeBlock, attributeMapBlock },
-    { StructElement::H1, "H1", elementTypeBlock, attributeMapBlock },
-    { StructElement::H2, "H2", elementTypeBlock, attributeMapBlock },
-    { StructElement::H3, "H3", elementTypeBlock, attributeMapBlock },
-    { StructElement::H4, "H4", elementTypeBlock, attributeMapBlock },
-    { StructElement::H5, "H5", elementTypeBlock, attributeMapBlock },
-    { StructElement::H6, "H6", elementTypeBlock, attributeMapBlock },
-    { StructElement::L, "L", elementTypeBlock, attributeMapList },
-    { StructElement::LI, "LI", elementTypeBlock, attributeMapBlock },
-    { StructElement::Lbl, "Lbl", elementTypeBlock, attributeMapBlock },
-    { StructElement::LBody, "LBody", elementTypeBlock, attributeMapBlock },
-    { StructElement::Table, "Table", elementTypeBlock, attributeMapTable },
-    { StructElement::TR, "TR", elementTypeUndefined, attributeMapShared },
-    { StructElement::TH, "TH", elementTypeUndefined, attributeMapTableCell },
-    { StructElement::TD, "TD", elementTypeUndefined, attributeMapTableCell },
-    { StructElement::THead, "THead", elementTypeUndefined, attributeMapShared },
-    { StructElement::TFoot, "TFoot", elementTypeUndefined, attributeMapShared },
-    { StructElement::TBody, "TBody", elementTypeUndefined, attributeMapShared },
-    { StructElement::Figure, "Figure", elementTypeUndefined, attributeMapIllustration },
-    { StructElement::Formula, "Formula", elementTypeUndefined, attributeMapIllustration },
-    { StructElement::Form, "Form", elementTypeUndefined, attributeMapIllustration },
-    { StructElement::TOC, "TOC", elementTypeGrouping, attributeMapShared },
-    { StructElement::TOCI, "TOCI", elementTypeGrouping, attributeMapShared },
+    { .type = StructElement::Document, .name = "Document", .elementType = elementTypeGrouping, .attributes = attributeMapShared },
+    { .type = StructElement::Part, .name = "Part", .elementType = elementTypeGrouping, .attributes = attributeMapShared },
+    { .type = StructElement::Art, .name = "Art", .elementType = elementTypeGrouping, .attributes = attributeMapColumns },
+    { .type = StructElement::Sect, .name = "Sect", .elementType = elementTypeGrouping, .attributes = attributeMapColumns },
+    { .type = StructElement::Div, .name = "Div", .elementType = elementTypeGrouping, .attributes = attributeMapColumns },
+    { .type = StructElement::BlockQuote, .name = "BlockQuote", .elementType = elementTypeGrouping, .attributes = attributeMapInline },
+    { .type = StructElement::Caption, .name = "Caption", .elementType = elementTypeGrouping, .attributes = attributeMapInline },
+    { .type = StructElement::NonStruct, .name = "NonStruct", .elementType = elementTypeGrouping, .attributes = attributeMapInline },
+    { .type = StructElement::Index, .name = "Index", .elementType = elementTypeGrouping, .attributes = attributeMapInline },
+    { .type = StructElement::Private, .name = "Private", .elementType = elementTypeGrouping, .attributes = attributeMapInline },
+    { .type = StructElement::Span, .name = "Span", .elementType = elementTypeInline, .attributes = attributeMapInline },
+    { .type = StructElement::Quote, .name = "Quote", .elementType = elementTypeInline, .attributes = attributeMapInline },
+    { .type = StructElement::Note, .name = "Note", .elementType = elementTypeInline, .attributes = attributeMapInline },
+    { .type = StructElement::Reference, .name = "Reference", .elementType = elementTypeInline, .attributes = attributeMapInline },
+    { .type = StructElement::BibEntry, .name = "BibEntry", .elementType = elementTypeInline, .attributes = attributeMapInline },
+    { .type = StructElement::Code, .name = "Code", .elementType = elementTypeInline, .attributes = attributeMapInline },
+    { .type = StructElement::Link, .name = "Link", .elementType = elementTypeInline, .attributes = attributeMapInline },
+    { .type = StructElement::Annot, .name = "Annot", .elementType = elementTypeInline, .attributes = attributeMapInline },
+    { .type = StructElement::Ruby, .name = "Ruby", .elementType = elementTypeInline, .attributes = attributeMapRubyText },
+    { .type = StructElement::RB, .name = "RB", .elementType = elementTypeUndefined, .attributes = attributeMapRubyText },
+    { .type = StructElement::RT, .name = "RT", .elementType = elementTypeUndefined, .attributes = attributeMapRubyText },
+    { .type = StructElement::RP, .name = "RP", .elementType = elementTypeUndefined, .attributes = attributeMapShared },
+    { .type = StructElement::Warichu, .name = "Warichu", .elementType = elementTypeInline, .attributes = attributeMapRubyText },
+    { .type = StructElement::WT, .name = "WT", .elementType = elementTypeUndefined, .attributes = attributeMapShared },
+    { .type = StructElement::WP, .name = "WP", .elementType = elementTypeUndefined, .attributes = attributeMapShared },
+    { .type = StructElement::P, .name = "P", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::H, .name = "H", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::H1, .name = "H1", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::H2, .name = "H2", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::H3, .name = "H3", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::H4, .name = "H4", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::H5, .name = "H5", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::H6, .name = "H6", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::L, .name = "L", .elementType = elementTypeBlock, .attributes = attributeMapList },
+    { .type = StructElement::LI, .name = "LI", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::Lbl, .name = "Lbl", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::LBody, .name = "LBody", .elementType = elementTypeBlock, .attributes = attributeMapBlock },
+    { .type = StructElement::Table, .name = "Table", .elementType = elementTypeBlock, .attributes = attributeMapTable },
+    { .type = StructElement::TR, .name = "TR", .elementType = elementTypeUndefined, .attributes = attributeMapShared },
+    { .type = StructElement::TH, .name = "TH", .elementType = elementTypeUndefined, .attributes = attributeMapTableCell },
+    { .type = StructElement::TD, .name = "TD", .elementType = elementTypeUndefined, .attributes = attributeMapTableCell },
+    { .type = StructElement::THead, .name = "THead", .elementType = elementTypeUndefined, .attributes = attributeMapShared },
+    { .type = StructElement::TFoot, .name = "TFoot", .elementType = elementTypeUndefined, .attributes = attributeMapShared },
+    { .type = StructElement::TBody, .name = "TBody", .elementType = elementTypeUndefined, .attributes = attributeMapShared },
+    { .type = StructElement::Figure, .name = "Figure", .elementType = elementTypeUndefined, .attributes = attributeMapIllustration },
+    { .type = StructElement::Formula, .name = "Formula", .elementType = elementTypeUndefined, .attributes = attributeMapIllustration },
+    { .type = StructElement::Form, .name = "Form", .elementType = elementTypeUndefined, .attributes = attributeMapIllustration },
+    { .type = StructElement::TOC, .name = "TOC", .elementType = elementTypeGrouping, .attributes = attributeMapShared },
+    { .type = StructElement::TOCI, .name = "TOCI", .elementType = elementTypeGrouping, .attributes = attributeMapShared },
 };
 
 //------------------------------------------------------------------------
@@ -441,9 +437,9 @@ static inline const AttributeMapEntry *getAttributeMapEntry(const AttributeMapEn
     while (*entryList) {
         const AttributeMapEntry *entry = *entryList;
         while (entry->type != Attribute::Unknown) {
-            assert(entry->name);
-            if (type == entry->type)
+            if (type == entry->type) {
                 return entry;
+            }
             entry++;
         }
         entryList++;
@@ -451,15 +447,16 @@ static inline const AttributeMapEntry *getAttributeMapEntry(const AttributeMapEn
     return nullptr;
 }
 
-static inline const AttributeMapEntry *getAttributeMapEntry(const AttributeMapEntry **entryList, const char *name)
+static inline const AttributeMapEntry *getAttributeMapEntry(const AttributeMapEntry **entryList, const std::string &name)
 {
     assert(entryList);
     while (*entryList) {
         const AttributeMapEntry *entry = *entryList;
         while (entry->type != Attribute::Unknown) {
             assert(entry->name);
-            if (strcmp(name, entry->name) == 0)
+            if (name == entry->name) {
                 return entry;
+            }
             entry++;
         }
         entryList++;
@@ -470,17 +467,19 @@ static inline const AttributeMapEntry *getAttributeMapEntry(const AttributeMapEn
 static inline const OwnerMapEntry *getOwnerMapEntry(Attribute::Owner owner)
 {
     for (const OwnerMapEntry &entry : ownerMap) {
-        if (owner == entry.owner)
+        if (owner == entry.owner) {
             return &entry;
+        }
     }
     return nullptr;
 }
 
-static inline const OwnerMapEntry *getOwnerMapEntry(const char *name)
+static inline const OwnerMapEntry *getOwnerMapEntry(std::string_view name)
 {
     for (const OwnerMapEntry &entry : ownerMap) {
-        if (strcmp(name, entry.name) == 0)
+        if (name == entry.name) {
             return &entry;
+        }
     }
     return nullptr;
 }
@@ -491,7 +490,7 @@ static const char *ownerToName(Attribute::Owner owner)
     return entry ? entry->name : "UnknownOwner";
 }
 
-static Attribute::Owner nameToOwner(const char *name)
+static Attribute::Owner nameToOwner(std::string_view name)
 {
     const OwnerMapEntry *entry = getOwnerMapEntry(name);
     return entry ? entry->owner : Attribute::UnknownOwner;
@@ -500,33 +499,37 @@ static Attribute::Owner nameToOwner(const char *name)
 static inline const TypeMapEntry *getTypeMapEntry(StructElement::Type type)
 {
     for (const TypeMapEntry &entry : typeMap) {
-        if (type == entry.type)
+        if (type == entry.type) {
             return &entry;
+        }
     }
     return nullptr;
 }
 
-static inline const TypeMapEntry *getTypeMapEntry(const char *name)
+static inline const TypeMapEntry *getTypeMapEntry(std::string_view name)
 {
     for (const TypeMapEntry &entry : typeMap) {
-        if (strcmp(name, entry.name) == 0)
+        if (name == entry.name) {
             return &entry;
+        }
     }
     return nullptr;
 }
 
 static const char *typeToName(StructElement::Type type)
 {
-    if (type == StructElement::MCID)
+    if (type == StructElement::MCID) {
         return "MarkedContent";
-    if (type == StructElement::OBJR)
+    }
+    if (type == StructElement::OBJR) {
         return "ObjectReference";
+    }
 
     const TypeMapEntry *entry = getTypeMapEntry(type);
-    return entry ? entry->name : "Unknown";
+    return entry ? entry->name.c_str() : "Unknown";
 }
 
-static StructElement::Type nameToType(const char *name)
+static StructElement::Type nameToType(std::string_view name)
 {
     const TypeMapEntry *entry = getTypeMapEntry(name);
     return entry ? entry->type : StructElement::Unknown;
@@ -536,7 +539,7 @@ static StructElement::Type nameToType(const char *name)
 // Attribute
 //------------------------------------------------------------------------
 
-Attribute::Attribute(GooString &&nameA, Object *valueA) : type(UserProperty), owner(UserProperties), revision(0), name(std::move(nameA)), value(), hidden(false), formatted(nullptr)
+Attribute::Attribute(GooString &&nameA, Object *valueA) : type(UserProperty), owner(UserProperties), revision(0), name(std::move(nameA)), hidden(false)
 {
     assert(valueA);
     value = valueA->copy();
@@ -546,32 +549,29 @@ Attribute::Attribute(Type typeA, Object *valueA)
     : type(typeA),
       owner(UserProperties), // TODO: Determine corresponding owner from Type
       revision(0),
-      name(),
-      value(),
-      hidden(false),
-      formatted(nullptr)
+      hidden(false)
 {
     assert(valueA);
 
     value = valueA->copy();
 
-    if (!checkType())
+    if (!checkType()) {
         type = Unknown;
+    }
 }
 
-Attribute::~Attribute()
-{
-    delete formatted;
-}
+Attribute::~Attribute() = default;
 
 const char *Attribute::getTypeName() const
 {
-    if (type == UserProperty)
+    if (type == UserProperty) {
         return name.c_str();
+    }
 
     const AttributeMapEntry *entry = getAttributeMapEntry(attributeMapAll, type);
-    if (entry)
+    if (entry) {
         return entry->name;
+    }
 
     return "Unknown";
 }
@@ -587,24 +587,17 @@ Object *Attribute::getDefaultValue(Attribute::Type type)
     return entry ? const_cast<Object *>(entry->defval) : nullptr;
 }
 
-void Attribute::setFormattedValue(const char *formattedA)
+void Attribute::setFormattedValue(const std::optional<std::string> &formattedA)
 {
-    if (formattedA) {
-        if (formatted)
-            formatted->Set(formattedA);
-        else
-            formatted = new GooString(formattedA);
-    } else {
-        delete formatted;
-        formatted = nullptr;
-    }
+    formatted = formattedA;
 }
 
 bool Attribute::checkType(StructElement *element)
 {
     // If an element is passed, tighter type-checking can be done.
-    if (!element)
+    if (!element) {
         return true;
+    }
 
     const TypeMapEntry *elementTypeEntry = getTypeMapEntry(element->getType());
     if (elementTypeEntry && elementTypeEntry->attributes) {
@@ -622,7 +615,7 @@ bool Attribute::checkType(StructElement *element)
     return true;
 }
 
-Attribute::Type Attribute::getTypeForName(const char *name, StructElement *element)
+Attribute::Type Attribute::getTypeForName(const std::string &name, StructElement *element)
 {
     const AttributeMapEntry **attributes = attributeMapAll;
     if (element) {
@@ -643,10 +636,10 @@ Attribute *Attribute::parseUserProperty(Dict *property)
 
     obj = property->lookup("N");
     if (obj.isString()) {
-        name.Set(obj.getString());
-    } else if (obj.isName())
-        name.Set(obj.getName());
-    else {
+        name.assign(obj.getString());
+    } else if (obj.isName()) {
+        name.assign(obj.getNameString());
+    } else {
         error(errSyntaxError, -1, "N object is wrong type ({0:s})", obj.getTypeName());
         return nullptr;
     }
@@ -657,10 +650,10 @@ Attribute *Attribute::parseUserProperty(Dict *property)
         return nullptr;
     }
 
-    Attribute *attribute = new Attribute(std::move(name), &value);
+    auto *attribute = new Attribute(std::move(name), &value);
     obj = property->lookup("F");
     if (obj.isString()) {
-        attribute->setFormattedValue(obj.getString()->c_str());
+        attribute->setFormattedValue(obj.getString());
     } else if (!obj.isNull()) {
         error(errSyntaxWarning, -1, "F object is wrong type ({0:s})", obj.getTypeName());
     }
@@ -679,22 +672,19 @@ Attribute *Attribute::parseUserProperty(Dict *property)
 // StructElement
 //------------------------------------------------------------------------
 
-StructElement::StructData::StructData() : altText(nullptr), actualText(nullptr), id(nullptr), title(nullptr), expandedAbbr(nullptr), language(nullptr), revision(0) { }
+StructElement::StructData::StructData() : altText(nullptr), actualText(nullptr), id(nullptr), title(nullptr), expandedAbbr(nullptr), language(nullptr) { }
 
 StructElement::StructData::~StructData()
 {
-    delete altText;
-    delete actualText;
-    delete id;
-    delete title;
-    delete language;
-    for (StructElement *element : elements)
+    for (StructElement *element : elements) {
         delete element;
-    for (Attribute *attribute : attributes)
+    }
+    for (Attribute *attribute : attributes) {
         delete attribute;
+    }
 }
 
-StructElement::StructElement(Dict *element, StructTreeRoot *treeRootA, StructElement *parentA, std::set<int> &seen) : type(Unknown), treeRoot(treeRootA), parent(parentA), s(new StructData())
+StructElement::StructElement(Dict *element, StructTreeRoot *treeRootA, StructElement *parentA, RefRecursionChecker &seen) : type(Unknown), treeRoot(treeRootA), parent(parentA), s(new StructData())
 {
     assert(treeRoot);
     assert(element);
@@ -717,10 +707,11 @@ StructElement::StructElement(const Ref ref, StructTreeRoot *treeRootA, StructEle
 
 StructElement::~StructElement()
 {
-    if (isContent())
+    if (isContent()) {
         delete c;
-    else
+    } else {
         delete s;
+    }
 }
 
 bool StructElement::isBlock() const
@@ -753,9 +744,19 @@ bool StructElement::getPageRef(Ref &ref) const
         return true;
     }
 
-    if (parent)
+    if (parent) {
         return parent->getPageRef(ref);
+    }
 
+    return false;
+}
+
+bool StructElement::getStmRef(Ref &ref) const
+{
+    if (stmRef.isRef()) {
+        ref = stmRef.getRef();
+        return true;
+    }
     return false;
 }
 
@@ -766,11 +767,13 @@ const char *StructElement::getTypeName() const
 
 const Attribute *StructElement::findAttribute(Attribute::Type attributeType, bool inherit, Attribute::Owner attributeOwner) const
 {
-    if (isContent())
+    if (isContent()) {
         return parent->findAttribute(attributeType, inherit, attributeOwner);
+    }
 
-    if (attributeType == Attribute::Unknown || attributeType == Attribute::UserProperty)
+    if (attributeType == Attribute::Unknown || attributeType == Attribute::UserProperty) {
         return nullptr;
+    }
 
     const Attribute *result = nullptr;
 
@@ -779,8 +782,9 @@ const Attribute *StructElement::findAttribute(Attribute::Type attributeType, boo
         for (unsigned i = 0; i < getNumAttributes(); i++) {
             const Attribute *attr = getAttribute(i);
             if (attributeType == attr->getType()) {
-                if (!result || ownerHasMorePriority(attr->getOwner(), result->getOwner()))
+                if (!result || ownerHasMorePriority(attr->getOwner(), result->getOwner())) {
                     result = attr;
+                }
             }
         }
     } else {
@@ -794,8 +798,9 @@ const Attribute *StructElement::findAttribute(Attribute::Type attributeType, boo
         }
     }
 
-    if (result)
+    if (result) {
         return result;
+    }
 
     if (inherit && parent) {
         const AttributeMapEntry *entry = getAttributeMapEntry(attributeMapAll, attributeType);
@@ -803,8 +808,9 @@ const Attribute *StructElement::findAttribute(Attribute::Type attributeType, boo
         // TODO: Take into account special inheritance cases, for example:
         //       inline elements which have been changed to be block using
         //       "/Placement/Block" have slightly different rules.
-        if (entry->inherit)
+        if (entry->inherit) {
             return parent->findAttribute(attributeType, inherit, attributeOwner);
+        }
     }
 
     return nullptr;
@@ -813,27 +819,32 @@ const Attribute *StructElement::findAttribute(Attribute::Type attributeType, boo
 GooString *StructElement::appendSubTreeText(GooString *string, bool recursive) const
 {
     if (isContent() && !isObjectRef()) {
-        MarkedContentOutputDev mcdev(getMCID());
+        MarkedContentOutputDev mcdev(getMCID(), stmRef);
         const TextSpanArray &spans(getTextSpansInternal(mcdev));
 
-        if (!string)
+        if (!string) {
             string = new GooString();
+        }
 
-        for (const TextSpan &span : spans)
-            string->append(span.getText());
+        for (const TextSpan &span : spans) {
+            string->append(span.getText()->toStr());
+        }
 
         return string;
     }
 
-    if (!recursive)
+    if (!recursive) {
         return nullptr;
+    }
 
     // Do a depth-first traversal, to get elements in logical order
-    if (!string)
+    if (!string) {
         string = new GooString();
+    }
 
-    for (unsigned i = 0; i < getNumChildren(); i++)
+    for (unsigned i = 0; i < getNumChildren(); i++) {
         getChild(i)->appendSubTreeText(string, recursive);
+    }
 
     return string;
 }
@@ -857,22 +868,31 @@ const TextSpanArray &StructElement::getTextSpansInternal(MarkedContentOutputDev 
     treeRoot->getDoc()->displayPages(&mcdev, startPage, endPage, 72.0, 72.0, 0, true, false, false);
     return mcdev.getTextSpans();
 }
-
-static StructElement::Type roleMapResolve(Dict *roleMap, const char *name, const char *curName)
+static StructElement::Type roleMapResolve(Dict *roleMap, std::string_view name)
 {
-    // Circular reference
-    if (curName && !strcmp(name, curName))
+    Object resolved = roleMap->lookup(name);
+    std::set<std::string> recursion;
+    while (true) {
+        if (resolved.isName()) {
+            if (!recursion.insert(resolved.getNameString()).second) {
+                // circular reference
+                error(errSyntaxWarning, -1, "RoleMap entries contains circular references");
+                return StructElement::Unknown;
+            }
+
+            StructElement::Type type = nameToType(resolved.getNameString());
+            if (type != StructElement::Unknown) {
+                return type;
+            }
+            resolved = roleMap->lookup(resolved.getNameString());
+            continue;
+        }
+
+        if (!resolved.isNull()) {
+            error(errSyntaxWarning, -1, "RoleMap entry is wrong type ({0:s})", resolved.getTypeName());
+        }
         return StructElement::Unknown;
-
-    Object resolved = roleMap->lookup(curName ? curName : name);
-    if (resolved.isName()) {
-        StructElement::Type type = nameToType(resolved.getName());
-        return type == StructElement::Unknown ? roleMapResolve(roleMap, name, resolved.getName()) : type;
     }
-
-    if (!resolved.isNull())
-        error(errSyntaxWarning, -1, "RoleMap entry is wrong type ({0:s})", resolved.getTypeName());
-    return StructElement::Unknown;
 }
 
 void StructElement::parse(Dict *element)
@@ -904,13 +924,14 @@ void StructElement::parse(Dict *element)
 
     // Type name may not be standard, resolve through RoleMap first.
     if (treeRoot->getRoleMap()) {
-        type = roleMapResolve(treeRoot->getRoleMap(), obj.getName(), nullptr);
+        type = roleMapResolve(treeRoot->getRoleMap(), obj.getNameString());
     }
 
     // Resolving through RoleMap may leave type as Unknown, e.g. for types
     // which are not present in it, yet they are standard element types.
-    if (type == Unknown)
-        type = nameToType(obj.getName());
+    if (type == Unknown) {
+        type = nameToType(obj.getNameString());
+    }
 
     // At this point either the type name must have been resolved.
     if (type == Unknown) {
@@ -980,8 +1001,9 @@ void StructElement::parse(Dict *element)
             } else if (iobj.isInt()) {
                 const int revision = iobj.getInt();
                 // Set revision numbers for the elements previously created.
-                for (unsigned j = attrIndex; j < getNumAttributes(); j++)
-                    getAttribute(j)->setRevision(revision);
+                for (unsigned j = attrIndex; j < getNumAttributes(); j++) {
+                    getNonConstAttribute(j)->setRevision(revision);
+                }
             } else {
                 error(errSyntaxWarning, -1, "A item is wrong type ({0:s})", iobj.getTypeName());
             }
@@ -994,7 +1016,7 @@ void StructElement::parse(Dict *element)
     if (treeRoot->getClassMap()) {
         Object classes = element->lookup("C");
         if (classes.isName()) {
-            Object attr = treeRoot->getClassMap()->lookup(classes.getName());
+            Object attr = treeRoot->getClassMap()->lookup(classes.getNameString());
             if (attr.isDict()) {
                 parseAttributes(attr.getDict(), true);
             } else if (attr.isArray()) {
@@ -1007,8 +1029,9 @@ void StructElement::parse(Dict *element)
                     } else if (iobj.isInt()) {
                         // Set revision numbers for the elements previously created.
                         const int revision = iobj.getInt();
-                        for (unsigned j = attrIndex; j < getNumAttributes(); j++)
-                            getAttribute(j)->setRevision(revision);
+                        for (unsigned j = attrIndex; j < getNumAttributes(); j++) {
+                            getNonConstAttribute(j)->setRevision(revision);
+                        }
                     } else {
                         error(errSyntaxWarning, -1, "C item is wrong type ({0:s})", iobj.getTypeName());
                     }
@@ -1020,7 +1043,7 @@ void StructElement::parse(Dict *element)
     }
 }
 
-StructElement *StructElement::parseChild(const Object *ref, Object *childObj, std::set<int> &seen)
+StructElement *StructElement::parseChild(const Object *ref, Object *childObj, RefRecursionChecker &seen)
 {
     assert(childObj);
     assert(ref);
@@ -1031,9 +1054,9 @@ StructElement *StructElement::parseChild(const Object *ref, Object *childObj, st
         child = new StructElement(childObj->getInt(), treeRoot, this);
     } else if (childObj->isDict("MCR")) {
         /*
-         * TODO: The optional Stm/StwOwn attributes are not handled, so all the
-         *      page will be always scanned when calling StructElement::getText().
+         * TODO: The optional StmOwn attribute is not handled.
          */
+
         Object mcidObj = childObj->dictLookup("MCID");
         if (!mcidObj.isInt()) {
             error(errSyntaxError, -1, "MCID object is wrong type ({0:s})", mcidObj.getTypeName());
@@ -1046,6 +1069,16 @@ StructElement *StructElement::parseChild(const Object *ref, Object *childObj, st
         if (pageRefObj.isRef()) {
             child->pageRef = std::move(pageRefObj);
         }
+
+        const Object &stmObj = childObj->dictLookupNF("Stm");
+        if (stmObj.isRef()) {
+            child->stmRef = stmObj.copy();
+        } else if (!stmObj.isNull()) {
+            error(errSyntaxError, -1, "Stm object is wrong type ({0:s})", stmObj.getTypeName());
+            delete child;
+            return nullptr;
+        }
+
     } else if (childObj->isDict("OBJR")) {
         const Object &refObj = childObj->dictLookupNF("Obj");
         if (refObj.isRef()) {
@@ -1062,8 +1095,7 @@ StructElement *StructElement::parseChild(const Object *ref, Object *childObj, st
     } else if (childObj->isDict()) {
         if (!ref->isRef()) {
             error(errSyntaxError, -1, "Structure element dictionary is not an indirect reference ({0:s})", ref->getTypeName());
-        } else if (seen.find(ref->getRefNum()) == seen.end()) {
-            seen.insert(ref->getRefNum());
+        } else if (seen.insert(ref->getRef())) {
             child = new StructElement(childObj->getDict(), treeRoot, this, seen);
         } else {
             error(errSyntaxWarning, -1, "Loop detected in structure tree, skipping subtree at object {0:d}:{1:d}", ref->getRefNum(), ref->getRefGen());
@@ -1075,8 +1107,9 @@ StructElement *StructElement::parseChild(const Object *ref, Object *childObj, st
     if (child) {
         if (child->isOk()) {
             appendChild(child);
-            if (ref->isRef())
+            if (ref->isRef()) {
                 treeRoot->parentTreeAdd(ref->getRef(), child);
+            }
         } else {
             delete child;
             child = nullptr;
@@ -1086,13 +1119,14 @@ StructElement *StructElement::parseChild(const Object *ref, Object *childObj, st
     return child;
 }
 
-void StructElement::parseChildren(Dict *element, std::set<int> &seen)
+void StructElement::parseChildren(Dict *element, RefRecursionChecker &seen)
 {
     Object kids = element->lookup("K");
     if (kids.isArray()) {
-        for (int i = 0; i < kids.arrayGetLength(); i++) {
-            Object obj = kids.arrayGet(i);
-            const Object &ref = kids.arrayGetNF(i);
+        Array *kidsArray = kids.getArray();
+        for (int i = 0; i < kidsArray->getLength(); i++) {
+            Object obj = kidsArray->get(i);
+            const Object &ref = kidsArray->getNF(i);
             parseChild(&ref, &obj, seen);
         }
     } else if (kids.isDict() || kids.isInt()) {
@@ -1126,13 +1160,14 @@ void StructElement::parseAttributes(Dict *attributes, bool keepExisting)
     } else if (owner.isName()) {
         // In this case /P contains standard attributes.
         // Check first if the owner is a valid standard one.
-        Attribute::Owner ownerValue = nameToOwner(owner.getName());
+        const std::string &ownerName = owner.getNameString();
+        Attribute::Owner ownerValue = nameToOwner(ownerName);
         if (ownerValue != Attribute::UnknownOwner) {
             // Iterate over the entries of the "attributes" dictionary.
             // The /O entry (owner) is skipped.
             for (int i = 0; i < attributes->getLength(); i++) {
-                const char *key = attributes->getKey(i);
-                if (strcmp(key, "O") != 0) {
+                const std::string &key = attributes->getKey(i);
+                if (key != "O") {
                     Attribute::Type t = Attribute::getTypeForName(key, this);
 
                     // Check if the attribute is already defined.
@@ -1144,14 +1179,15 @@ void StructElement::parseAttributes(Dict *attributes, bool keepExisting)
                                 break;
                             }
                         }
-                        if (exists)
+                        if (exists) {
                             continue;
+                        }
                     }
 
                     if (t != Attribute::Unknown) {
                         Object value = attributes->getVal(i);
                         bool typeCheckOk = true;
-                        Attribute *attribute = new Attribute(t, &value);
+                        auto *attribute = new Attribute(t, &value);
 
                         if (attribute->isOk() && (typeCheckOk = attribute->checkType(this))) {
                             appendAttribute(attribute);
@@ -1164,12 +1200,12 @@ void StructElement::parseAttributes(Dict *attributes, bool keepExisting)
                             delete attribute;
                         }
                     } else {
-                        error(errSyntaxWarning, -1, "Wrong Attribute '{0:s}' in element {1:s}", key, getTypeName());
+                        error(errSyntaxWarning, -1, "Wrong Attribute '{0:r}' in element {1:s}", &key, getTypeName());
                     }
                 }
             }
         } else {
-            error(errSyntaxWarning, -1, "O object is invalid value ({0:s})", owner.getName());
+            error(errSyntaxWarning, -1, "O object is invalid value ({0:r})", &ownerName);
         }
     } else if (!owner.isNull()) {
         error(errSyntaxWarning, -1, "O is wrong type ({0:s})", owner.getTypeName());

@@ -1,6 +1,11 @@
 /build
+/.build-before-sanitize.*
+/prebuilds
+*.tgz
+fuzz-case.pdf
 .settings
 .project
 .cproject
 .pydevproject
 node_modules
+__pycache__/

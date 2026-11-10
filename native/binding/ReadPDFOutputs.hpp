@@ -42,7 +42,7 @@ class Page {
 
 class OutlineItem {
  public:
-  int page;
+  int page = 0;  // 0: the destination could not be resolved
   std::string title;
   std::vector<OutlineItem> children;
   Napi::Object serialize(Napi::Env env) const;

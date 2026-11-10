@@ -1,0 +1,27 @@
+{
+  "zlib": {
+    "version": "1.4",
+    "url": "https://github.com/madler/zlib/releases/download/v1.4/zlib-1.4.tar.xz",
+    "sha256": "4f11c512053d7bab8d9e9b89bde3575add3e4c50a383b42ef6cb837035fc5a7c"
+  },
+  "libpng": {
+    "version": "1.6.59",
+    "url": "https://download.sourceforge.net/libpng/libpng-1.6.59.tar.xz",
+    "sha256": "d80dd2a38a37f803cb9b6ac7b14bd6e74ddc3b654780a8380bdf93523fdb4389"
+  },
+  "libjpeg-turbo": {
+    "version": "3.2.1",
+    "url": "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.2.1/libjpeg-turbo-3.2.1.tar.gz",
+    "sha256": "c27ad72a68da151177929aa969ae773a2da5ac2af9ce946079314fdac8cece7f"
+  },
+  "openjpeg": {
+    "version": "2.5.4",
+    "url": "https://github.com/uclouvain/openjpeg/archive/refs/tags/v2.5.4.tar.gz",
+    "sha256": "a695fbe19c0165f295a8531b1e4e855cd94d0875d2f88ec4b61080677e27188a"
+  },
+  "freetype": {
+    "version": "2.15.0",
+    "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+    "sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5"
+  }
+}

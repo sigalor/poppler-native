@@ -15,7 +15,9 @@
 //
 // Copyright (C) 2006 Takashi Iwai <tiwai@suse.de>
 // Copyright (C) 2012 Thomas Freitag <Thomas.Freitag@alfa.de>
-// Copyright (C) 2018-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2018-2020, 2025, 2026 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2022 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright (C) 2025, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -29,7 +31,10 @@
 
 #include "poppler_private_export.h"
 
+#include <array>
+#include <memory>
 #include <set>
+#include <vector>
 
 class GooString;
 
@@ -87,21 +92,17 @@ struct Type1CTopDict
     int fdSelectOffset;
 };
 
-#define type1CMaxBlueValues 14
-#define type1CMaxOtherBlues 10
-#define type1CMaxStemSnap 12
-
 struct Type1CPrivateDict
 {
     double fontMatrix[6];
     bool hasFontMatrix;
-    int blueValues[type1CMaxBlueValues];
+    std::array<int, 14> blueValues;
     int nBlueValues;
-    int otherBlues[type1CMaxOtherBlues];
+    std::array<int, 10> otherBlues;
     int nOtherBlues;
-    int familyBlues[type1CMaxBlueValues];
+    std::array<int, 14> familyBlues;
     int nFamilyBlues;
-    int familyOtherBlues[type1CMaxOtherBlues];
+    std::array<int, 10> familyOtherBlues;
     int nFamilyOtherBlues;
     double blueScale;
     int blueShift;
@@ -110,9 +111,9 @@ struct Type1CPrivateDict
     bool hasStdHW;
     double stdVW;
     bool hasStdVW;
-    double stemSnapH[type1CMaxStemSnap];
+    std::array<double, 12> stemSnapH;
     int nStemSnapH;
-    double stemSnapV[type1CMaxStemSnap];
+    std::array<double, 12> stemSnapV;
     int nStemSnapV;
     bool forceBold;
     bool hasForceBold;
@@ -141,7 +142,6 @@ struct Type1CEexecBuf
 {
     FoFiOutputFunc outputFunc;
     void *outputStream;
-    bool ascii; // ASCII encoding?
     unsigned short r1; // eexec encryption key
     int line; // number of eexec chars left on current line
 };
@@ -152,12 +152,17 @@ struct Type1CEexecBuf
 
 class POPPLER_PRIVATE_EXPORT FoFiType1C : public FoFiBase
 {
+    class PrivateTag
+    {
+    };
+
 public:
     // Create a FoFiType1C object from a memory buffer.
-    static FoFiType1C *make(const char *fileA, int lenA);
+    static std::unique_ptr<FoFiType1C> make(std::vector<unsigned char> &&fileA);
+    static std::unique_ptr<FoFiType1C> make(std::span<const unsigned char> data);
 
     // Create a FoFiType1C object from a file on disk.
-    static FoFiType1C *load(const char *fileName);
+    static std::unique_ptr<FoFiType1C> load(const char *fileName);
 
     ~FoFiType1C() override;
 
@@ -166,26 +171,16 @@ public:
 
     // Return the encoding, as an array of 256 names (any of which may
     // be NULL).  This is only useful with 8-bit fonts.
-    char **getEncoding() const;
-
-    // Get the glyph names.
-    int getNumGlyphs() const { return nGlyphs; }
-    GooString *getGlyphName(int gid) const;
+    const std::array<const char *, 256> *getEncodingA() const;
 
     // Return the mapping from CIDs to GIDs, and return the number of
     // CIDs in *<nCIDs>.  This is only useful for CID fonts.
-    int *getCIDToGIDMap(int *nCIDs) const;
-
-    // Return the font matrix as an array of six numbers.
-    void getFontMatrix(double *mat) const;
+    std::vector<int> getCIDToGIDMap() const;
 
     // Convert to a Type 1 font, suitable for embedding in a PostScript
-    // file.  This is only useful with 8-bit fonts.  If <newEncoding> is
-    // not NULL, it will be used in place of the encoding in the Type 1C
-    // font.  If <ascii> is true the eexec section will be hex-encoded,
-    // otherwise it will be left as binary data.  If <psName> is non-NULL,
+    // file.  This is only useful with 8-bit fonts.  If <psName> is non-NULL,
     // it will be used as the PostScript font name.
-    void convertToType1(const char *psName, const char **newEncoding, bool ascii, FoFiOutputFunc outputFunc, void *outputStream);
+    void convertToType1(const char *psName, FoFiOutputFunc outputFunc, void *outputStream);
 
     // Convert to a Type 0 CIDFont, suitable for embedding in a
     // PostScript file.  <psName> will be used as the PostScript font
@@ -195,7 +190,7 @@ public:
     //     font's internal CID-to-GID mapping is used
     // (3) is <codeMap> is NULL and this is an 8-bit CFF font, then
     //     the identity CID-to-GID mapping is used
-    void convertToCIDType0(const char *psName, const int *codeMap, int nCodes, FoFiOutputFunc outputFunc, void *outputStream);
+    void convertToCIDType0(const std::string &psName, const std::vector<int> &codeMap, FoFiOutputFunc outputFunc, void *outputStream);
 
     // Convert to a Type 0 (but non-CID) composite font, suitable for
     // embedding in a PostScript file.  <psName> will be used as the
@@ -206,17 +201,19 @@ public:
     //     font's internal CID-to-GID mapping is used
     // (3) is <codeMap> is NULL and this is an 8-bit CFF font, then
     //     the identity CID-to-GID mapping is used
-    void convertToType0(const char *psName, const int *codeMap, int nCodes, FoFiOutputFunc outputFunc, void *outputStream);
+    void convertToType0(const std::string &psName, const std::vector<int> &codeMap, FoFiOutputFunc outputFunc, void *outputStream);
+
+    explicit FoFiType1C(std::vector<unsigned char> &&fileA, PrivateTag /*unused*/ = {});
+    explicit FoFiType1C(std::span<const unsigned char> data, PrivateTag /*unused*/ = {});
 
 private:
-    FoFiType1C(const char *fileA, int lenA, bool freeFileDataA);
     void eexecCvtGlyph(Type1CEexecBuf *eb, const char *glyphName, int offset, int nBytes, const Type1CIndex *subrIdx, const Type1CPrivateDict *pDict);
-    void cvtGlyph(int offset, int nBytes, GooString *charBuf, const Type1CIndex *subrIdx, const Type1CPrivateDict *pDict, bool top, std::set<int> &offsetBeingParsed);
-    void cvtGlyphWidth(bool useOp, GooString *charBuf, const Type1CPrivateDict *pDict);
-    void cvtNum(double x, bool isFP, GooString *charBuf) const;
-    void eexecWrite(Type1CEexecBuf *eb, const char *s) const;
-    void eexecWriteCharstring(Type1CEexecBuf *eb, const unsigned char *s, int n) const;
-    void writePSString(const char *s, FoFiOutputFunc outputFunc, void *outputStream) const;
+    void cvtGlyph(int offset, int nBytes, std::string &charBuf, const Type1CIndex *subrIdx, const Type1CPrivateDict *pDict, bool top, std::set<int> &offsetBeingParsed);
+    void cvtGlyphWidth(bool useOp, std::string &charBuf, const Type1CPrivateDict *pDict);
+    static void cvtNum(double x, bool isFP, std::string &charBuf);
+    static void eexecWrite(Type1CEexecBuf *eb, const char *s);
+    static void eexecWriteCharstring(Type1CEexecBuf *eb, const unsigned char *s, int n);
+    static void writePSString(const char *s, FoFiOutputFunc outputFunc, void *outputStream);
     bool parse();
     void readTopDict();
     void readFD(int offset, int length, Type1CPrivateDict *pDict);
@@ -225,14 +222,14 @@ private:
     void buildEncoding();
     bool readCharset();
     int getOp(int pos, bool charstring, bool *ok);
-    int getDeltaIntArray(int *arr, int maxLen) const;
-    int getDeltaFPArray(double *arr, int maxLen) const;
+    int getDeltaIntArray(std::span<int> arr) const;
+    int getDeltaFPArray(std::span<double> arr) const;
     void getIndex(int pos, Type1CIndex *idx, bool *ok) const;
-    void getIndexVal(const Type1CIndex *idx, int i, Type1CIndexVal *val, bool *ok) const;
+    void getIndexVal(const Type1CIndex &idx, int i, Type1CIndexVal *val, bool *ok) const;
     char *getString(int sid, char *buf, bool *ok) const;
 
-    GooString *name;
-    char **encoding;
+    std::unique_ptr<GooString> name;
+    const std::array<const char *, 256> *encoding;
 
     Type1CIndex nameIdx;
     Type1CIndex topDictIdx;

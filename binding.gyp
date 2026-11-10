@@ -1,167 +1,42 @@
 {
-  "targets": [
+  'includes': ['native/common.gypi'],
+  'targets': [
     {
-      "target_name": "poppler",
-      "sources": [
-        "native/binding/build-charmap/common.cpp",
-        "native/binding/build-charmap/Glyph.cpp",
-        "native/binding/build-charmap/StringMapper.cpp",
-        "native/binding/build-charmap/TTFFile.cpp",
-        "native/binding/html/HtmlFonts.cc",
-        "native/binding/html/HtmlLinks.cc",
-        "native/binding/html/HtmlOutputDev.cc",
-        "native/binding/html/InMemoryFile.cc",
-        "native/binding/standard-pdf-fonts/Arial_Bold.cpp",
-        "native/binding/standard-pdf-fonts/Arial.cpp",
-        "native/binding/standard-pdf-fonts/common.cpp",
-        "native/binding/binding.cpp",
-        "native/binding/NodeUtilities.cpp",
-        "native/binding/PDFUtilities.cpp",
-        "native/binding/ReadPDFOutputs.cpp"
+      'target_name': 'poppler',
+      'sources': [
+        'native/binding/html/HtmlFonts.cc',
+        'native/binding/html/HtmlLinks.cc',
+        'native/binding/html/HtmlOutputDev.cc',
+        'native/binding/binding.cpp',
+        'native/binding/NodeUtilities.cpp',
+        'native/binding/PDFUtilities.cpp',
+        'native/binding/PngEncoder.cpp',
+        'native/binding/ReadPDFOutputs.cpp',
+        'native/binding/text-repair/GlyphFingerprint.cpp',
+        'native/binding/text-repair/ReferenceFonts.cpp',
+        'native/binding/text-repair/TextRepair.cpp',
       ],
-      "include_dirs": [
+      'include_dirs': [
         "<!@(node -p \"require('node-addon-api').include\")",
-        "native/poppler",
-        "/usr/include/freetype2"
       ],
-      "dependencies": [
+      # The addon needs Node's headers, but not its copy of zlib's (Chromium's zlib.h, first on the include path):
+      # <zlib.h> must mean the bundled zlib that Poppler and libpng are built with.
+      'include_dirs!': ['<(node_root_dir)/deps/zlib'],
+      'dependencies': [
         "<!(node -p \"require('node-addon-api').gyp\")",
-        "libpoppler"
+        'native/poppler/poppler.gyp:libpoppler',
+        'native/deps/deps.gyp:libpng',
       ],
-      "cflags_cc!": [
-        "-fno-exceptions",
-        "-fno-rtti"
+      # NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS: when a worker thread is terminated while a parse runs, its result
+      # can't be delivered any more; node-addon-api then drops the error instead of aborting the process.
+      'defines': ['NAPI_CPP_EXCEPTIONS', 'NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS'],
+      'conditions': [
+        ['OS=="linux"', {
+          # Poppler and the vendored libraries are linked statically; nothing but Node-API's entry points leaves
+          # the addon, so no symbol can clash with another copy of the same library elsewhere in the process.
+          'ldflags': ['-Wl,--exclude-libs,ALL', '-Wl,--version-script=<(module_root_dir)/native/exports.map'],
+        }],
       ],
-      "cflags_cc": [
-        "-std=c++14"
-      ],
-      "defines": [
-        "NAPI_CPP_EXCEPTIONS"
-      ],
-      "libraries": [
-        "-ljpeg",
-        "-lpng",
-        "-lfreetype"
-      ]
     },
-    {
-      "target_name": "libpoppler",
-      "type": "static_library",
-      "cflags_cc": [],
-      "include_dirs": [
-        "native/poppler",
-        "native/poppler/goo",
-        "native/poppler/poppler"
-      ],
-      "cflags_cc!": [
-        "-fno-rtti"
-      ],
-      "sources": [
-        "native/poppler/fofi/FoFiBase.cc",
-        "native/poppler/fofi/FoFiEncodings.cc",
-        "native/poppler/fofi/FoFiIdentifier.cc",
-        "native/poppler/fofi/FoFiTrueType.cc",
-        "native/poppler/fofi/FoFiType1.cc",
-        "native/poppler/fofi/FoFiType1C.cc",
-        "native/poppler/goo/gbase64.cc",
-        "native/poppler/goo/gbasename.cc",
-        "native/poppler/goo/gfile.cc",
-        "native/poppler/goo/glibc_strtok_r.cc",
-        "native/poppler/goo/glibc.cc",
-        "native/poppler/goo/GooString.cc",
-        "native/poppler/goo/GooTimer.cc",
-        "native/poppler/goo/grandom.cc",
-        "native/poppler/goo/gstrtod.cc",
-        "native/poppler/goo/ImgWriter.cc",
-        "native/poppler/goo/JpegWriter.cc",
-        "native/poppler/goo/NetPBMWriter.cc",
-        "native/poppler/goo/PNGWriter.cc",
-        "native/poppler/goo/TiffWriter.cc",
-        "native/poppler/poppler/Annot.cc",
-        "native/poppler/poppler/Array.cc",
-        "native/poppler/poppler/BBoxOutputDev.cc",
-        "native/poppler/poppler/CachedFile.cc",
-        "native/poppler/poppler/Catalog.cc",
-        "native/poppler/poppler/CertificateInfo.cc",
-        "native/poppler/poppler/CharCodeToUnicode.cc",
-        "native/poppler/poppler/CMap.cc",
-        "native/poppler/poppler/CurlCachedFile.cc",
-        "native/poppler/poppler/CurlPDFDocBuilder.cc",
-        "native/poppler/poppler/DateInfo.cc",
-        "native/poppler/poppler/DCTStream.cc",
-        "native/poppler/poppler/Decrypt.cc",
-        "native/poppler/poppler/Dict.cc",
-        "native/poppler/poppler/Error.cc",
-        "native/poppler/poppler/FileSpec.cc",
-        "native/poppler/poppler/FlateEncoder.cc",
-        "native/poppler/poppler/FlateStream.cc",
-        "native/poppler/poppler/FontEncodingTables.cc",
-        "native/poppler/poppler/FontInfo.cc",
-        "native/poppler/poppler/Form.cc",
-        "native/poppler/poppler/Function.cc",
-        "native/poppler/poppler/Gfx.cc",
-        "native/poppler/poppler/GfxFont.cc",
-        "native/poppler/poppler/GfxState.cc",
-        "native/poppler/poppler/GlobalParams.cc",
-        "native/poppler/poppler/Hints.cc",
-        "native/poppler/poppler/JArithmeticDecoder.cc",
-        "native/poppler/poppler/JBIG2Stream.cc",
-        "native/poppler/poppler/JPXStream.cc",
-        "native/poppler/poppler/JSInfo.cc",
-        "native/poppler/poppler/Lexer.cc",
-        "native/poppler/poppler/Linearization.cc",
-        "native/poppler/poppler/Link.cc",
-        "native/poppler/poppler/LocalPDFDocBuilder.cc",
-        "native/poppler/poppler/MarkedContentOutputDev.cc",
-        "native/poppler/poppler/Movie.cc",
-        "native/poppler/poppler/NameToCharCode.cc",
-        "native/poppler/poppler/Object.cc",
-        "native/poppler/poppler/OptionalContent.cc",
-        "native/poppler/poppler/Outline.cc",
-        "native/poppler/poppler/OutputDev.cc",
-        "native/poppler/poppler/Page.cc",
-        "native/poppler/poppler/PageLabelInfo.cc",
-        "native/poppler/poppler/PageTransition.cc",
-        "native/poppler/poppler/Parser.cc",
-        "native/poppler/poppler/PDFDoc.cc",
-        "native/poppler/poppler/PDFDocBuilder.cc",
-        "native/poppler/poppler/PDFDocEncoding.cc",
-        "native/poppler/poppler/PDFDocFactory.cc",
-        "native/poppler/poppler/PreScanOutputDev.cc",
-        "native/poppler/poppler/ProfileData.cc",
-        "native/poppler/poppler/PSOutputDev.cc",
-        "native/poppler/poppler/PSTokenizer.cc",
-        "native/poppler/poppler/Rendition.cc",
-        "native/poppler/poppler/SecurityHandler.cc",
-        "native/poppler/poppler/SignatureInfo.cc",
-        "native/poppler/poppler/Sound.cc",
-        "native/poppler/poppler/StdinCachedFile.cc",
-        "native/poppler/poppler/StdinPDFDocBuilder.cc",
-        "native/poppler/poppler/Stream.cc",
-        "native/poppler/poppler/StructElement.cc",
-        "native/poppler/poppler/StructTreeRoot.cc",
-        "native/poppler/poppler/TextOutputDev.cc",
-        "native/poppler/poppler/UnicodeMap.cc",
-        "native/poppler/poppler/UnicodeMapFuncs.cc",
-        "native/poppler/poppler/UnicodeTypeTable.cc",
-        "native/poppler/poppler/UTF.cc",
-        "native/poppler/poppler/ViewerPreferences.cc",
-        "native/poppler/poppler/XRef.cc",
-        "native/poppler/poppler/CourierBoldObliqueWidths.pregenerated.c",
-        "native/poppler/poppler/CourierBoldWidths.pregenerated.c",
-        "native/poppler/poppler/CourierObliqueWidths.pregenerated.c",
-        "native/poppler/poppler/CourierWidths.pregenerated.c",
-        "native/poppler/poppler/HelveticaBoldObliqueWidths.pregenerated.c",
-        "native/poppler/poppler/HelveticaBoldWidths.pregenerated.c",
-        "native/poppler/poppler/HelveticaObliqueWidths.pregenerated.c",
-        "native/poppler/poppler/HelveticaWidths.pregenerated.c",
-        "native/poppler/poppler/SymbolWidths.pregenerated.c",
-        "native/poppler/poppler/TimesBoldItalicWidths.pregenerated.c",
-        "native/poppler/poppler/TimesBoldWidths.pregenerated.c",
-        "native/poppler/poppler/TimesItalicWidths.pregenerated.c",
-        "native/poppler/poppler/TimesRomanWidths.pregenerated.c",
-        "native/poppler/poppler/ZapfDingbatsWidths.pregenerated.c"
-      ]
-    }
-  ]
+  ],
 }

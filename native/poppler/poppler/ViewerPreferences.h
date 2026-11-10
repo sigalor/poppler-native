@@ -6,11 +6,14 @@
 //
 // Copyright 2011 Pino Toscano <pino@kde.org>
 // Copyright 2019 Marek Kasik <mkasik@redhat.com>
+// Copyright 2021, 2022, 2024, 2025 Albert Astals Cid <aacid@kde.org>
 //
 //========================================================================
 
 #ifndef VIEWERPREFERENCES_H
 #define VIEWERPREFERENCES_H
+
+#include "poppler_private_export.h"
 
 #include <vector>
 
@@ -20,7 +23,7 @@ class Dict;
 // ViewerPreferences
 //------------------------------------------------------------------------
 
-class ViewerPreferences
+class POPPLER_PRIVATE_EXPORT ViewerPreferences
 {
 public:
     enum NonFullScreenPageMode
@@ -48,7 +51,7 @@ public:
         duplexDuplexFlipLongEdge
     };
 
-    ViewerPreferences(Dict *prefDict);
+    explicit ViewerPreferences(const Dict &prefDict);
     ~ViewerPreferences();
 
     bool getHideToolbar() const { return hideToolbar; }
@@ -74,12 +77,12 @@ private:
     bool fitWindow;
     bool centerWindow;
     bool displayDocTitle;
-    NonFullScreenPageMode nonFullScreenPageMode;
-    Direction direction;
-    PrintScaling printScaling;
-    Duplex duplex;
+    NonFullScreenPageMode nonFullScreenPageMode = nfpmUseNone;
+    Direction direction = directionL2R;
+    PrintScaling printScaling = printScalingAppDefault;
+    Duplex duplex = duplexNone;
     bool pickTrayByPDFSize;
-    int numCopies;
+    int numCopies = 1;
     std::vector<std::pair<int, int>> printPageRange;
 };
 

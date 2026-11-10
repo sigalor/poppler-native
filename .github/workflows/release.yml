@@ -1,0 +1,55 @@
+name: Release
+
+# Pushing a tag v<version> builds and tests everything CI does, then publishes exactly the tarball CI tested to npm,
+# with provenance, and creates a GitHub release with the changelog entry.
+#
+# It authenticates with npm's trusted publishing (no token), configured on npmjs.com in the package's settings under
+# "Trusted publisher": GitHub Actions, sigalor / poppler-native, workflow release.yml, no environment, with "Allow npm
+# publish" ticked. (To have each release wait for a maintainer's approval with 2FA instead, untick it and change
+# `npm publish` below to `npm stage publish`; approve with `npm stage approve <id>` or on npmjs.com.)
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # npm trusted publishing
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: package
+      - name: Check the tag, package.json and changelog agree
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test "$(node -p "require('./package.json').version")" = "$version"
+          test -f "poppler-native-$version.tgz"
+          # this version's heading, e.g. "# 3.0.0 (2026-11-10)", found without taking the version for a pattern
+          heading=$(awk -v v="$version" 'index($0, "# " v " ") == 1 {print; exit}' CHANGELOG.md)
+          if ! printf '%s\n' "$heading" | grep -Eq '^# [^ ]+ \([0-9]{4}-[0-9]{2}-[0-9]{2}\)$'; then
+            echo "CHANGELOG.md needs the heading \"# $version (YYYY-MM-DD)\" with the release date; it has: ${heading:-nothing}" >&2
+            exit 1
+          fi
+          awk -v v="$version" 'index($0, "# " v " ") == 1 {found=1; next} /^# / && found {exit} found' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no entry for $version" >&2; exit 1; }
+      - name: Publish to npm
+        run: npm publish "./poppler-native-${GITHUB_REF_NAME#v}.tgz" --access public --provenance
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "poppler-native-${GITHUB_REF_NAME#v}.tgz" --title "$GITHUB_REF_NAME" --notes-file notes.md

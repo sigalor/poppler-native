@@ -15,7 +15,7 @@
 //
 // Copyright (C) 2005 Kristian Høgsberg <krh@redhat.com>
 // Copyright (C) 2005 Jeff Muizelaar <jeff@infidigm.net>
-// Copyright (C) 2005-2013, 2016-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2005-2013, 2016-2026 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2006-2008 Pino Toscano <pino@kde.org>
 // Copyright (C) 2006 Nickolay V. Shmyrev <nshmyrev@yandex.ru>
 // Copyright (C) 2006 Scott Turner <scotty1024@mac.com>
@@ -27,12 +27,18 @@
 // Copyright (C) 2012, 2013 Fabio D'Urso <fabiodurso@hotmail.it>
 // Copyright (C) 2013, 2014 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2013 Jason Crain <jason@aquaticape.us>
-// Copyright (C) 2013, 2017 Adrian Johnson <ajohnson@redneon.com>
+// Copyright (C) 2013, 2017, 2023 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2015 Philipp Reinkemeier <philipp.reinkemeier@offis.de>
 // Copyright (C) 2018, 2019 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2020 Oliver Sander <oliver.sander@tu-dresden.de>
-// Copyright (C) 2020, 2021 Nelson Benítez León <nbenitezl@gmail.com>
+// Copyright (C) 2020, 2021, 2025, 2026 Nelson Benítez León <nbenitezl@gmail.com>
 // Copyright (C) 2020 Philipp Knechtges <philipp-dev@knechtges.com>
+// Copyright (C) 2024 Pablo Correa Gómez <ablocorrea@hotmail.com>
+// Copyright (C) 2024-2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Stefan Brüns <stefan.bruens@rwth-aachen.de>
+// Copyright (C) 2025 Arnav V <arnav0872@gmail.com>
+// Copyright (C) 2026 Adam Sampson <ats@offog.org>
+// Copyright (C) 2026 Lucas Baudin <lbaudin@gnome.org>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -41,7 +47,6 @@
 
 #include <config.h>
 
-#include <cstddef>
 #include <climits>
 #include "GlobalParams.h"
 #include "Object.h"
@@ -59,41 +64,54 @@
 #include "Error.h"
 #include "Page.h"
 #include "Catalog.h"
-#include "Form.h"
+#include "goo/gmem.h"
 
 //------------------------------------------------------------------------
 // PDFRectangle
 //------------------------------------------------------------------------
 
-void PDFRectangle::clipTo(PDFRectangle *rect)
-{
-    if (x1 < rect->x1) {
-        x1 = rect->x1;
-    } else if (x1 > rect->x2) {
-        x1 = rect->x2;
-    }
-    if (x2 < rect->x1) {
-        x2 = rect->x1;
-    } else if (x2 > rect->x2) {
-        x2 = rect->x2;
-    }
-    if (y1 < rect->y1) {
-        y1 = rect->y1;
-    } else if (y1 > rect->y2) {
-        y1 = rect->y2;
-    }
-    if (y2 < rect->y1) {
-        y2 = rect->y1;
-    } else if (y2 > rect->y2) {
-        y2 = rect->y2;
-    }
-}
+namespace {
+namespace testing {
+static_assert(PDFRectangle {} == PDFRectangle {});
+static_assert(PDFRectangle { 0, 0, 1, 1 } == PDFRectangle { 0, 0, 1, 1 });
+static_assert(PDFRectangle { 0, 0, 1, 1 }.isValid());
+static_assert(!PDFRectangle { 0, 0, 0, 0 }.isValid());
+static_assert(PDFRectangle { 0, 0, 2, 2 }.contains(1, 1));
+static_assert(!PDFRectangle { 0, 0, 1, 2 }.contains(2, 1));
+
+constexpr PDFRectangle r1 { 0, 0, 5, 5 };
+constexpr PDFRectangle r2 { 2, 2, 4, 4 };
+constexpr PDFRectangle r3 { 0, 3, 3, 3 };
+constexpr PDFRectangle r4 { 2, 3, 3, 3 };
+static_assert(r1.isValid());
+static_assert([] {
+    auto r = r1;
+    r.clipTo(r1);
+    return r == r1;
+}());
+static_assert([] {
+    auto r = r1;
+    r.clipTo(r2);
+    return r == r2;
+}());
+static_assert([] {
+    auto r = r2;
+    r.clipTo(r1);
+    return r == r2;
+}());
+static_assert([] {
+    auto r = r2;
+    r.clipTo(r3);
+    return r == r4;
+}());
+} // namespace testing
+} // namespace
 
 //------------------------------------------------------------------------
 // PageAttrs
 //------------------------------------------------------------------------
 
-PageAttrs::PageAttrs(PageAttrs *attrs, Dict *dict)
+PageAttrs::PageAttrs(const PageAttrs *attrs, Dict *dict)
 {
     Object obj1;
     PDFRectangle mBox;
@@ -179,14 +197,14 @@ PageAttrs::PageAttrs(PageAttrs *attrs, Dict *dict)
     }
 }
 
-PageAttrs::~PageAttrs() { }
+PageAttrs::~PageAttrs() = default;
 
 void PageAttrs::clipBoxes()
 {
-    cropBox.clipTo(&mediaBox);
-    bleedBox.clipTo(&mediaBox);
-    trimBox.clipTo(&mediaBox);
-    artBox.clipTo(&mediaBox);
+    cropBox.clipTo(mediaBox);
+    bleedBox.clipTo(mediaBox);
+    trimBox.clipTo(mediaBox);
+    artBox.clipTo(mediaBox);
 }
 
 bool PageAttrs::readBox(Dict *dict, const char *key, PDFRectangle *box)
@@ -197,7 +215,7 @@ bool PageAttrs::readBox(Dict *dict, const char *key, PDFRectangle *box)
     bool ok;
 
     obj1 = dict->lookup(key);
-    if (obj1.isArray() && obj1.arrayGetLength() == 4) {
+    if (obj1.isArrayOfLength(4)) {
         ok = true;
         obj2 = obj1.arrayGet(0);
         if (obj2.isNum()) {
@@ -223,8 +241,9 @@ bool PageAttrs::readBox(Dict *dict, const char *key, PDFRectangle *box)
         } else {
             ok = false;
         }
-        if (tmp.x1 == 0 && tmp.x2 == 0 && tmp.y1 == 0 && tmp.y2 == 0)
+        if (tmp.x1 == 0 && tmp.x2 == 0 && tmp.y1 == 0 && tmp.y2 == 0) {
             ok = false;
+        }
         if (ok) {
             if (tmp.x1 > tmp.x2) {
                 t = tmp.x1;
@@ -248,9 +267,9 @@ bool PageAttrs::readBox(Dict *dict, const char *key, PDFRectangle *box)
 // Page
 //------------------------------------------------------------------------
 
-#define pageLocker() std::unique_lock<std::recursive_mutex> locker(mutex)
+#define pageLocker() const std::scoped_lock locker(mutex)
 
-Page::Page(PDFDoc *docA, int numA, Object &&pageDict, Ref pageRefA, PageAttrs *attrsA, Form *form)
+Page::Page(PDFDoc *docA, int numA, Object &&pageDict, Ref pageRefA, std::unique_ptr<PageAttrs> attrsA) : pageRef(pageRefA), attrs(std::move(attrsA))
 {
     ok = true;
     doc = docA;
@@ -258,12 +277,11 @@ Page::Page(PDFDoc *docA, int numA, Object &&pageDict, Ref pageRefA, PageAttrs *a
     num = numA;
     duration = -1;
     annots = nullptr;
+    structParents = -1;
 
     pageObj = std::move(pageDict);
-    pageRef = pageRefA;
 
     // get attributes
-    attrs = attrsA;
     attrs->clipBoxes();
 
     // transtion
@@ -281,11 +299,37 @@ Page::Page(PDFDoc *docA, int numA, Object &&pageDict, Ref pageRefA, PageAttrs *a
         duration = tmp.getNum();
     }
 
+    // structParents
+    const Object &tmp2 = pageObj.dictLookup("StructParents");
+    if (!(tmp2.isInt() || tmp2.isNull())) {
+        error(errSyntaxError, -1, "Page StructParents object (page {0:d}) is wrong type ({1:s})", num, tmp2.getTypeName());
+    } else if (tmp2.isInt()) {
+        structParents = tmp2.getInt();
+    }
+
     // annotations
     annotsObj = pageObj.dictLookupNF("Annots").copy();
     if (!(annotsObj.isRef() || annotsObj.isArray() || annotsObj.isNull())) {
         error(errSyntaxError, -1, "Page annotations object (page {0:d}) is wrong type ({1:s})", num, annotsObj.getTypeName());
+        annotsObj.setToNull();
+    }
+
+    if (annotsObj.isArrayOfLengthAtLeast(10000)) {
+        error(errSyntaxError, -1, "Page annotations object (page {0:d}) is likely malformed. Too big: ({1:d})", num, annotsObj.arrayGetLength());
         goto err2;
+    }
+    if (annotsObj.isRef()) {
+        auto resolvedObj = getAnnotsObject();
+        if (resolvedObj.isArrayOfLengthAtLeast(10000)) {
+            error(errSyntaxError, -1, "Page annotations object (page {0:d}) is likely malformed. Too big: ({1:d})", num, resolvedObj.arrayGetLength());
+            goto err2;
+        }
+        if (!resolvedObj.isArray()) {
+            if (!resolvedObj.isNull()) {
+                error(errSyntaxError, -1, "Page annotations object (page {0:d}) is wrong type ({1:s})", num, resolvedObj.getTypeName());
+            }
+            annotsObj.setToNull();
+        }
     }
 
     // contents
@@ -318,14 +362,7 @@ err1:
     ok = false;
 }
 
-Page::~Page()
-{
-    delete attrs;
-    delete annots;
-    for (auto frmField : standaloneFields) {
-        delete frmField;
-    }
-}
+Page::~Page() = default;
 
 Dict *Page::getResourceDict()
 {
@@ -337,7 +374,7 @@ Object *Page::getResourceDictObject()
     return attrs->getResourceDictObject();
 }
 
-Dict *Page::getResourceDictCopy(XRef *xrefA)
+std::unique_ptr<Dict> Page::getResourceDictCopy(XRef *xrefA)
 {
     pageLocker();
     Dict *dict = attrs->getResourceDict();
@@ -346,7 +383,7 @@ Dict *Page::getResourceDictCopy(XRef *xrefA)
 
 void Page::replaceXRef(XRef *xrefA)
 {
-    Dict *pageDict = pageObj.getDict()->copy(xrefA);
+    std::unique_ptr<Dict> pageDict = pageObj.getDict()->copy(xrefA);
     xref = xrefA;
     trans = pageDict->lookupNF("Trans").copy();
     annotsObj = pageDict->lookupNF("Annots").copy();
@@ -360,64 +397,67 @@ void Page::replaceXRef(XRef *xrefA)
     if (resources.isDict()) {
         attrs->replaceResource(std::move(resources));
     }
-    delete pageDict;
 }
 
 /* Loads standalone fields into Page, should be called once per page only */
-void Page::loadStandaloneFields(Annots *annotations, Form *form)
+void Page::loadStandaloneFields(Form *form)
 {
-    const int numAnnots = annotations ? annotations->getNumAnnots() : 0;
-
-    if (numAnnots < 1)
-        return;
-
     /* Look for standalone annots, identified by being: 1) of type Widget
      * 2) not referenced from the Catalog's Form Field array */
-    for (int i = 0; i < numAnnots; ++i) {
-        Annot *annot = annotations->getAnnot(i);
+    for (const std::shared_ptr<Annot> &annot : annots->getAnnots()) {
 
-        if (annot->getType() != Annot::typeWidget || !annot->getHasRef())
+        if (annot->getType() != Annot::typeWidget || !annot->getHasRef()) {
             continue;
+        }
 
         const Ref r = annot->getRef();
-        if (form && form->findWidgetByRef(r))
+        if (form && form->findWidgetByRef(r)) {
             continue; // this annot is referenced inside Form, skip it
+        }
 
         std::set<int> parents;
-        FormField *field = Form::createFieldFromDict(annot->getAnnotObj().copy(), annot->getDoc(), r, nullptr, &parents);
+        std::unique_ptr<FormField> field = Form::createFieldFromDict(annot->getAnnotObj().copy(), annot->getDoc(), r, nullptr, &parents);
 
         if (field && field->getNumWidgets() == 1) {
 
-            static_cast<AnnotWidget *>(annot)->setField(field);
+            auto aw = std::static_pointer_cast<AnnotWidget>(annot);
+            aw->setField(field.get());
 
             field->setStandAlone(true);
             FormWidget *formWidget = field->getWidget(0);
 
-            if (!formWidget->getWidgetAnnotation())
-                formWidget->createWidgetAnnotation();
+            if (!formWidget->getWidgetAnnotation()) {
+                formWidget->setWidgetAnnotation(aw);
+            }
 
-            standaloneFields.push_back(field);
-
-        } else if (field) {
-            delete field;
+            standaloneFields.push_back(std::move(field));
         }
     }
 }
 
-Annots *Page::getAnnots(XRef *xrefA)
+void Page::initializeAnnots()
 {
-    if (!annots) {
-        Object obj = getAnnotsObject(xrefA);
-        annots = new Annots(doc, num, &obj);
-        // Load standalone fields once for the page
-        loadStandaloneFields(annots, doc->getCatalog()->getForm());
-    }
-
-    return annots;
+    Object obj = getAnnotsObject();
+    annots = std::make_unique<Annots>(doc, num, &obj);
+    // Load standalone fields once for the page
+    loadStandaloneFields(doc->getCatalog()->getForm());
 }
 
-void Page::addAnnot(Annot *annot)
+Annots *Page::getAnnots()
 {
+    std::call_once(annotsInitializationFlag, std::mem_fn(&Page::initializeAnnots), this);
+
+    return annots.get();
+}
+
+bool Page::addAnnot(const std::shared_ptr<Annot> &annot)
+{
+    if (unlikely(xref->getEntry(pageRef.num)->type == xrefEntryFree)) {
+        // something very wrong happened if we're here
+        error(errInternal, -1, "Can not addAnnot to page with an invalid ref");
+        return false;
+    }
+
     const Ref annotRef = annot->getRef();
 
     // Make sure we have annots before adding the new one
@@ -431,51 +471,56 @@ void Page::addAnnot(Annot *annot)
         // page doesn't have annots array,
         // we have to create it
 
-        Object obj1 = Object(new Array(xref));
-        obj1.arrayAdd(Object(annotRef));
+        auto annotsArray = std::make_unique<Array>(xref);
+        annotsArray->add(Object(annotRef));
 
-        annotsRef = xref->addIndirectObject(&obj1);
+        annotsRef = xref->addIndirectObject(Object(std::move(annotsArray)));
         annotsObj = Object(annotsRef);
         pageObj.dictSet("Annots", Object(annotsRef));
         xref->setModifiedObject(&pageObj, pageRef);
     } else {
         Object obj1 = getAnnotsObject();
         if (obj1.isArray()) {
-            obj1.arrayAdd(Object(annotRef));
-            if (annotsObj.isRef())
+            obj1.getArray()->add(Object(annotRef));
+            if (annotsObj.isRef()) {
                 xref->setModifiedObject(&obj1, annotsObj.getRef());
-            else
+            } else {
                 xref->setModifiedObject(&pageObj, pageRef);
+            }
         }
     }
 
     // Popup annots are already handled by markup annots,
     // so add to the list only Popup annots without a
     // markup annotation associated.
-    if (annot->getType() != Annot::typePopup || !static_cast<AnnotPopup *>(annot)->hasParent()) {
+    if (annot->getType() != Annot::typePopup || !static_cast<AnnotPopup *>(annot.get())->hasParent()) {
         annots->appendAnnot(annot);
     }
     annot->setPage(num, true);
 
-    AnnotMarkup *annotMarkup = dynamic_cast<AnnotMarkup *>(annot);
+    auto *annotMarkup = dynamic_cast<AnnotMarkup *>(annot.get());
     if (annotMarkup) {
-        AnnotPopup *annotPopup = annotMarkup->getPopup();
-        if (annotPopup)
+        std::shared_ptr<AnnotPopup> annotPopup = annotMarkup->getPopup();
+        if (annotPopup) {
             addAnnot(annotPopup);
+        }
     }
+
+    return true;
 }
 
-void Page::removeAnnot(Annot *annot)
+void Page::removeAnnot(const std::shared_ptr<Annot> &annot)
 {
     Ref annotRef = annot->getRef();
 
     pageLocker();
-    Object annArray = getAnnotsObject();
-    if (annArray.isArray()) {
+    Object annArrayObj = getAnnotsObject();
+    if (annArrayObj.isArray()) {
+        Array *annArray = annArrayObj.getArray();
         int idx = -1;
         // Get annotation position
-        for (int i = 0; idx == -1 && i < annArray.arrayGetLength(); ++i) {
-            const Object &tmp = annArray.arrayGetNF(i);
+        for (int i = 0; idx == -1 && i < annArray->getLength(); ++i) {
+            const Object &tmp = annArray->getNF(i);
             if (tmp.isRef()) {
                 const Ref currAnnot = tmp.getRef();
                 if (currAnnot == annotRef) {
@@ -489,22 +534,24 @@ void Page::removeAnnot(Annot *annot)
             return;
         }
         annots->removeAnnot(annot); // Gracefully fails on popup windows
-        annArray.arrayRemove(idx);
-        xref->removeIndirectObject(annotRef);
+        annArray->remove(idx);
 
         if (annotsObj.isRef()) {
-            xref->setModifiedObject(&annArray, annotsObj.getRef());
+            xref->setModifiedObject(&annArrayObj, annotsObj.getRef());
         } else {
             xref->setModifiedObject(&pageObj, pageRef);
         }
     }
     annot->removeReferencedObjects(); // Note: Might recurse in removeAnnot again
+    if (annArrayObj.isArray()) {
+        xref->removeIndirectObject(annotRef);
+    }
     annot->setPage(0, false);
 }
 
-Links *Page::getLinks()
+std::unique_ptr<Links> Page::getLinks()
 {
-    return new Links(getAnnots());
+    return std::make_unique<Links>(getAnnots());
 }
 
 std::unique_ptr<FormPageWidgets> Page::getFormWidgets()
@@ -521,11 +568,11 @@ void Page::display(OutputDev *out, double hDPI, double vDPI, int rotate, bool us
     displaySlice(out, hDPI, vDPI, rotate, useMediaBox, crop, -1, -1, -1, -1, printing, abortCheckCbk, abortCheckCbkData, annotDisplayDecideCbk, annotDisplayDecideCbkData, copyXRef);
 }
 
-Gfx *Page::createGfx(OutputDev *out, double hDPI, double vDPI, int rotate, bool useMediaBox, bool crop, int sliceX, int sliceY, int sliceW, int sliceH, bool printing, bool (*abortCheckCbk)(void *data), void *abortCheckCbkData, XRef *xrefA)
+std::unique_ptr<Gfx> Page::createGfx(OutputDev *out, double hDPI, double vDPI, int rotate, bool useMediaBox, bool crop, int sliceX, int sliceY, int sliceW, int sliceH, bool (*abortCheckCbk)(void *data), void *abortCheckCbkData, XRef *xrefA)
 {
-    const PDFRectangle *mediaBox, *cropBox;
+    const PDFRectangle &mediaBox = getMediaBox();
+    const PDFRectangle &cropBox = getCropBox();
     PDFRectangle box;
-    Gfx *gfx;
 
     rotate += getRotate();
     if (rotate >= 360) {
@@ -535,40 +582,35 @@ Gfx *Page::createGfx(OutputDev *out, double hDPI, double vDPI, int rotate, bool 
     }
 
     makeBox(hDPI, vDPI, rotate, useMediaBox, out->upsideDown(), sliceX, sliceY, sliceW, sliceH, &box, &crop);
-    cropBox = getCropBox();
-    mediaBox = getMediaBox();
-
     if (globalParams->getPrintCommands()) {
-        printf("***** MediaBox = ll:%g,%g ur:%g,%g\n", mediaBox->x1, mediaBox->y1, mediaBox->x2, mediaBox->y2);
-        printf("***** CropBox = ll:%g,%g ur:%g,%g\n", cropBox->x1, cropBox->y1, cropBox->x2, cropBox->y2);
+        printf("***** MediaBox = ll:%g,%g ur:%g,%g\n", mediaBox.x1, mediaBox.y1, mediaBox.x2, mediaBox.y2);
+        printf("***** CropBox = ll:%g,%g ur:%g,%g\n", cropBox.x1, cropBox.y1, cropBox.x2, cropBox.y2);
         printf("***** Rotate = %d\n", attrs->getRotate());
     }
 
     if (!crop) {
-        crop = (box == *cropBox) && out->needClipToCropBox();
+        crop = (box == cropBox) && out->needClipToCropBox();
     }
-    gfx = new Gfx(doc, out, num, attrs->getResourceDict(), hDPI, vDPI, &box, crop ? cropBox : nullptr, rotate, abortCheckCbk, abortCheckCbkData, xrefA);
-
-    return gfx;
+    return std::make_unique<Gfx>(doc, out, num, attrs->getResourceDict(), hDPI, vDPI, box, crop ? &cropBox : nullptr, rotate, abortCheckCbk, abortCheckCbkData, xrefA);
 }
 
 void Page::displaySlice(OutputDev *out, double hDPI, double vDPI, int rotate, bool useMediaBox, bool crop, int sliceX, int sliceY, int sliceW, int sliceH, bool printing, bool (*abortCheckCbk)(void *data), void *abortCheckCbkData,
                         bool (*annotDisplayDecideCbk)(Annot *annot, void *user_data), void *annotDisplayDecideCbkData, bool copyXRef)
 {
-    Gfx *gfx;
     Annots *annotList;
-    int i;
 
     if (!out->checkPageSlice(this, hDPI, vDPI, rotate, useMediaBox, crop, sliceX, sliceY, sliceW, sliceH, printing, abortCheckCbk, abortCheckCbkData, annotDisplayDecideCbk, annotDisplayDecideCbkData)) {
         return;
     }
     pageLocker();
-    XRef *localXRef = (copyXRef) ? xref->copy() : xref;
+    std::unique_ptr<XRef> copiedXRefIfNeeded;
     if (copyXRef) {
-        replaceXRef(localXRef);
+        copiedXRefIfNeeded = xref->copy();
+        replaceXRef(copiedXRefIfNeeded.get());
     }
+    XRef *localXRef = copyXRef ? copiedXRefIfNeeded.get() : xref;
 
-    gfx = createGfx(out, hDPI, vDPI, rotate, useMediaBox, crop, sliceX, sliceY, sliceW, sliceH, printing, abortCheckCbk, abortCheckCbkData, localXRef);
+    std::unique_ptr<Gfx> gfx = createGfx(out, hDPI, vDPI, rotate, useMediaBox, crop, sliceX, sliceY, sliceW, sliceH, abortCheckCbk, abortCheckCbkData, localXRef);
 
     Object obj = contents.fetch(localXRef);
     if (!obj.isNull()) {
@@ -584,23 +626,20 @@ void Page::displaySlice(OutputDev *out, double hDPI, double vDPI, int rotate, bo
     // draw annotations
     annotList = getAnnots();
 
-    if (annotList->getNumAnnots() > 0) {
+    if (!annotList->getAnnots().empty()) {
         if (globalParams->getPrintCommands()) {
             printf("***** Annotations\n");
         }
-        for (i = 0; i < annotList->getNumAnnots(); ++i) {
-            Annot *annot = annotList->getAnnot(i);
-            if ((annotDisplayDecideCbk && (*annotDisplayDecideCbk)(annot, annotDisplayDecideCbkData)) || !annotDisplayDecideCbk) {
-                annotList->getAnnot(i)->draw(gfx, printing);
+        for (const std::shared_ptr<Annot> &annot : annots->getAnnots()) {
+            if ((annotDisplayDecideCbk && (*annotDisplayDecideCbk)(annot.get(), annotDisplayDecideCbkData)) || !annotDisplayDecideCbk) {
+                annot->draw(gfx.get(), printing);
             }
         }
         out->dump();
     }
 
-    delete gfx;
     if (copyXRef) {
         replaceXRef(doc->getXRef());
-        delete localXRef;
     }
 }
 
@@ -620,9 +659,7 @@ bool Page::loadThumb(unsigned char **data_out, int *width_out, int *height_out, 
     int width, height, bits;
     Object obj1;
     Dict *dict;
-    GfxColorSpace *colorSpace;
     Stream *str;
-    GfxImageColorMap *colorMap;
 
     /* Get stream dict */
     pageLocker();
@@ -631,21 +668,26 @@ bool Page::loadThumb(unsigned char **data_out, int *width_out, int *height_out, 
         return false;
     }
 
-    dict = fetched_thumb.streamGetDict();
     str = fetched_thumb.getStream();
+    dict = str->getDict();
 
-    if (!dict->lookupInt("Width", "W", &width))
+    if (!dict->lookupInt("Width", "W", &width)) {
         return false;
-    if (!dict->lookupInt("Height", "H", &height))
+    }
+    if (!dict->lookupInt("Height", "H", &height)) {
         return false;
-    if (!dict->lookupInt("BitsPerComponent", "BPC", &bits))
+    }
+    if (!dict->lookupInt("BitsPerComponent", "BPC", &bits)) {
         return false;
+    }
 
     /* Check for invalid dimensions and integer overflow. */
-    if (width <= 0 || height <= 0)
+    if (width <= 0 || height <= 0) {
         return false;
-    if (width > INT_MAX / 3 / height)
+    }
+    if (width > INT_MAX / 3 / height) {
         return false;
+    }
     pixbufdatasize = width * height * 3;
 
     /* Get color space */
@@ -656,8 +698,8 @@ bool Page::loadThumb(unsigned char **data_out, int *width_out, int *height_out, 
     // Just initialize some dummy GfxState for GfxColorSpace::parse.
     // This will set a sRGB profile for ICC-based colorspaces.
     auto pdfrectangle = std::make_shared<PDFRectangle>();
-    auto state = std::make_shared<GfxState>(72.0, 72.0, pdfrectangle.get(), 0, false);
-    colorSpace = GfxColorSpace::parse(nullptr, &obj1, nullptr, state.get());
+    auto state = std::make_shared<GfxState>(72.0, 72.0, *pdfrectangle, 0, false);
+    std::unique_ptr<GfxColorSpace> colorSpace = GfxColorSpace::parse(nullptr, &obj1, nullptr, state.get());
     if (!colorSpace) {
         fprintf(stderr, "Error: Cannot parse color space\n");
         return false;
@@ -667,25 +709,26 @@ bool Page::loadThumb(unsigned char **data_out, int *width_out, int *height_out, 
     if (obj1.isNull()) {
         obj1 = dict->lookup("D");
     }
-    colorMap = new GfxImageColorMap(bits, &obj1, colorSpace);
-    if (!colorMap->isOk()) {
+    GfxImageColorMap colorMap(bits, &obj1, std::move(colorSpace));
+    if (!colorMap.isOk()) {
         fprintf(stderr, "Error: invalid colormap\n");
-        delete colorMap;
         return false;
     }
 
     if (data_out) {
-        unsigned char *pixbufdata = (unsigned char *)gmalloc(pixbufdatasize);
+        ImageStream imgstr { str, width, colorMap.getNumPixelComps(), colorMap.getBits() };
+        if (!imgstr.rewind()) {
+            return false;
+        }
+        auto *pixbufdata = static_cast<unsigned char *>(gmalloc(pixbufdatasize));
         unsigned char *p = pixbufdata;
-        ImageStream *imgstr = new ImageStream(str, width, colorMap->getNumPixelComps(), colorMap->getBits());
-        imgstr->reset();
         for (int row = 0; row < height; ++row) {
             for (int col = 0; col < width; ++col) {
                 unsigned char pix[gfxColorMaxComps];
                 GfxRGB rgb;
 
-                imgstr->getPixel(pix);
-                colorMap->getRGB(pix, &rgb);
+                imgstr.getPixel(pix);
+                colorMap.getRGB(pix, &rgb);
 
                 *p++ = colToByte(rgb.r);
                 *p++ = colToByte(rgb.g);
@@ -693,31 +736,29 @@ bool Page::loadThumb(unsigned char **data_out, int *width_out, int *height_out, 
             }
         }
         *data_out = pixbufdata;
-        imgstr->close();
-        delete imgstr;
+        imgstr.close();
     }
 
-    if (width_out)
+    if (width_out) {
         *width_out = width;
-    if (height_out)
+    }
+    if (height_out) {
         *height_out = height;
-    if (rowstride_out)
+    }
+    if (rowstride_out) {
         *rowstride_out = width * 3;
-
-    delete colorMap;
-
+    }
     return true;
 }
 
-void Page::makeBox(double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown, double sliceX, double sliceY, double sliceW, double sliceH, PDFRectangle *box, bool *crop)
+void Page::makeBox(double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown, double sliceX, double sliceY, double sliceW, double sliceH, PDFRectangle *box, bool *crop) const
 {
-    const PDFRectangle *mediaBox, *cropBox, *baseBox;
+    const PDFRectangle &mediaBox = getMediaBox();
+    const PDFRectangle &cropBox = getCropBox();
+    const PDFRectangle *baseBox;
     double kx, ky;
-
-    mediaBox = getMediaBox();
-    cropBox = getCropBox();
     if (sliceW >= 0 && sliceH >= 0) {
-        baseBox = useMediaBox ? mediaBox : cropBox;
+        baseBox = useMediaBox ? &mediaBox : &cropBox;
         kx = 72.0 / hDPI;
         ky = 72.0 / vDPI;
         if (rotate == 90) {
@@ -762,26 +803,22 @@ void Page::makeBox(double hDPI, double vDPI, int rotate, bool useMediaBox, bool 
             }
         }
     } else if (useMediaBox) {
-        *box = *mediaBox;
+        *box = mediaBox;
     } else {
-        *box = *cropBox;
+        *box = cropBox;
         *crop = false;
     }
 }
 
 void Page::processLinks(OutputDev *out)
 {
-    Links *links;
-    int i;
-
-    links = getLinks();
-    for (i = 0; i < links->getNumLinks(); ++i) {
-        out->processLink(links->getLink(i));
+    std::unique_ptr<Links> links = getLinks();
+    for (const std::shared_ptr<AnnotLink> &link : links->getLinks()) {
+        out->processLink(link.get());
     }
-    delete links;
 }
 
-void Page::getDefaultCTM(double *ctm, double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown)
+void Page::getDefaultCTM(double *ctm, double hDPI, double vDPI, int rotate, bool useMediaBox, bool upsideDown) const
 {
     GfxState *state;
     int i;
@@ -805,8 +842,9 @@ std::unique_ptr<LinkAction> Page::getAdditionalAction(PageAdditionalActionsType 
         const char *key = (type == actionOpenPage ? "O" : type == actionClosePage ? "C" : nullptr);
 
         Object actionObject = additionalActionsObject.dictLookup(key);
-        if (actionObject.isDict())
+        if (actionObject.isDict()) {
             return LinkAction::parseAction(&actionObject, doc->getCatalog()->getBaseURI());
+        }
     }
 
     return nullptr;

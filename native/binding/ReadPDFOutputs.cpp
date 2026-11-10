@@ -47,7 +47,7 @@ Napi::Object Page::serialize(Napi::Env env) const {
 
 Napi::Object OutlineItem::serialize(Napi::Env env) const {
   Napi::Object ret = Napi::Object::New(env);
-  ret.Set("page", page);
+  if (page > 0) ret.Set("page", page);
   ret.Set("title", Napi::String::New(env, title));
   if (!children.empty()) ret.Set("children", serializeArray(env, children));
   return ret;

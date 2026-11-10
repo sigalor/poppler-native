@@ -1,0 +1,134 @@
+//========================================================================
+//
+// SplashClip.h
+//
+//========================================================================
+
+//========================================================================
+//
+// Modified under the Poppler project - http://poppler.freedesktop.org
+//
+// All changes made under the Poppler project to this file are licensed
+// under GPL version 2 or later
+//
+// Copyright (C) 2010, 2018, 2021, 2025, 2026 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
+// Copyright (C) 2019, 2025 Stefan Brüns <stefan.bruens@rwth-aachen.de>
+//
+// To see a description of the changes please see the Changelog file that
+// came with your tarball or type make ChangeLog if you are building from git
+//
+//========================================================================
+
+#ifndef SPLASHCLIP_H
+#define SPLASHCLIP_H
+
+#include "SplashErrorCodes.h"
+#include "SplashTypes.h"
+
+#include <memory>
+#include <vector>
+
+class SplashPath;
+class SplashXPath;
+class SplashXPathScanner;
+class SplashBitmap;
+
+//------------------------------------------------------------------------
+
+enum SplashClipResult
+{
+    splashClipAllInside,
+    splashClipAllOutside,
+    splashClipPartial
+};
+
+//------------------------------------------------------------------------
+// SplashClip
+//------------------------------------------------------------------------
+
+class SplashClip
+{
+    class PrivateTag
+    {
+    };
+
+public:
+    // Create a clip, for the given rectangle.
+    SplashClip(double x0, double y0, double x1, double y1, bool antialiasA);
+
+    // Copy a clip.
+    std::unique_ptr<SplashClip> copy() const { return std::make_unique<SplashClip>(this); }
+
+    ~SplashClip() = default;
+
+    SplashClip(const SplashClip &) = delete;
+    SplashClip &operator=(const SplashClip &) = delete;
+
+    // Reset the clip to a rectangle.
+    void resetToRect(double x0, double y0, double x1, double y1);
+
+    // Intersect the clip with a rectangle.
+    SplashError clipToRect(double x0, double y0, double x1, double y1);
+
+    // Intersect the clip with <path>.
+    SplashError clipToPath(const SplashPath &path, const std::array<double, 6> &matrix, double flatness, bool eo);
+
+    // Returns true if (<x>,<y>) is inside the clip.
+    bool test(int x, int y) const
+    {
+        // check the rectangle
+        if (x < xMinI || x > xMaxI || y < yMinI || y > yMaxI) {
+            return false;
+        }
+
+        // check the paths
+        return testClipPaths(x, y);
+    }
+
+    // Tests a rectangle against the clipping region.  Returns one of:
+    //   - splashClipAllInside if the entire rectangle is inside the
+    //     clipping region, i.e., all pixels in the rectangle are
+    //     visible
+    //   - splashClipAllOutside if the entire rectangle is outside the
+    //     clipping region, i.e., all the pixels in the rectangle are
+    //     clipped
+    //   - splashClipPartial if the rectangle is part inside and part
+    //     outside the clipping region
+    SplashClipResult testRect(int rectXMin, int rectYMin, int rectXMax, int rectYMax) const;
+
+    // Similar to testRect, but tests a horizontal span.
+    SplashClipResult testSpan(int spanXMin, int spanXMax, int spanY);
+
+    // Clips an anti-aliased line by setting pixels to zero.  On entry,
+    // all non-zero pixels are between <x0> and <x1>.  This function
+    // will update <x0> and <x1>.
+    void clipAALine(SplashBitmap *aaBuf, int *x0, int *x1, int y, bool adjustVertLine = false);
+
+    // Get the rectangle part of the clip region.
+    double getXMin() const { return xMin; }
+    double getXMax() const { return xMax; }
+    double getYMin() const { return yMin; }
+    double getYMax() const { return yMax; }
+
+    // Get the rectangle part of the clip region, in integer coordinates.
+    int getXMinI() const { return xMinI; }
+    int getXMaxI() const { return xMaxI; }
+    int getYMinI() const { return yMinI; }
+    int getYMaxI() const { return yMaxI; }
+
+    // Get the number of arbitrary paths used by the clip region.
+    int getNumPaths() { return scanners.size(); }
+
+    explicit SplashClip(const SplashClip *clip, PrivateTag /*unused*/ = {});
+
+protected:
+    bool testClipPaths(int x, int y) const;
+
+    bool antialias;
+    double xMin, yMin, xMax, yMax;
+    int xMinI, yMinI, xMaxI, yMaxI;
+    std::vector<std::shared_ptr<SplashXPathScanner>> scanners;
+};
+
+#endif

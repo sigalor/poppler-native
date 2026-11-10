@@ -18,6 +18,8 @@
 // Copyright (C) 2013 Adrian Johnson <ajohnson@redneon.com>
 // Copyright (C) 2013 Thomas Freitag <Thomas.Freitag@alfa.de>
 // Copyright (C) 2019 Adam Reichold <adam.reichold@t-online.de>
+// Copyright (C) 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright (C) 2025 Jonathan Hähne <jonathan.haehne@hotmail.com>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -43,7 +45,7 @@ class POPPLER_PRIVATE_EXPORT Lexer
 public:
     // Construct a lexer for a single stream.  Deletes the stream when
     // lexer is deleted.
-    Lexer(XRef *xrefA, Stream *str);
+    Lexer(XRef *xrefA, std::unique_ptr<Stream> &&str);
 
     // Construct a lexer for a stream or array of streams (assumes obj
     // is either a stream or array of streams).
@@ -57,7 +59,7 @@ public:
 
     // Get the next object from the input stream.
     Object getObj(int objNum = -1);
-    Object getObj(const char *cmdA, int objNum);
+    Object getObj(std::string_view cmdA, int objNum);
     template<typename T>
     Object getObj(T) = delete;
 
@@ -77,8 +79,9 @@ public:
     // Set position in file.
     void setPos(Goffset pos)
     {
-        if (curStr.isStream())
+        if (curStr.isStream()) {
             curStr.getStream()->setPos(pos);
+        }
     }
 
     // Returns true if <c> is a whitespace character.
@@ -104,8 +107,6 @@ private:
     int strPtr; // index of current stream
     Object curStr; // current stream
     bool freeArray; // should lexer free the streams array?
-    char tokBuf[tokBufSize]; // temporary token buffer
-
     XRef *xref;
 };
 

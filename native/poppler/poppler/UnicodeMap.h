@@ -16,9 +16,10 @@
 // under GPL version 2 or later
 //
 // Copyright (C) 2017 Adrian Johnson <ajohnson@redneon.com>
-// Copyright (C) 2018-2020 Albert Astals Cid <aacid@kde.org>
+// Copyright (C) 2018-2022, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright (C) 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright (C) 2019 Volker Krause <vkrause@kde.org>
+// Copyright (C) 2024 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
 //
 // To see a description of the changes please see the Changelog file that
 // came with your tarball or type make ChangeLog if you are building from git
@@ -28,24 +29,18 @@
 #ifndef UNICODEMAP_H
 #define UNICODEMAP_H
 
-#include "poppler-config.h"
 #include "poppler_private_export.h"
 #include "CharTypes.h"
 
-#include <atomic>
+#include <memory>
 #include <string>
 #include <vector>
+#include <variant>
+#include <span>
 
 //------------------------------------------------------------------------
 
-enum UnicodeMapKind
-{
-    unicodeMapUser, // read from a file
-    unicodeMapResident, // static list of ranges
-    unicodeMapFunc // function pointer
-};
-
-typedef int (*UnicodeMapFunc)(Unicode u, char *buf, int bufSize);
+using UnicodeMapFunc = int (*)(Unicode u, char *buf, int bufSize);
 
 struct UnicodeMapRange
 {
@@ -53,7 +48,11 @@ struct UnicodeMapRange
     unsigned int code, nBytes; // first output code
 };
 
-struct UnicodeMapExt;
+struct UnicodeMapExt
+{
+    Unicode u; // Unicode char
+    std::vector<char> code;
+};
 
 //------------------------------------------------------------------------
 
@@ -62,10 +61,10 @@ class POPPLER_PRIVATE_EXPORT UnicodeMap
 public:
     // Create the UnicodeMap specified by <encodingName>.  Sets the
     // initial reference count to 1.  Returns NULL on failure.
-    static UnicodeMap *parse(const std::string &encodingNameA);
+    static std::unique_ptr<UnicodeMap> parse(const std::string &encodingNameA);
 
     // Create a resident UnicodeMap.
-    UnicodeMap(const char *encodingNameA, bool unicodeOutA, const UnicodeMapRange *rangesA, int lenA);
+    UnicodeMap(const char *encodingNameA, bool unicodeOutA, std::span<const UnicodeMapRange> rangesA);
 
     // Create a resident UnicodeMap that uses a function instead of a
     // list of ranges.
@@ -96,18 +95,12 @@ public:
     int mapUnicode(Unicode u, char *buf, int bufSize) const;
 
 private:
-    UnicodeMap(const std::string &encodingNameA);
+    explicit UnicodeMap(const std::string &encodingNameA);
 
     std::string encodingName;
-    UnicodeMapKind kind;
     bool unicodeOut;
-    union {
-        const UnicodeMapRange *ranges; // (user, resident)
-        UnicodeMapFunc func; // (func)
-    };
-    int len; // (user, resident)
-    UnicodeMapExt *eMaps; // (user)
-    int eMapsLen; // (user)
+    std::variant<std::vector<UnicodeMapRange>, std::span<const UnicodeMapRange>, UnicodeMapFunc> data;
+    std::vector<UnicodeMapExt> eMaps; // (user)
 };
 
 //------------------------------------------------------------------------
@@ -116,16 +109,12 @@ class UnicodeMapCache
 {
 public:
     UnicodeMapCache();
-    ~UnicodeMapCache();
-
-    UnicodeMapCache(const UnicodeMapCache &) = delete;
-    UnicodeMapCache &operator=(const UnicodeMapCache &) = delete;
 
     // Get the UnicodeMap for <encodingName>.  Returns NULL on failure.
     const UnicodeMap *getUnicodeMap(const std::string &encodingName);
 
 private:
-    std::vector<UnicodeMap *> cache;
+    std::vector<std::unique_ptr<UnicodeMap>> cache;
 };
 
 #endif

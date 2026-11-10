@@ -4,9 +4,11 @@
 //
 // Copyright 2007 Brad Hards <bradh@kde.org>
 // Copyright 2008 Carlos Garcia Campos <carlosgc@gnome.org>
-// Copyright 2013, 2018, 2019 Albert Astals Cid <aacid@kde.org>
+// Copyright 2013, 2018, 2019, 2021, 2025 Albert Astals Cid <aacid@kde.org>
 // Copyright 2018 Adam Reichold <adam.reichold@t-online.de>
 // Copyright 2019 Oliver Sander <oliver.sander@tu-dresden.de>
+// Copyright 2025 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright 2026 Adam Sampson <ats@offog.org>
 //
 // Released under the GPL (version 2, or later, at your option)
 //
@@ -16,7 +18,6 @@
 #define OPTIONALCONTENT_H
 
 #include "Object.h"
-#include "CharTypes.h"
 #include "poppler_private_export.h"
 #include <unordered_map>
 #include <memory>
@@ -31,7 +32,7 @@ class OptionalContentGroup;
 class POPPLER_PRIVATE_EXPORT OCGs
 {
 public:
-    OCGs(Object *ocgObject, XRef *xref);
+    OCGs(const Object &ocgObject, XRef *xref);
 
     OCGs(const OCGs &) = delete;
     OCGs &operator=(const OCGs &) = delete;
@@ -42,21 +43,21 @@ public:
     bool hasOCGs() const;
     const std::unordered_map<Ref, std::unique_ptr<OptionalContentGroup>> &getOCGs() const { return optionalContentGroups; }
 
-    OptionalContentGroup *findOcgByRef(const Ref ref);
+    OptionalContentGroup *findOcgByRef(Ref ref) const;
 
-    Array *getOrderArray() { return (order.isArray() && order.arrayGetLength() > 0) ? order.getArray() : nullptr; }
-    Array *getRBGroupsArray() { return (rbgroups.isArray() && rbgroups.arrayGetLength()) ? rbgroups.getArray() : nullptr; }
+    const Array *getOrderArray() const { return order.isArrayOfLengthAtLeast(1) ? order.getArray() : nullptr; }
+    const Array *getRBGroupsArray() const { return rbgroups.isArrayOfLengthAtLeast(1) ? rbgroups.getArray() : nullptr; }
 
-    bool optContentIsVisible(const Object *dictRef);
+    bool optContentIsVisible(const Object *dictRef) const;
 
 private:
     bool ok;
 
-    bool evalOCVisibilityExpr(const Object *expr, int recursion);
-    bool allOn(Array *ocgArray);
-    bool allOff(Array *ocgArray);
-    bool anyOn(Array *ocgArray);
-    bool anyOff(Array *ocgArray);
+    bool evalOCVisibilityExpr(const Object *expr, int recursion) const;
+    bool allOn(const Array &ocgArray) const;
+    bool allOff(const Array &ocgArray) const;
+    bool anyOn(const Array &ocgArray) const;
+    bool anyOff(const Array &ocgArray) const;
 
     std::unordered_map<Ref, std::unique_ptr<OptionalContentGroup>> optionalContentGroups;
 
@@ -84,9 +85,7 @@ public:
         ocUsageUnset
     };
 
-    OptionalContentGroup(Dict *dict);
-
-    OptionalContentGroup(GooString *label);
+    explicit OptionalContentGroup(Dict *dict);
 
     ~OptionalContentGroup();
 
@@ -96,7 +95,7 @@ public:
     const GooString *getName() const;
 
     Ref getRef() const;
-    void setRef(const Ref ref);
+    void setRef(Ref ref);
 
     State getState() const { return m_state; };
     void setState(State state) { m_state = state; };
@@ -105,7 +104,7 @@ public:
     UsageState getPrintState() const { return printState; }
 
 private:
-    GooString *m_name;
+    std::unique_ptr<GooString> m_name;
     Ref m_ref;
     State m_state;
     UsageState viewState; // suggested state when viewing

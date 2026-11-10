@@ -5,9 +5,11 @@
 // This file is licensed under the GPLv2 or later
 //
 // Copyright 2018 Chinmoy Ranjan Pradhan <chinmoyrp65@gmail.com>
-// Copyright 2018, 2019 Albert Astals Cid <aacid@kde.org>
+// Copyright 2018, 2019, 2022, 2026 Albert Astals Cid <aacid@kde.org>
 // Copyright 2018 Oliver Sander <oliver.sander@tu-dresden.de>
 // Copyright 2020 Thorsten Behrens <Thorsten.Behrens@CIB.de>
+// Copyright 2023, 2024, 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+// Copyright 2026 Sune Stolborg Vuorela <sune@vuorela.dk>, work sponsored by the Direction Interministérielle du Numérique
 //
 //========================================================================
 
@@ -16,41 +18,7 @@
 #include <cstring>
 #include <cstdlib>
 
-X509CertificateInfo::PublicKeyInfo::PublicKeyInfo() : publicKeyType(OTHERKEY), publicKeyStrength(0) { }
-
-X509CertificateInfo::PublicKeyInfo::PublicKeyInfo(X509CertificateInfo::PublicKeyInfo &&other) noexcept
-{
-    publicKey = std::move(other.publicKey);
-    publicKeyType = other.publicKeyType;
-    publicKeyStrength = other.publicKeyStrength;
-}
-
-X509CertificateInfo::PublicKeyInfo &X509CertificateInfo::PublicKeyInfo::operator=(X509CertificateInfo::PublicKeyInfo &&other) noexcept
-{
-    publicKey = std::move(other.publicKey);
-    publicKeyType = other.publicKeyType;
-    publicKeyStrength = other.publicKeyStrength;
-    return *this;
-}
-
-X509CertificateInfo::EntityInfo::EntityInfo() = default;
-
-X509CertificateInfo::EntityInfo::~EntityInfo() = default;
-
-X509CertificateInfo::EntityInfo::EntityInfo(X509CertificateInfo::EntityInfo &&other) noexcept = default;
-
-// TODO when we stop supporting gcc 5.4 use this instead of the manually defined one
-// X509CertificateInfo::EntityInfo &X509CertificateInfo::EntityInfo::operator=(X509CertificateInfo::EntityInfo &&other) noexcept = default;
-X509CertificateInfo::EntityInfo &X509CertificateInfo::EntityInfo::operator=(X509CertificateInfo::EntityInfo &&other) noexcept
-{
-    commonName = std::move(other.commonName);
-    distinguishedName = std::move(other.distinguishedName);
-    email = std::move(other.email);
-    organization = std::move(other.organization);
-    return *this;
-}
-
-X509CertificateInfo::X509CertificateInfo() : ku_extensions(KU_NONE), cert_version(-1), is_self_signed(false) { }
+X509CertificateInfo::X509CertificateInfo() = default;
 
 X509CertificateInfo::~X509CertificateInfo() = default;
 
@@ -94,7 +62,7 @@ unsigned int X509CertificateInfo::getKeyUsageExtensions() const
     return ku_extensions;
 }
 
-const GooString &X509CertificateInfo::getCertificateDER() const
+const std::vector<unsigned char> &X509CertificateInfo::getCertificateDER() const
 {
     return cert_der;
 }
@@ -111,12 +79,12 @@ void X509CertificateInfo::setVersion(int version)
 
 void X509CertificateInfo::setSerialNumber(const GooString &serialNumber)
 {
-    cert_serial.Set(&serialNumber);
+    cert_serial.assign(serialNumber.toStr());
 }
 
 void X509CertificateInfo::setNickName(const GooString &nickName)
 {
-    cert_nick.Set(&nickName);
+    cert_nick.assign(nickName.toStr());
 }
 
 void X509CertificateInfo::setIssuerInfo(EntityInfo &&issuerInfo)
@@ -144,12 +112,51 @@ void X509CertificateInfo::setKeyUsageExtensions(unsigned int keyUsages)
     ku_extensions = keyUsages;
 }
 
-void X509CertificateInfo::setCertificateDER(const GooString &certDer)
+void X509CertificateInfo::setCertificateDER(std::vector<unsigned char> &&certDer)
 {
-    cert_der.Set(&certDer);
+    cert_der = std::move(certDer);
 }
 
 void X509CertificateInfo::setIsSelfSigned(bool isSelfSigned)
 {
     is_self_signed = isSelfSigned;
+}
+KeyLocation X509CertificateInfo::getKeyLocation() const
+{
+    return keyLocation;
+}
+
+void X509CertificateInfo::setKeyLocation(KeyLocation location)
+{
+    keyLocation = location;
+}
+
+bool X509CertificateInfo::isQualified() const
+{
+    return is_qualified;
+}
+
+void X509CertificateInfo::setQualified(bool qualified)
+{
+    is_qualified = qualified;
+}
+
+CertificateType X509CertificateInfo::getCertificateType() const
+{
+    return certificate_type;
+}
+
+void X509CertificateInfo::setCertificateType(CertificateType type)
+{
+    certificate_type = type;
+}
+
+void X509CertificateInfo::setSupportedSMimeSignatureTypes(std::vector<CryptoSign::SMimeSignatureType> &&supported)
+{
+    m_supportedTypes = std::move(supported);
+}
+
+const std::vector<CryptoSign::SMimeSignatureType> &X509CertificateInfo::supportedSMimeSignatureTypes() const
+{
+    return m_supportedTypes;
 }

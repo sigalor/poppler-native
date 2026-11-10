@@ -51,55 +51,54 @@
 //
 //========================================================================
 
-#include <ctype.h>
+#include <array>
 #include <cmath>
-#include <cstdarg>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
+#include <string>
+#include <utility>
 
 #include <config.h>
 #include <goo/GooString.h>
-#include <goo/PNGWriter.h>
 #include <goo/gbase64.h>
 #include <goo/gbasename.h>
 #include <goo/gmem.h>
 #include <poppler/Annot.h>
 #include <poppler/Error.h>
+#include <poppler/GfxFont.h>
 #include <poppler/GfxState.h>
 #include <poppler/GlobalParams.h>
+#include <poppler/Link.h>
 #include <poppler/Outline.h>
 #include <poppler/PDFDoc.h>
 #include <poppler/Page.h>
+#include <poppler/Stream.h>
 #include <poppler/UnicodeMap.h>
 
 #include "HtmlFonts.h"
 #include "HtmlOutputDev.h"
 #include "HtmlUtils.h"
-#include "InMemoryFile.h"
-
-#ifdef ENABLE_LIBPNG
-#    include <png.h>
-#endif
+#include "../PngEncoder.hpp"
 
 #define DEBUG __FILE__ << ": " << __LINE__ << ": DEBUG: "
 
 class HtmlImage
 {
 public:
-    HtmlImage(GooString *_fName, GfxState *state) : fName(_fName)
+    HtmlImage(std::string &&_fName, GfxState *state) : fName(std::move(_fName))
     {
         state->transform(0, 0, &xMin, &yMax);
         state->transform(1, 1, &xMax, &yMin);
     }
-    ~HtmlImage() { delete fName; }
     HtmlImage(const HtmlImage &) = delete;
     HtmlImage &operator=(const HtmlImage &) = delete;
 
     double xMin, xMax; // image x coordinates
     double yMin, yMax; // image y coordinates
-    GooString *fName; // image file name
+    std::string fName; // image file name
 };
 
 // returns true if x is closer to y than x is to z
@@ -109,46 +108,29 @@ static inline bool IS_CLOSER(float x, float y, float z)
 }
 
 static bool debug = false;
-static GooString *gstr_buff0 = nullptr; // a workspace in which I format strings
 
-#if 0
-static GooString* Dirname(GooString* str){
-  
-  char *p=str->c_str();
-  int len=str->getLength();
-  for (int i=len-1;i>=0;i--)
-    if (*(p+i)==SLASH) 
-      return new GooString(p,i+1);
-  return new GooString();
-}
-#endif
-
-static const char *print_matrix(const double *mat)
+template<size_t N>
+static std::string print_matrix(const std::array<double, N> &mat)
 {
-    delete gstr_buff0;
-
-    gstr_buff0 = GooString::format("[{0:g} {1:g} {2:g} {3:g} {4:g} {5:g}]", *mat, mat[1], mat[2], mat[3], mat[4], mat[5]);
-    return gstr_buff0->c_str();
+    std::string ret = "[";
+    for (size_t i = 0; i < N; i++) {
+        ret += GooString::format("{0:g}", mat[i]);
+        ret += i + 1 < N ? " " : "]";
+    }
+    return ret;
 }
 
-static const char *print_uni_str(const Unicode *u, const unsigned uLen)
+static std::string print_uni_str(const Unicode *u, const unsigned uLen)
 {
-    GooString *gstr_buff1 = nullptr;
-
-    delete gstr_buff0;
-
     if (!uLen)
         return "";
-    gstr_buff0 = GooString::format("{0:c}", (*u < 0x7F ? *u & 0xFF : '?'));
+    std::string ret(1, static_cast<char>(*u < 0x7F ? *u & 0xFF : '?'));
     for (unsigned i = 1; i < uLen; i++) {
         if (u[i] < 0x7F) {
-            gstr_buff1 = gstr_buff0->append(u[i] < 0x7F ? static_cast<char>(u[i]) & 0xFF : '?');
-            delete gstr_buff0;
-            gstr_buff0 = gstr_buff1;
+            ret.push_back(static_cast<char>(u[i]) & 0xFF);
         }
     }
-
-    return gstr_buff0->c_str();
+    return ret;
 }
 
 //------------------------------------------------------------------------
@@ -157,11 +139,11 @@ static const char *print_uni_str(const Unicode *u, const unsigned uLen)
 
 HtmlString::HtmlString(GfxState *state, double fontSize, HtmlFontAccu *_fonts) : fonts(_fonts)
 {
-    GfxFont *font;
     double x, y;
 
-    state->transform(state->getCurX(), state->getCurY(), &x, &y);
-    if ((font = state->getFont())) {
+    // Poppler 26.x keeps the text position apart from the path position (curX/curY in 21.05)
+    state->transform(state->getCurTextX(), state->getCurTextY(), &x, &y);
+    if (const std::shared_ptr<GfxFont> &font = state->getFont()) {
         double ascent = font->getAscent();
         double descent = font->getDescent();
         if (ascent > 1.05) {
@@ -176,10 +158,10 @@ HtmlString::HtmlString(GfxState *state, double fontSize, HtmlFontAccu *_fonts) :
         yMax = y - descent * fontSize;
         GfxRGB rgb;
         state->getFillRGB(&rgb);
-        HtmlFont hfont = HtmlFont(font, static_cast<int>(fontSize), rgb, state->getFillOpacity());
+        HtmlFont hfont = HtmlFont(*font, static_cast<int>(fontSize), rgb, state->getFillOpacity());
         if (isMatRotOrSkew(state->getTextMat())) {
-            double normalizedMatrix[4];
-            memcpy(normalizedMatrix, state->getTextMat(), sizeof(normalizedMatrix));
+            const std::array<double, 6> &textMat = state->getTextMat();
+            std::array<double, 4> normalizedMatrix = { textMat[0], textMat[1], textMat[2], textMat[3] };
             // browser rotates the opposite way
             // so flip the sign of the angle -> sin() components change sign
             if (debug)
@@ -214,14 +196,12 @@ HtmlString::HtmlString(GfxState *state, double fontSize, HtmlFontAccu *_fonts) :
     len = size = 0;
     yxNext = nullptr;
     xyNext = nullptr;
-    htext = new GooString();
     dir = textDirUnknown;
 }
 
 HtmlString::~HtmlString()
 {
     gfree(text);
-    delete htext;
     gfree(xRight);
 }
 
@@ -268,38 +248,29 @@ HtmlPage::HtmlPage(bool newMergeLines, double newWordBreakThreshold) : mergeLine
     yxStrings = nullptr;
     xyStrings = nullptr;
     yxCur1 = yxCur2 = nullptr;
-    fonts = new HtmlFontAccu();
-    links = new HtmlLinks();
-    imgList = new std::vector<HtmlImage *>();
+    fonts = std::make_unique<HtmlFontAccu>();
+    links = std::make_unique<HtmlLinks>();
     pageWidth = 0;
     pageHeight = 0;
     fontsPageMarker = 0;
-    DocName = nullptr;
     firstPage = -1;
 }
 
 HtmlPage::~HtmlPage()
 {
     clear();
-    delete DocName;
-    delete fonts;
-    delete links;
-    for (auto entry : *imgList) {
-        delete entry;
-    }
-    delete imgList;
 }
 
 void HtmlPage::updateFont(GfxState *state)
 {
-    GfxFont *font;
     const char *name;
     int code;
     double w;
 
     // adjust the font size
     fontSize = state->getTransformedFontSize();
-    if ((font = state->getFont()) && font->getType() == fontType3) {
+    const GfxFont *font = state->getFont().get();
+    if (font && font->getType() == fontType3) {
         // This is a hack which makes it possible to deal with some Type 3
         // fonts.  The problem is that it's impossible to know what the
         // base coordinate system used in the font is without actually
@@ -307,34 +278,33 @@ void HtmlPage::updateFont(GfxState *state)
         // width of the character 'm' (which breaks if the font is a
         // subset that doesn't contain 'm').
         for (code = 0; code < 256; ++code) {
-            if ((name = ((Gfx8BitFont *)font)->getCharName(code)) && name[0] == 'm' && name[1] == '\0') {
+            if ((name = static_cast<const Gfx8BitFont *>(font)->getCharName(code)) && name[0] == 'm' && name[1] == '\0') {
                 break;
             }
         }
         if (code < 256) {
-            w = ((Gfx8BitFont *)font)->getWidth(code);
+            w = static_cast<const Gfx8BitFont *>(font)->getWidth(static_cast<CID>(code));
             if (w != 0) {
                 // 600 is a generic average 'm' width -- yes, this is a hack
                 fontSize *= w / 0.6;
             }
         }
-        const double *fm = font->getFontMatrix();
+        const std::array<double, 6> &fm = font->getFontMatrix();
         if (fm[0] != 0) {
             fontSize *= fabs(fm[3] / fm[0]);
         }
     }
 }
 
-void HtmlPage::beginString(GfxState *state, const GooString *s)
+void HtmlPage::beginString(GfxState *state, const std::string & /*s*/)
 {
-    curStr = new HtmlString(state, fontSize, fonts);
+    curStr = new HtmlString(state, fontSize, fonts.get());
 }
 
 void HtmlPage::conv()
 {
     for (HtmlString *tmp = yxStrings; tmp; tmp = tmp->yxNext) {
-        delete tmp->htext;
-        tmp->htext = new GooString(HtmlFont::codepointsEncode(tmp->text, tmp->len).c_str());
+        tmp->htext = HtmlFont::codepointsEncode(tmp->text, tmp->len);
 
         int linkIndex = 0;
         if (links->inLink(tmp->xMin, tmp->yMin, tmp->xMax, tmp->yMax, linkIndex)) {
@@ -355,7 +325,7 @@ void HtmlPage::addChar(GfxState *state, double x, double y, double dx, double dy
     // if ((UnicodeMap::getDirection(u[0]) != curStr->dir) ||
     // XXX
     if (debug) {
-        const double *text_mat = state->getTextMat();
+        const std::array<double, 6> &text_mat = state->getTextMat();
         // rotation is (cos q, sin q, -sin q, cos q, 0, 0)
         // sin q is zero iff there is no rotation, or 180 deg. rotation;
         // for 180 rotation, cos q will be negative
@@ -375,7 +345,7 @@ void HtmlPage::addChar(GfxState *state, double x, double y, double dx, double dy
         // for 180 rotation, cos q will be negative
         !rot_matrices_equal(curStr->getFont().getRotMat(), state->getTextMat())) {
         endString();
-        beginString(state, nullptr);
+        beginString(state, std::string());
     }
     state->textTransformDelta(state->getCharSpace() * state->getHorizScaling(), 0, &dx2, &dy2);
     dx -= dx2;
@@ -453,13 +423,9 @@ void HtmlPage::coalesce()
             vertOverlap = 0;
         }
 
-        GooString *linkdest1 = str1->link ? str1->link->getDest() : nullptr;
-        GooString *linkdest2 = str2->link ? str2->link->getDest() : nullptr;
-        bool linkdestsEqual =
-            linkdest1 == linkdest2 || (linkdest1 != nullptr && linkdest2 != nullptr &&
-                                      linkdest1->cmp(linkdest2) == 0);  // actual equality only for nullptr
-        delete linkdest1;
-        delete linkdest2;
+        const std::string *linkdest1 = str1->link ? &str1->link->getDest() : nullptr;
+        const std::string *linkdest2 = str2->link ? &str2->link->getDest() : nullptr;
+        bool linkdestsEqual = linkdest1 == linkdest2 || (linkdest1 != nullptr && linkdest2 != nullptr && *linkdest1 == *linkdest2);
 
         // Combine strings if:
         //  They appear to be the same font && going in the same direction or contain the same link (if
@@ -491,13 +457,13 @@ void HtmlPage::coalesce()
             str1->xRight = (double *)grealloc(str1->xRight, str1->size * sizeof(double));
             if (addSpace) {
                 str1->text[str1->len] = 0x20;
-                str1->htext->append(" ");
+                str1->htext += " ";
                 str1->xRight[str1->len] = str2->xMin;
                 ++str1->len;
             }
             if (addLineBreak) {
                 str1->text[str1->len] = '\n';
-                str1->htext->append("<br/>");
+                str1->htext += "<br/>";
                 str1->xRight[str1->len] = str2->xMin;
                 ++str1->len;
                 str1->yMin = str2->yMin;
@@ -506,10 +472,9 @@ void HtmlPage::coalesce()
                 int fontLineSize = hfont1->getLineSize();
                 int curLineSize = (int)(vertSpace + space);
                 if (curLineSize != fontLineSize) {
-                    HtmlFont *newfnt = new HtmlFont(*hfont1);
-                    newfnt->setLineSize(curLineSize);
-                    str1->fontpos = fonts->AddFont(*newfnt);
-                    delete newfnt;
+                    HtmlFont newfnt(*hfont1);
+                    newfnt.setLineSize(curLineSize);
+                    str1->fontpos = fonts->AddFont(newfnt);
                     hfont1 = getFont(str1);
                     // we have to reget hfont2 because it's location could have
                     // changed on resize
@@ -522,7 +487,7 @@ void HtmlPage::coalesce()
                 ++str1->len;
             }
 
-            str1->htext->append(str2->htext);
+            str1->htext += str2->htext;
             // str1 now contains href for link of str2 (if it is defined)
             // str1->link = str2->link;
             hfont1 = hfont2;
@@ -556,34 +521,29 @@ void HtmlPage::serialize(int pageNumber, ReadPDFOutputs::Page &dest) {
     dest.fonts.push_back(fonts->serialize(i));
   }
 
-  for (size_t i = 0; i < imgList->size(); ++i) {
-    HtmlImage *img = (*imgList)[i];
+  for (const std::unique_ptr<HtmlImage> &img : imgList) {
     dest.images.push_back(ReadPDFOutputs::Image());
     ReadPDFOutputs::Image &imgSer = dest.images.back();
     imgSer.top = img->yMin;
     imgSer.left = img->xMin;
     imgSer.width = img->xMax - img->xMin;
     imgSer.height = img->yMax - img->yMin;
-    imgSer.src = img->fName->c_str();
-    delete img;
+    imgSer.src = img->fName;
   }
-  imgList->clear();
+  imgList.clear();
 
   for (HtmlString *tmp = yxStrings; tmp; tmp = tmp->yxNext) {
-    if (!tmp->htext) continue;
     dest.strings.push_back(ReadPDFOutputs::String());
     ReadPDFOutputs::String &strSer = dest.strings.back();
-    GooString *linkDest = tmp->link ? tmp->link->getDest() : nullptr;
 
     strSer.top = tmp->yMin;
     strSer.left = tmp->xMin;
     strSer.width = tmp->xMax - tmp->xMin;
     strSer.height = tmp->yMax - tmp->yMin;
     strSer.font = tmp->fontpos;
-    strSer.text = tmp->htext->c_str();
-    if (linkDest) {
-      strSer.link = linkDest->c_str();
-      delete linkDest;
+    strSer.text = tmp->htext;
+    if (tmp->link) {
+      strSer.link = tmp->link->getDest();
     }
   }
 }
@@ -606,19 +566,12 @@ void HtmlPage::clear()
 
     fontsPageMarker = fonts->size();
 
-    delete links;
-    links = new HtmlLinks();
+    links = std::make_unique<HtmlLinks>();
 }
 
-void HtmlPage::setDocName(const char *fname)
+void HtmlPage::addImage(std::string &&fname, GfxState *state)
 {
-    DocName = new GooString(fname);
-}
-
-void HtmlPage::addImage(GooString *fname, GfxState *state)
-{
-    HtmlImage *img = new HtmlImage(fname, state);
-    imgList->push_back(img);
+    imgList.push_back(std::make_unique<HtmlImage>(std::move(fname), state));
 }
 
 //------------------------------------------------------------------------
@@ -627,29 +580,24 @@ void HtmlPage::addImage(GooString *fname, GfxState *state)
 
 HtmlOutputDev::HtmlOutputDev(Catalog *catalogA, const char *fileName, int numPages, bool newIgnoreImages,
                              bool newShowHiddenCharacters, bool mergeLines, double wordBreakThreshold,
-                             std::vector<ReadPDFOutputs::Page> &allPagesDest)
-    : ignoreImages(newIgnoreImages), showHiddenCharacters(newShowHiddenCharacters), allPages(allPagesDest)
+                             std::vector<ReadPDFOutputs::Page> &allPagesDest, TextRepair::TextRepair *textRepairA)
+    : ignoreImages(newIgnoreImages), showHiddenCharacters(newShowHiddenCharacters), textRepair(textRepairA), allPages(allPagesDest)
 {
     catalog = catalogA;
-    pages = nullptr;
+    docPage = nullptr;
+    pageNum = 0;
     dumpJPEG = true;
-    pages = new HtmlPage(mergeLines, wordBreakThreshold);
+    pages = std::make_unique<HtmlPage>(mergeLines, wordBreakThreshold);
 
     maxPageWidth = 0;
     maxPageHeight = 0;
 
-    pages->setDocName(fileName);
-    Docname = new GooString(fileName);
+    Docname = fileName;
 }
 
-HtmlOutputDev::~HtmlOutputDev()
-{
-    delete Docname;
-    if (pages)
-        delete pages;
-}
+HtmlOutputDev::~HtmlOutputDev() = default;
 
-void HtmlOutputDev::startPage(int pageNumA, GfxState *state, XRef *xref)
+void HtmlOutputDev::startPage(int pageNumA, GfxState *state, XRef * /*xref*/)
 {
     pageNum = pageNumA;
     pages->clear();
@@ -659,11 +607,10 @@ void HtmlOutputDev::startPage(int pageNumA, GfxState *state, XRef *xref)
 
 void HtmlOutputDev::endPage()
 {
-    Links *linksList = docPage->getLinks();
-    for (int i = 0; i < linksList->getNumLinks(); ++i) {
-        doProcessLink(linksList->getLink(i));
+    std::unique_ptr<Links> linksList = docPage->getLinks();
+    for (const std::shared_ptr<AnnotLink> &link : linksList->getLinks()) {
+        doProcessLink(link.get());
     }
-    delete linksList;
 
     pages->conv();
     pages->coalesce();
@@ -683,12 +630,12 @@ void HtmlOutputDev::updateFont(GfxState *state)
     pages->updateFont(state);
 }
 
-void HtmlOutputDev::beginString(GfxState *state, const GooString *s)
+void HtmlOutputDev::beginString(GfxState *state, const std::string &s)
 {
     pages->beginString(state, s);
 }
 
-void HtmlOutputDev::endString(GfxState *state)
+void HtmlOutputDev::endString(GfxState * /*state*/)
 {
     pages->endString();
 }
@@ -698,81 +645,97 @@ void HtmlOutputDev::drawChar(GfxState *state, double x, double y, double dx, dou
     if (!showHiddenCharacters && (state->getRender() & 3) == 3) {
         return;
     }
+    if (textRepair && textRepair->repair(state, code, u, uLen, repairedText)) {
+        pages->addChar(state, x, y, dx, dy, originX, originY, repairedText.data(), static_cast<int>(repairedText.size()));
+        return;
+    }
     pages->addChar(state, x, y, dx, dy, originX, originY, u, uLen);
+}
+
+size_t HtmlOutputDev::maxImageSize(size_t prefixLength) const
+{
+    const size_t budgetLeft = maxImageBytes > imageBytes ? maxImageBytes - imageBytes : 0;
+    return maxEncodedBytes(prefixLength, std::min(maxStringLength, budgetLeft));
+}
+
+void HtmlOutputDev::imageTooLarge(size_t prefixLength)
+{
+    if (!failure_.empty())
+        return;
+    // Too large on its own, or only together with the images before it?
+    if (maxImageSize(prefixLength) == maxEncodedBytes(prefixLength, maxStringLength))
+        failure_ = "page " + std::to_string(pageNum) + " has an image too large to return as a data URL; read the document with { images: false }";
+    else
+        failure_ = "the images are too large together to return as data URLs; read the document with { images: false }";
+}
+
+void HtmlOutputDev::addDataUrl(const std::string &prefix, const std::vector<unsigned char> &bytes, GfxState *state)
+{
+    std::string url = prefix + gbase64Encode(bytes);
+    imageBytes += url.size();
+    pages->addImage(std::move(url), state);
 }
 
 void HtmlOutputDev::drawJpegImage(GfxState *state, Stream *str)
 {
-    InMemoryFile ims;
-    int c;
-
-    // open the image file
-    FILE *f1 = ims.open("wb");
-    if (!f1) {
-        error(errIO, -1, "Couldn't open in-memory image file");
+    static const std::string prefix = "data:image/jpeg;base64,";
+    // the JPEG data as it is embedded: the stream underneath the DCT decoder
+    str = str->getNextStream();
+    if (!str->rewind()) {
+        error(errIO, -1, "Couldn't rewind stream");
         return;
     }
 
-    // initialize stream
-    str = str->getNextStream();
-    str->reset();
+    // Read at most what fits in a data URL: behind a filter such as Flate, a few kilobytes can expand to gigabytes.
+    const size_t maxBytes = maxImageSize(prefix.size());
+    std::vector<unsigned char> jpeg;
+    unsigned char chunk[65536];
+    int n;
+    while ((n = str->doGetChars(sizeof(chunk), chunk)) > 0) {
+        if (jpeg.size() + n > maxBytes) {
+            imageTooLarge(prefix.size());
+            return;
+        }
+        jpeg.insert(jpeg.end(), chunk, chunk + n);
+    }
 
-    // copy the stream
-    while ((c = str->getChar()) != EOF)
-        fputc(c, f1);
-
-    fclose(f1);
-
-    pages->addImage(new GooString(std::string("data:image/jpeg;base64,") + gbase64Encode(ims.getBuffer())), state);
+    addDataUrl(prefix, jpeg, state);
 }
 
 void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask)
 {
-#ifdef ENABLE_LIBPNG
-    InMemoryFile ims;
-
+    static const std::string prefix = "data:image/png;base64,";
+    const size_t maxBytes = maxImageSize(prefix.size());
     if (!colorMap && !isMask) {
         error(errInternal, -1, "Can't have color image without a color map");
         return;
     }
 
-    // open the image file
-    FILE *f1 = ims.open("wb");
-    if (!f1) {
-        error(errIO, -1, "Couldn't open in-memory image file");
-        return;
-    }
-
-    PNGWriter *writer = new PNGWriter(isMask ? PNGWriter::MONOCHROME : PNGWriter::RGB);
-    // TODO can we calculate the resolution of the image?
-    if (!writer->init(f1, width, height, 72, 72)) {
+    PngEncoder writer(width, height, isMask ? PngEncoder::Format::Monochrome : PngEncoder::Format::Rgb);
+    if (!writer.ok()) {
         error(errInternal, -1, "Can't init PNG for in-memory image");
-        delete writer;
-        fclose(f1);
         return;
     }
 
     if (!isMask) {
         unsigned char *p;
         GfxRGB rgb;
-        png_byte *row = (png_byte *)gmalloc(3 * width); // 3 bytes/pixel: RGB
-        png_bytep *row_pointer = &row;
 
         // Initialize the image stream
-        ImageStream *imgStr = new ImageStream(str, width, colorMap->getNumPixelComps(), colorMap->getBits());
-        imgStr->reset();
+        ImageStream imgStr(str, width, colorMap->getNumPixelComps(), colorMap->getBits());
+        if (!imgStr.rewind()) {
+            error(errInternal, -1, "Can't rewind image stream");
+            return;
+        }
+        std::vector<unsigned char> row(3 * width); // 3 bytes/pixel: RGB
 
         // For each line...
         for (int y = 0; y < height; y++) {
 
             // Convert into a PNG row
-            p = imgStr->getLine();
+            p = imgStr.getLine();
             if (!p) {
                 error(errIO, -1, "Failed to read PNG. In-memory file will be incorrect");
-                gfree(row);
-                delete writer;
-                delete imgStr;
-                fclose(f1);
                 return;
             }
             for (int x = 0; x < width; x++) {
@@ -784,17 +747,16 @@ void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int he
                 p += colorMap->getNumPixelComps();
             }
 
-            if (!writer->writeRow(row_pointer)) {
+            if (!writer.writeRow(row.data())) {
                 error(errIO, -1, "Failed to write into in-memory PNG file");
-                delete writer;
-                delete imgStr;
-                fclose(f1);
+                return;
+            }
+            if (writer.size() > maxBytes) {
+                imageTooLarge(prefix.size());
                 return;
             }
         }
-        gfree(row);
-        imgStr->close();
-        delete imgStr;
+        imgStr.close();
     } else { // isMask == true
         int size = (width + 7) / 8;
 
@@ -812,41 +774,46 @@ void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int he
                 invert_bits = 0x00;
         }
 
-        str->reset();
-        unsigned char *png_row = (unsigned char *)gmalloc(size);
+        if (!str->rewind()) {
+            error(errInternal, -1, "Can't rewind image stream");
+            return;
+        }
+        std::vector<unsigned char> png_row(size);
 
         for (int ri = 0; ri < height; ++ri) {
             for (int i = 0; i < size; i++)
                 png_row[i] = str->getChar() ^ invert_bits;
 
-            if (!writer->writeRow(&png_row)) {
+            if (!writer.writeRow(png_row.data())) {
                 error(errIO, -1, "Failed to write into in-memory PNG file");
-                delete writer;
-                fclose(f1);
-                gfree(png_row);
+                return;
+            }
+            if (writer.size() > maxBytes) {
+                imageTooLarge(prefix.size());
                 return;
             }
         }
         str->close();
-        gfree(png_row);
     }
 
     str->close();
 
-    writer->close();
-    delete writer;
-    fclose(f1);
-
-    pages->addImage(new GooString(std::string("data:image/png;base64,") + gbase64Encode(ims.getBuffer())), state);
-#else
-    return;
-#endif
+    std::vector<unsigned char> png = writer.finish();
+    if (png.empty()) {
+        error(errIO, -1, "Failed to write into in-memory PNG file");
+        return;
+    }
+    if (png.size() > maxBytes) {
+        imageTooLarge(prefix.size());
+        return;
+    }
+    addDataUrl(prefix, png, state);
 }
 
 void HtmlOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool interpolate, bool inlineImg)
 {
 
-    if (ignoreImages) {
+    if (ignoreImages || !failure_.empty()) {
         OutputDev::drawImageMask(state, ref, str, width, height, invert, interpolate, inlineImg);
         return;
     }
@@ -855,18 +822,14 @@ void HtmlOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str, int
     if (dumpJPEG && str->getKind() == strDCT) {
         drawJpegImage(state, str);
     } else {
-#ifdef ENABLE_LIBPNG
         drawPngImage(state, str, width, height, nullptr, true);
-#else
-        OutputDev::drawImageMask(state, ref, str, width, height, invert, interpolate, inlineImg);
-#endif
     }
 }
 
 void HtmlOutputDev::drawImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, const int *maskColors, bool inlineImg)
 {
 
-    if (ignoreImages) {
+    if (ignoreImages || !failure_.empty()) {
         OutputDev::drawImage(state, ref, str, width, height, colorMap, interpolate, maskColors, inlineImg);
         return;
     }
@@ -875,11 +838,7 @@ void HtmlOutputDev::drawImage(GfxState *state, Object *ref, Stream *str, int wid
     if (dumpJPEG && str->getKind() == strDCT && (colorMap->getNumPixelComps() == 1 || colorMap->getNumPixelComps() == 3) && !inlineImg) {
         drawJpegImage(state, str);
     } else {
-#ifdef ENABLE_LIBPNG
         drawPngImage(state, str, width, height, colorMap);
-#else
-        OutputDev::drawImage(state, ref, str, width, height, colorMap, interpolate, maskColors, inlineImg);
-#endif
     }
 }
 
@@ -893,28 +852,26 @@ void HtmlOutputDev::doProcessLink(AnnotLink *link)
 
     cvtUserToDev(_x2, _y2, &x2, &y2);
 
-    GooString *_dest = getLinkDest(link);
-    HtmlLink t((double)x1, (double)y2, (double)x2, (double)y1, _dest);
+    HtmlLink t((double)x1, (double)y2, (double)x2, (double)y1, getLinkDest(link));
     pages->AddLink(t);
-    delete _dest;
 }
 
-GooString *HtmlOutputDev::getLinkDest(AnnotLink *link)
+std::string HtmlOutputDev::getLinkDest(AnnotLink *link)
 {
     if (!link->getAction())
-        return new GooString();
+        return std::string();
     switch (link->getAction()->getKind()) {
     case actionGoTo: {
         int destPage = 1;
-        LinkGoTo *ha = (LinkGoTo *)link->getAction();
+        const LinkGoTo *ha = static_cast<const LinkGoTo *>(link->getAction());
         std::unique_ptr<LinkDest> dest;
         if (ha->getDest() != nullptr)
-            dest = std::unique_ptr<LinkDest>(ha->getDest()->copy());
+            dest = std::make_unique<LinkDest>(*ha->getDest());
         else if (ha->getNamedDest() != nullptr)
             dest = catalog->findDest(ha->getNamedDest());
 
         if (dest) {
-            GooString *file = new GooString(gbasename(Docname->c_str()));
+            std::string file = gbasename(Docname.c_str());
 
             if (dest->isPageRef()) {
                 const Ref pageref = dest->getPageRef();
@@ -923,47 +880,42 @@ GooString *HtmlOutputDev::getLinkDest(AnnotLink *link)
                 destPage = dest->getPageNum();
             }
 
-            file->append("#");
-            file->append(std::to_string(destPage));
+            file += "#";
+            file += std::to_string(destPage);
 
             return file;
         } else {
-            return new GooString();
+            return std::string();
         }
     }
     case actionGoToR: {
-        LinkGoToR *ha = (LinkGoToR *)link->getAction();
-        LinkDest *dest = nullptr;
+        const LinkGoToR *ha = static_cast<const LinkGoToR *>(link->getAction());
+        std::unique_ptr<LinkDest> dest;
         int destPage = 1;
-        GooString *file = new GooString();
+        std::string file;
         if (ha->getFileName()) {
-            delete file;
-            file = new GooString(ha->getFileName()->c_str());
+            file = ha->getFileName()->c_str();
         }
         if (ha->getDest() != nullptr)
-            dest = ha->getDest()->copy();
-        if (dest && file) {
+            dest = std::make_unique<LinkDest>(*ha->getDest());
+        if (dest) {
             if (!(dest->isPageRef()))
                 destPage = dest->getPageNum();
-            delete dest;
-            file->append('#');
-            file->append(std::to_string(destPage));
+            file += '#';
+            file += std::to_string(destPage);
         }
         return file;
     }
     case actionURI: {
-        LinkURI *ha = (LinkURI *)link->getAction();
-        GooString *file = new GooString(ha->getURI());
-        // printf("uri : %s\n",file->c_str());
-        return file;
+        const LinkURI *ha = static_cast<const LinkURI *>(link->getAction());
+        return ha->getURI();
     }
     case actionLaunch: {
-        LinkLaunch *ha = (LinkLaunch *)link->getAction();
-        GooString *file = new GooString(ha->getFileName()->c_str());
-        return file;
+        const LinkLaunch *ha = static_cast<const LinkLaunch *>(link->getAction());
+        return ha->getFileName() ? std::string(ha->getFileName()->c_str()) : std::string();
     }
     default:
-        return new GooString();
+        return std::string();
     }
 }
 
@@ -972,13 +924,24 @@ void HtmlOutputDev::generateOutline(PDFDoc *doc, std::vector<ReadPDFOutputs::Out
   if (!outline) return;
   const std::vector<OutlineItem *> *outlines = outline->getItems();
   if (!outlines) return;
-  generateOutlineLevel(outlines, dest);
+  std::unordered_set<Ref> seen;
+  generateOutlineLevel(outlines, dest, 0, seen);
 }
 
+// Real outlines are a few levels deep. A hostile one can nest thousands, and each level costs a walk up its parents
+// (Poppler's loop check) and a level of recursion here and when the result is built: deeper levels are left out.
+static constexpr int maxOutlineDepth = 256;
+
 void HtmlOutputDev::generateOutlineLevel(const std::vector<OutlineItem *> *outlines,
-                                         std::vector<ReadPDFOutputs::OutlineItem> &dest) {
+                                         std::vector<ReadPDFOutputs::OutlineItem> &dest, int depth,
+                                         std::unordered_set<Ref> &seen) {
+  if (depth >= maxOutlineDepth) return;
   for (OutlineItem *item : *outlines) {
-    std::string titleStr = HtmlFont::codepointsEncode(item->getTitle(), item->getTitleLength());
+    // Every item once: Poppler reads a list of children again for every item that names it, so items sharing their
+    // children would make the work double with every level.
+    if (!seen.insert(item->getRef()).second) continue;
+    const std::vector<Unicode> &title = item->getTitle();
+    std::string titleStr = HtmlFont::codepointsEncode(title.data(), title.size());
     const int itemPage = getOutlinePageNum(item);
 
     dest.push_back(ReadPDFOutputs::OutlineItem());
@@ -986,9 +949,10 @@ void HtmlOutputDev::generateOutlineLevel(const std::vector<OutlineItem *> *outli
     if (itemPage > 0) serItem.page = itemPage;
     serItem.title = titleStr;
 
-    item->open();
-    if (item->hasKids() && item->getKids()) generateOutlineLevel(item->getKids(), serItem.children);
-    item->close();
+    if (depth + 1 < maxOutlineDepth && item->hasKids()) {
+      item->open();
+      if (item->getKids()) generateOutlineLevel(item->getKids(), serItem.children, depth + 1, seen);
+    }
   }
 }
 
@@ -1008,7 +972,7 @@ int HtmlOutputDev::getOutlinePageNum(OutlineItem *item)
         return pagenum;
 
     if (link->getDest())
-        linkdest = std::unique_ptr<LinkDest>(link->getDest()->copy());
+        linkdest = std::make_unique<LinkDest>(*link->getDest());
     else if (link->getNamedDest())
         linkdest = catalog->findDest(link->getNamedDest());
 

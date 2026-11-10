@@ -5,7 +5,8 @@
 //---------------------------------------------------------------------------------
 // Hugo Mercier <hmercier31[at]gmail.com> (c) 2008
 // Carlos Garcia Campos <carlosgc@gnome.org> (c) 2010
-// Albert Astals Cid <aacid@kde.org> (c) 2017-2019
+// Albert Astals Cid <aacid@kde.org> (c) 2017-2019, 2021, 2022, 2024
+// g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk> (c) 2026
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,11 +29,13 @@
 #include "Object.h"
 #include "poppler_private_export.h"
 
+#include <memory>
+
 struct MovieActivationParameters
 {
 
     MovieActivationParameters();
-    ~MovieActivationParameters();
+    ~MovieActivationParameters() = default;
 
     // parse from a "Movie Activation" dictionary
     void parseMovieActivation(const Object *aDict);
@@ -76,7 +79,7 @@ class POPPLER_PRIVATE_EXPORT Movie
 {
 public:
     Movie(const Object *movieDict, const Object *aDict);
-    Movie(const Object *movieDict);
+    explicit Movie(const Object *movieDict);
     Movie(const Movie &other);
     ~Movie();
     Movie &operator=(const Movie &) = delete;
@@ -84,7 +87,7 @@ public:
     bool isOk() const { return ok; }
     const MovieActivationParameters *getActivationParameters() const { return &MA; }
 
-    const GooString *getFileName() const { return fileName; }
+    const std::optional<std::string> &getFileName() const { return fileName; }
 
     unsigned short getRotationAngle() const { return rotationAngle; }
     void getAspect(int *widthA, int *heightA) const
@@ -97,9 +100,9 @@ public:
     bool getShowPoster() const { return showPoster; }
 
     bool getUseFloatingWindow() const { return MA.floatingWindow; }
-    void getFloatingWindowSize(int *width, int *height);
+    void getFloatingWindowSize(int *width, int *height) const;
 
-    Movie *copy() const;
+    std::unique_ptr<Movie> copy() const;
 
 private:
     void parseMovie(const Object *movieDict);
@@ -113,7 +116,7 @@ private:
     Object poster;
     bool showPoster;
 
-    GooString *fileName;
+    std::optional<std::string> fileName;
 
     MovieActivationParameters MA;
 };

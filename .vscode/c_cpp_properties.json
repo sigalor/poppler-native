@@ -1,20 +1,22 @@
 {
   "configurations": [
     {
-      "name": "Linux",
-      "defines": [],
+      "name": "poppler-native",
       "includePath": [
-        "native/binding",
-        "native/poppler",
-        "node_modules/node-addon-api",
-        "/usr/include/node",
-        "/usr/include/c++/9",
-        "/usr/include/x86_64-linux-gnu/c++/9"
+        "${workspaceFolder}/native/binding",
+        "${workspaceFolder}/native/poppler",
+        "${workspaceFolder}/native/poppler/poppler",
+        "${workspaceFolder}/native/deps/config/freetype",
+        "${workspaceFolder}/native/deps/freetype/include",
+        "${workspaceFolder}/native/deps/config/libpng",
+        "${workspaceFolder}/native/deps/libpng",
+        "${workspaceFolder}/native/deps/zlib",
+        "${workspaceFolder}/node_modules/node-addon-api",
+        "${env:HOME}/.cache/node-gyp/**"
       ],
-      "intelliSenseMode": "gcc-x64",
-      "compilerPath": "/usr/bin/gcc",
-      "cStandard": "c11",
-      "cppStandard": "c++17"
+      "defines": ["NAPI_CPP_EXCEPTIONS", "Z_PREFIX", "NDEBUG"],
+      "cStandard": "c17",
+      "cppStandard": "c++23"
     }
   ],
   "version": 4

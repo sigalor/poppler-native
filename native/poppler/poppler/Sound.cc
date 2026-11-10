@@ -1,7 +1,9 @@
 /* Sound.cc - an object that holds the sound structure
  * Copyright (C) 2006-2007, Pino Toscano <pino@kde.org>
- * Copyright (C) 2009, 2017-2020, Albert Astals Cid <aacid@kde.org>
+ * Copyright (C) 2009, 2017-2020, 2025, Albert Astals Cid <aacid@kde.org>
  * Copyright (C) 2020, Oliver Sander <oliver.sander@tu-dresden.de>
+ * Copyright (C) 2026 g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk>
+ * Copyright (C) 2026 Stefan Brüns <stefan.bruens@rwth-aachen.de>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,33 +25,33 @@
 #include "Stream.h"
 #include "FileSpec.h"
 
-std::unique_ptr<Sound> Sound::parseSound(Object *obj)
+std::unique_ptr<Sound> Sound::parseSound(const Object &obj)
 {
     // let's try to see if this Object is a Sound, according to the PDF specs
     // (section 9.2)
     Stream *str = nullptr;
     // the Object must be a Stream
-    if (obj->isStream()) {
-        str = obj->getStream();
+    if (obj.isStream()) {
+        str = obj.getStream();
     } else {
         return nullptr;
     }
     // the Stream must have a Dict
     Dict *dict = str->getDict();
-    if (dict == nullptr)
+    if (dict == nullptr) {
         return nullptr;
+    }
     // the Dict must have the 'R' key of type num
     Object tmp = dict->lookup("R");
     if (tmp.isNum()) {
         return std::unique_ptr<Sound>(new Sound(obj));
-    } else {
-        return nullptr;
     }
+    return nullptr;
 }
 
-Sound::Sound(const Object *obj, bool readAttrs)
+Sound::Sound(const Object &obj, bool readAttrs)
 {
-    streamObj = obj->copy();
+    streamObj = obj.copy();
 
     samplingRate = 0.0;
     channels = 1;
@@ -64,7 +66,7 @@ Sound::Sound(const Object *obj, bool readAttrs)
             kind = soundExternal;
             Object obj1 = getFileSpecNameForPlatform(&tmp);
             if (obj1.isString()) {
-                fileName = obj1.getString()->toStr();
+                fileName = obj1.getString();
             }
         } else {
             // no file specification, then the sound data have to be
@@ -86,21 +88,21 @@ Sound::Sound(const Object *obj, bool readAttrs)
         // encoding format
         tmp = dict->lookup("E");
         if (tmp.isName()) {
-            const char *enc = tmp.getName();
-            if (strcmp("Raw", enc) == 0) {
+            const std::string &enc = tmp.getNameString();
+            if ("Raw" == enc) {
                 encoding = soundRaw;
-            } else if (strcmp("Signed", enc) == 0) {
+            } else if ("Signed" == enc) {
                 encoding = soundSigned;
-            } else if (strcmp("muLaw", enc) == 0) {
+            } else if ("muLaw" == enc) {
                 encoding = soundMuLaw;
-            } else if (strcmp("ALaw", enc) == 0) {
+            } else if ("ALaw" == enc) {
                 encoding = soundALaw;
             }
         }
     }
 }
 
-Sound::~Sound() { }
+Sound::~Sound() = default;
 
 Stream *Sound::getStream()
 {
@@ -109,7 +111,7 @@ Stream *Sound::getStream()
 
 Sound *Sound::copy() const
 {
-    Sound *newsound = new Sound(&streamObj, false);
+    auto *newsound = new Sound(streamObj, false);
 
     newsound->kind = kind;
     newsound->fileName = fileName;

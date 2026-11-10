@@ -6,8 +6,10 @@
 // Hugo Mercier <hmercier31[at]gmail.com> (c) 2008
 // Pino Toscano <pino@kde.org> (c) 2008
 // Carlos Garcia Campos <carlosgc@gnome.org> (c) 2010
-// Albert Astals Cid <aacid@kde.org> (c) 2010, 2017-2019
+// Albert Astals Cid <aacid@kde.org> (c) 2010, 2017-2019, 2022, 2024
 // Evgeny Stambulchik <fnevgeny@gmail.com> (c) 2019
+// g10 Code GmbH, Author: Sune Stolborg Vuorela <sune@vuorela.dk> (c) 2025, 2026
+// Stefan Brüns <stefan.bruens@rwth-aachen.de> (c) 2026
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -44,8 +46,6 @@ MovieActivationParameters::MovieActivationParameters()
     znum = 1;
     zdenum = 1;
 }
-
-MovieActivationParameters::~MovieActivationParameters() { }
 
 void MovieActivationParameters::parseMovieActivation(const Object *aDict)
 {
@@ -108,7 +108,7 @@ void MovieActivationParameters::parseMovieActivation(const Object *aDict)
     obj1 = aDict->dictLookup("Volume");
     if (obj1.isNum()) {
         // convert volume to [0 100]
-        volume = int((obj1.getNum() + 1.0) * 50);
+        volume = static_cast<int>((obj1.getNum() + 1.0) * 50);
     }
 
     obj1 = aDict->dictLookup("ShowControls");
@@ -123,14 +123,14 @@ void MovieActivationParameters::parseMovieActivation(const Object *aDict)
 
     obj1 = aDict->dictLookup("Mode");
     if (obj1.isName()) {
-        const char *name = obj1.getName();
-        if (!strcmp(name, "Once")) {
+        const std::string &name = obj1.getNameString();
+        if (name == "Once") {
             repeatMode = repeatModeOnce;
-        } else if (!strcmp(name, "Open")) {
+        } else if (name == "Open") {
             repeatMode = repeatModeOpen;
-        } else if (!strcmp(name, "Repeat")) {
+        } else if (name == "Repeat") {
             repeatMode = repeatModeRepeat;
-        } else if (!strcmp(name, "Palindrome")) {
+        } else if (name == "Palindrome") {
             repeatMode = repeatModePalindrome;
         }
     }
@@ -172,7 +172,7 @@ void MovieActivationParameters::parseMovieActivation(const Object *aDict)
 
 void Movie::parseMovie(const Object *movieDict)
 {
-    fileName = nullptr;
+    fileName.reset();
     rotationAngle = 0;
     width = -1;
     height = -1;
@@ -181,7 +181,7 @@ void Movie::parseMovie(const Object *movieDict)
     Object obj1 = movieDict->dictLookup("F");
     Object obj2 = getFileSpecNameForPlatform(&obj1);
     if (obj2.isString()) {
-        fileName = obj2.getString()->copy();
+        fileName = obj2.getString();
     } else {
         error(errSyntaxError, -1, "Invalid Movie");
         ok = false;
@@ -194,11 +194,11 @@ void Movie::parseMovie(const Object *movieDict)
         if (aspect->getLength() >= 2) {
             Object tmp = aspect->get(0);
             if (tmp.isNum()) {
-                width = (int)floor(tmp.getNum() + 0.5);
+                width = static_cast<int>(floor(tmp.getNum() + 0.5));
             }
             tmp = aspect->get(1);
             if (tmp.isNum()) {
-                height = (int)floor(tmp.getNum() + 0.5);
+                height = static_cast<int>(floor(tmp.getNum() + 0.5));
             }
         }
     }
@@ -225,19 +225,17 @@ void Movie::parseMovie(const Object *movieDict)
     }
 }
 
-Movie::~Movie()
-{
-    delete fileName;
-}
+Movie::~Movie() = default;
 
 Movie::Movie(const Object *movieDict)
 {
     ok = true;
 
-    if (movieDict->isDict())
+    if (movieDict->isDict()) {
         parseMovie(movieDict);
-    else
+    } else {
         ok = false;
+    }
 }
 
 Movie::Movie(const Object *movieDict, const Object *aDict)
@@ -246,8 +244,9 @@ Movie::Movie(const Object *movieDict, const Object *aDict)
 
     if (movieDict->isDict()) {
         parseMovie(movieDict);
-        if (aDict->isDict())
+        if (aDict->isDict()) {
             MA.parseMovieActivation(aDict);
+        }
     } else {
         ok = false;
     }
@@ -264,19 +263,18 @@ Movie::Movie(const Movie &other)
 
     poster = other.poster.copy();
 
-    if (other.fileName)
-        fileName = other.fileName->copy();
-    else
-        fileName = nullptr;
+    if (other.fileName) {
+        fileName = other.fileName;
+    }
 }
 
-void Movie::getFloatingWindowSize(int *widthA, int *heightA)
+void Movie::getFloatingWindowSize(int *widthA, int *heightA) const
 {
-    *widthA = int(width * double(MA.znum) / MA.zdenum);
-    *heightA = int(height * double(MA.znum) / MA.zdenum);
+    *widthA = static_cast<int>(width * static_cast<double>(MA.znum) / MA.zdenum);
+    *heightA = static_cast<int>(height * static_cast<double>(MA.znum) / MA.zdenum);
 }
 
-Movie *Movie::copy() const
+std::unique_ptr<Movie> Movie::copy() const
 {
-    return new Movie(*this);
+    return std::make_unique<Movie>(*this);
 }
