@@ -60,6 +60,9 @@ struct Options {
   int lastPage = 0;  // 0: up to the last page
   bool images = true;
   bool layout = false;
+  // The longest string JavaScript can hold (buffer.constants.MAX_STRING_LENGTH), passed by index.js: a result that
+  // needs a longer one can't be returned.
+  size_t maxStringLength = (size_t(1) << 29) - 24;
 };
 
 // What info() and text() share: checking the arguments, getting the PDF's bytes and opening the document.
@@ -130,6 +133,19 @@ class DocumentWorker : public Napi::AsyncWorker {
 
   void OnError(const Napi::Error &error) override { deferred.Reject(error.Value()); }
 
+  // Builds the result on the JavaScript thread. Should that fail (a string longer than JavaScript allows, memory), the
+  // promise is rejected with the reason instead of the error escaping from the completion callback.
+  template <typename Build>
+  void Settle(Build build) {
+    try {
+      deferred.Resolve(build());
+    } catch (const Napi::Error &e) {
+      deferred.Reject(e.Value());
+    } catch (const std::exception &e) {
+      deferred.Reject(Napi::Error::New(Env(), e.what()).Value());
+    }
+  }
+
   Options options;
   Napi::Promise::Deferred deferred;
 
@@ -141,6 +157,9 @@ class DocumentWorker : public Napi::AsyncWorker {
     if ((value = object.Get("lastPage")).IsNumber()) options.lastPage = value.As<Napi::Number>().Int32Value();
     if ((value = object.Get("images")).IsBoolean()) options.images = value.As<Napi::Boolean>().Value();
     if ((value = object.Get("layout")).IsBoolean()) options.layout = value.As<Napi::Boolean>().Value();
+    if ((value = object.Get("_maxStringLength")).IsNumber() && value.As<Napi::Number>().DoubleValue() >= 1) {
+      options.maxStringLength = static_cast<size_t>(value.As<Napi::Number>().DoubleValue());
+    }
   }
 
   std::string argError;
@@ -166,25 +185,29 @@ class InfoWorker : public DocumentWorker {
     TextRepair::TextRepair textRepair(doc->getXRef());
     HtmlOutputDev outputDev(doc->getCatalog(), "this", numPages, !options.images, false, false, 0.1, pages,
                             &textRepair);
+    outputDev.setMaxStringLength(options.maxStringLength);
     if (auto range = pageRange(*doc)) {
       doc->displayPages(&outputDev, range->first, range->second, 108.0, 108.0, 0, true, false, false);
     }
+    if (!outputDev.failure().empty()) throw std::runtime_error(outputDev.failure());
     outputDev.generateOutline(doc.get(), outline);
   }
 
   // output has to be constructed here, because during Execute, all JS calls are invalid
   void OnOK() override {
-    Napi::Object ret = Napi::Object::New(Env());
-    ret.Set("meta", NodeUtilities::serializeMap(Env(), meta));
-    if (!outline.empty()) ret.Set("outline", ReadPDFOutputs::serializeArray(Env(), outline));
+    Settle([this] {
+      Napi::Object ret = Napi::Object::New(Env());
+      ret.Set("meta", NodeUtilities::serializeMap(Env(), meta));
+      if (!outline.empty()) ret.Set("outline", ReadPDFOutputs::serializeArray(Env(), outline));
 
-    std::vector<ReadPDFOutputs::Font> fonts;
-    for (ReadPDFOutputs::Page &page : pages) fonts.insert(fonts.end(), page.fonts.begin(), page.fonts.end());
-    ret.Set("fonts", ReadPDFOutputs::serializeArray(Env(), fonts));
+      std::vector<ReadPDFOutputs::Font> fonts;
+      for (ReadPDFOutputs::Page &page : pages) fonts.insert(fonts.end(), page.fonts.begin(), page.fonts.end());
+      ret.Set("fonts", ReadPDFOutputs::serializeArray(Env(), fonts));
 
-    ret.Set("numPages", numPages);
-    ret.Set("pages", ReadPDFOutputs::serializeArray(Env(), pages));
-    deferred.Resolve(ret);
+      ret.Set("numPages", numPages);
+      ret.Set("pages", ReadPDFOutputs::serializeArray(Env(), pages));
+      return ret;
+    });
   }
 
  private:
@@ -229,9 +252,26 @@ class TextWorker : public DocumentWorker {
     if (auto range = pageRange(*doc)) {
       doc->displayPages(&textOut, range->first, range->second, 72.0, 72.0, 0, true, false, false);
     }
+    if (utf16Length(text) > options.maxStringLength) {
+      throw std::runtime_error(
+          "the text is too long for a JavaScript string; read fewer pages at a time with firstPage and lastPage");
+    }
   }
 
-  void OnOK() override { deferred.Resolve(Napi::String::New(Env(), text)); }
+  void OnOK() override {
+    Settle([this] { return Napi::String::New(Env(), text); });
+  }
+
+ private:
+  // The length of UTF-8 text in UTF-16 code units, which is what a JavaScript string's length counts.
+  static size_t utf16Length(const std::string &utf8) {
+    size_t length = 0;
+    for (const char c : utf8) {
+      const auto byte = static_cast<unsigned char>(c);
+      if ((byte & 0xC0) != 0x80) length += byte >= 0xF0 ? 2 : 1;  // a lead byte; 4-byte sequences need a pair
+    }
+    return length;
+  }
 
  private:
   std::string text;

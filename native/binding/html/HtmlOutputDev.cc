@@ -652,8 +652,15 @@ void HtmlOutputDev::drawChar(GfxState *state, double x, double y, double dx, dou
     pages->addChar(state, x, y, dx, dy, originX, originY, u, uLen);
 }
 
+void HtmlOutputDev::imageTooLarge()
+{
+    if (failure_.empty())
+        failure_ = "page " + std::to_string(pageNum) + " has an image too large to return as a data URL; read the document with { images: false }";
+}
+
 void HtmlOutputDev::drawJpegImage(GfxState *state, Stream *str)
 {
+    static const std::string prefix = "data:image/jpeg;base64,";
     // the JPEG data as it is embedded: the stream underneath the DCT decoder
     str = str->getNextStream();
     if (!str->rewind()) {
@@ -661,16 +668,26 @@ void HtmlOutputDev::drawJpegImage(GfxState *state, Stream *str)
         return;
     }
 
+    // Read at most what fits in a data URL: behind a filter such as Flate, a few kilobytes can expand to gigabytes.
+    const size_t maxBytes = maxDataUrlBytes(prefix.size());
     std::vector<unsigned char> jpeg;
-    int c;
-    while ((c = str->getChar()) != EOF)
-        jpeg.push_back(static_cast<unsigned char>(c));
+    unsigned char chunk[65536];
+    int n;
+    while ((n = str->doGetChars(sizeof(chunk), chunk)) > 0) {
+        if (jpeg.size() + n > maxBytes) {
+            imageTooLarge();
+            return;
+        }
+        jpeg.insert(jpeg.end(), chunk, chunk + n);
+    }
 
-    pages->addImage(std::string("data:image/jpeg;base64,") + gbase64Encode(jpeg), state);
+    pages->addImage(prefix + gbase64Encode(jpeg), state);
 }
 
 void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask)
 {
+    static const std::string prefix = "data:image/png;base64,";
+    const size_t maxBytes = maxDataUrlBytes(prefix.size());
     if (!colorMap && !isMask) {
         error(errInternal, -1, "Can't have color image without a color map");
         return;
@@ -716,6 +733,10 @@ void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int he
                 error(errIO, -1, "Failed to write into in-memory PNG file");
                 return;
             }
+            if (writer.size() > maxBytes) {
+                imageTooLarge();
+                return;
+            }
         }
         imgStr.close();
     } else { // isMask == true
@@ -749,6 +770,10 @@ void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int he
                 error(errIO, -1, "Failed to write into in-memory PNG file");
                 return;
             }
+            if (writer.size() > maxBytes) {
+                imageTooLarge();
+                return;
+            }
         }
         str->close();
     }
@@ -760,13 +785,17 @@ void HtmlOutputDev::drawPngImage(GfxState *state, Stream *str, int width, int he
         error(errIO, -1, "Failed to write into in-memory PNG file");
         return;
     }
-    pages->addImage(std::string("data:image/png;base64,") + gbase64Encode(png), state);
+    if (png.size() > maxBytes) {
+        imageTooLarge();
+        return;
+    }
+    pages->addImage(prefix + gbase64Encode(png), state);
 }
 
 void HtmlOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str, int width, int height, bool invert, bool interpolate, bool inlineImg)
 {
 
-    if (ignoreImages) {
+    if (ignoreImages || !failure_.empty()) {
         OutputDev::drawImageMask(state, ref, str, width, height, invert, interpolate, inlineImg);
         return;
     }
@@ -782,7 +811,7 @@ void HtmlOutputDev::drawImageMask(GfxState *state, Object *ref, Stream *str, int
 void HtmlOutputDev::drawImage(GfxState *state, Object *ref, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool interpolate, const int *maskColors, bool inlineImg)
 {
 
-    if (ignoreImages) {
+    if (ignoreImages || !failure_.empty()) {
         OutputDev::drawImage(state, ref, str, width, height, colorMap, interpolate, maskColors, inlineImg);
         return;
     }

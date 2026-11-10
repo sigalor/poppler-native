@@ -245,6 +245,11 @@ public:
     int getPageWidth() { return maxPageWidth; }
     int getPageHeight() { return maxPageHeight; }
 
+    // The longest string JavaScript can hold: an image whose data URL would be longer can't be returned.
+    void setMaxStringLength(size_t length) { maxStringLength = length; }
+    // Why the result can't be returned (an image too large), or empty. Images after such a one are skipped.
+    const std::string &failure() const { return failure_; }
+
     void generateOutline(PDFDoc *doc, std::vector<ReadPDFOutputs::OutlineItem> &dest);
 
 private:
@@ -254,6 +259,12 @@ private:
     int getOutlinePageNum(OutlineItem *item);
     void drawJpegImage(GfxState *state, Stream *str);
     void drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask = false);
+
+    // The most bytes a data URL starting with <prefix> can encode in base64 and still fit in a JavaScript string.
+    size_t maxDataUrlBytes(size_t prefixLength) const { return maxStringLength > prefixLength ? (maxStringLength - prefixLength) / 4 * 3 : 0; }
+    void imageTooLarge();
+    size_t maxStringLength = (size_t(1) << 29) - 24;
+    std::string failure_;
 
     std::unique_ptr<HtmlPage> pages; // text for the current page
     bool dumpJPEG;

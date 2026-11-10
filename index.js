@@ -1,3 +1,4 @@
+const { constants } = require('buffer');
 const fs = require('fs/promises');
 const native = require('./lib/native');
 const { checkArguments } = require('./lib/arguments');
@@ -24,19 +25,22 @@ async function readPdfFile(filename) {
   }
 }
 
+// The addon needs to know the longest string JavaScript holds: a result that needs a longer one can't be returned.
+const limits = { _maxStringLength: constants.MAX_STRING_LENGTH };
+
 async function info(...args) {
   const { pdf, options } = checkArguments('info', args);
   const { reconvertThroughPS, ...rest } = options;
-  if (!reconvertThroughPS) return native.info(pdf, rest);
+  if (!reconvertThroughPS) return native.info(pdf, { ...rest, ...limits });
 
   const bytes = typeof pdf === 'string' ? await readPdfFile(pdf) : pdf;
   if (bytes.length === 0) throw new Error('input buffer is empty');
-  return native.info(await reconvertThroughPostScript(bytes), rest);
+  return native.info(await reconvertThroughPostScript(bytes), { ...rest, ...limits });
 }
 
 async function text(...args) {
   const { pdf, options } = checkArguments('text', args);
-  return native.text(pdf, options);
+  return native.text(pdf, { ...options, ...limits });
 }
 
 module.exports = { info, text };

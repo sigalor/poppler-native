@@ -22,6 +22,8 @@ class PngEncoder {
   bool writeRow(const unsigned char *row);
   // Ends the image and hands over the PNG bytes; empty if anything failed.
   std::vector<unsigned char> finish();
+  // How many bytes of PNG have been written so far.
+  size_t size() const { return data_.size(); }
 
  private:
   static void onWrite(png_structp png, png_bytep bytes, png_size_t length);

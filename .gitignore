@@ -7,3 +7,4 @@ fuzz-case.pdf
 .cproject
 .pydevproject
 node_modules
+__pycache__/
