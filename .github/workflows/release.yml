@@ -1,9 +1,13 @@
 name: Release
 
-# Pushing a tag v<version> builds and tests everything CI does, then publishes exactly the tarball CI tested to npm and
-# creates a GitHub release with the changelog entry. Publishing uses npm's trusted publishing (no token): configure it
-# once on npmjs.com, in the package's settings under "Trusted publisher": GitHub Actions, repository
-# sigalor/poppler-native, workflow release.yml. npm then adds provenance by itself.
+# Pushing a tag v<version> builds and tests everything CI does, then stages exactly the tarball CI tested on npm and
+# creates a GitHub release with the changelog entry. A staged version becomes installable only once a maintainer
+# approves it with 2FA: on npmjs.com, or with `npm stage list` and `npm stage approve <id>`. So nothing this workflow
+# does -- or anyone who could change it -- can put a version into users' hands on its own.
+#
+# It authenticates with npm's trusted publishing (no token): configure it once on npmjs.com, in the package's settings
+# under "Trusted publisher": GitHub Actions, sigalor / poppler-native, workflow release.yml, no environment, and
+# "Allowed actions" left as they are (npm stage publish only; neither npm publish nor npm dist-tag is needed).
 on:
   push:
     tags: ['v*']
@@ -44,8 +48,8 @@ jobs:
           fi
           awk -v v="$version" 'index($0, "# " v " ") == 1 {found=1; next} /^# / && found {exit} found' CHANGELOG.md > notes.md
           test -s notes.md || { echo "CHANGELOG.md has no entry for $version" >&2; exit 1; }
-      - name: Publish to npm
-        run: npm publish "poppler-native-${GITHUB_REF_NAME#v}.tgz" --access public
+      - name: Stage the release on npm (a maintainer approves it with 2FA)
+        run: npm stage publish "./poppler-native-${GITHUB_REF_NAME#v}.tgz" --access public --provenance
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
