@@ -38,6 +38,7 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include <poppler/Catalog.h>
@@ -255,7 +256,7 @@ public:
 private:
     void doProcessLink(AnnotLink *link);
     std::string getLinkDest(AnnotLink *link);
-    void generateOutlineLevel(const std::vector<OutlineItem *> *outlines, std::vector<ReadPDFOutputs::OutlineItem> &dest, int depth);
+    void generateOutlineLevel(const std::vector<OutlineItem *> *outlines, std::vector<ReadPDFOutputs::OutlineItem> &dest, int depth, std::unordered_set<Ref> &seen);
     int getOutlinePageNum(OutlineItem *item);
     void drawJpegImage(GfxState *state, Stream *str);
     void drawPngImage(GfxState *state, Stream *str, int width, int height, GfxImageColorMap *colorMap, bool isMask = false);

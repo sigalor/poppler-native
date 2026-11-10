@@ -34,4 +34,22 @@ function deepOutlinePdf(depth) {
   return buildPdf(bodies);
 }
 
-module.exports = { buildPdf, deepOutlinePdf };
+// One page and an outline `levels` deep with two items on every level, both of which list the same two items as their
+// children: as a tree, 2^(levels+1) items, from a few kilobytes.
+function sharedOutlinePdf(levels) {
+  const bodies = [
+    '<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>',
+    '<< /Type /Outlines /First 5 0 R /Last 6 0 R >>',
+  ];
+  for (let level = 0; level < levels; level++) {
+    const first = 5 + 2 * level;
+    const kids = level < levels - 1 ? ` /First ${first + 2} 0 R /Last ${first + 3} 0 R` : '';
+    bodies.push(`<< /Title (Level ${level + 1} A) /Next ${first + 1} 0 R /Dest [3 0 R /Fit]${kids} >>`);
+    bodies.push(`<< /Title (Level ${level + 1} B) /Prev ${first} 0 R /Dest [3 0 R /Fit]${kids} >>`);
+  }
+  return buildPdf(bodies);
+}
+
+module.exports = { buildPdf, deepOutlinePdf, sharedOutlinePdf };

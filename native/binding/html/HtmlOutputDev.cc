@@ -906,7 +906,8 @@ void HtmlOutputDev::generateOutline(PDFDoc *doc, std::vector<ReadPDFOutputs::Out
   if (!outline) return;
   const std::vector<OutlineItem *> *outlines = outline->getItems();
   if (!outlines) return;
-  generateOutlineLevel(outlines, dest, 0);
+  std::unordered_set<Ref> seen;
+  generateOutlineLevel(outlines, dest, 0, seen);
 }
 
 // Real outlines are a few levels deep. A hostile one can nest thousands, and each level costs a walk up its parents
@@ -914,9 +915,13 @@ void HtmlOutputDev::generateOutline(PDFDoc *doc, std::vector<ReadPDFOutputs::Out
 static constexpr int maxOutlineDepth = 256;
 
 void HtmlOutputDev::generateOutlineLevel(const std::vector<OutlineItem *> *outlines,
-                                         std::vector<ReadPDFOutputs::OutlineItem> &dest, int depth) {
+                                         std::vector<ReadPDFOutputs::OutlineItem> &dest, int depth,
+                                         std::unordered_set<Ref> &seen) {
   if (depth >= maxOutlineDepth) return;
   for (OutlineItem *item : *outlines) {
+    // Every item once: Poppler reads a list of children again for every item that names it, so items sharing their
+    // children would make the work double with every level.
+    if (!seen.insert(item->getRef()).second) continue;
     const std::vector<Unicode> &title = item->getTitle();
     std::string titleStr = HtmlFont::codepointsEncode(title.data(), title.size());
     const int itemPage = getOutlinePageNum(item);
@@ -928,7 +933,7 @@ void HtmlOutputDev::generateOutlineLevel(const std::vector<OutlineItem *> *outli
 
     if (depth + 1 < maxOutlineDepth && item->hasKids()) {
       item->open();
-      if (item->getKids()) generateOutlineLevel(item->getKids(), serItem.children, depth + 1);
+      if (item->getKids()) generateOutlineLevel(item->getKids(), serItem.children, depth + 1, seen);
     }
   }
 }

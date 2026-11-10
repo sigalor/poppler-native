@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const pdf = require('../');
-const { deepOutlinePdf } = require('./helpers/pdf');
+const { deepOutlinePdf, sharedOutlinePdf } = require('./helpers/pdf');
 
 const root = path.join(__dirname, '..');
 const fixture = name => path.join(__dirname, 'fixtures', name);
@@ -44,6 +44,23 @@ describe('outline', () => {
       fs.rmSync(path.dirname(file), { recursive: true, force: true });
     }
   }, 70000);
+
+  // Items whose children are one shared list were read once for every parent: the work doubled with every level.
+  test('items that share their children are read once', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'poppler-native-outline-')), 'shared.pdf');
+    try {
+      fs.writeFileSync(file, sharedOutlinePdf(40));
+      const script = `require(${JSON.stringify(root)}).info(${JSON.stringify(file)}).then(d => {
+        const count = items => (items || []).reduce((n, item) => n + 1 + count(item.children), 0);
+        process.stdout.write(String(count(d.outline)));
+      })`;
+      const result = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 10000 });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe('80');
+    } finally {
+      fs.rmSync(path.dirname(file), { recursive: true, force: true });
+    }
+  }, 20000);
 
   test('an item whose destination cannot be resolved has no page', async () => {
     expect((await pdf.info(fixture('outline-unresolved.pdf'))).outline).toEqual([
