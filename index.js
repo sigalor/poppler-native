@@ -34,12 +34,13 @@ const limits = {
 };
 
 // Ghostscript handles a missing or wrong password badly (an empty document, or a crash), so Poppler checks it first,
-// without reading any page, and refuses as info() does without reconvertThroughPS. Any other problem is left to
-// Ghostscript, which can often convert a PDF that Poppler can't open: that is what reconvertThroughPS is for.
+// opening the document without reading any page, and refuses as info() does without reconvertThroughPS. Any other
+// problem is left to Ghostscript, which can often convert a PDF that Poppler can't open: that is what
+// reconvertThroughPS is for.
 const ENCRYPTED = 'file was encrypted and password was incorrect or not supplied';
 async function checkPassword(bytes, password) {
   try {
-    await native.info(bytes, { password, images: false, firstPage: 2 ** 31 - 1, ...limits });
+    await native.text(bytes, { password, firstPage: 2 ** 31 - 1, ...limits });
   } catch (e) {
     if (e.message === ENCRYPTED) throw e;
   }

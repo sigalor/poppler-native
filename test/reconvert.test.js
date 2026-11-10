@@ -68,8 +68,11 @@ describeWithGhostscript('reconvertThroughPS', () => {
       expect(texts(encrypted)).toEqual(texts(plain));
     });
 
-    test('is read with a password that has a space, a quote and a backslash', async () => {
-      const encrypted = await pdf.info(fixture('encrypted-quoted.pdf'), { password: 'pa ss"wo\\rd', reconvertThroughPS: true });
+    test('is read with a password that has a space, a backslash before a quote, and one before r', async () => {
+      const encrypted = await pdf.info(fixture('encrypted-quoted.pdf'), {
+        password: 'pa ss\\"wo\\rd',
+        reconvertThroughPS: true,
+      });
       expect(encrypted.numPages).toBe(3);
     });
 
@@ -79,6 +82,20 @@ describeWithGhostscript('reconvertThroughPS', () => {
         refused,
       );
     });
+  });
+
+  test('works with a % in the temporary directory', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'poppler-native-%d-'));
+    try {
+      const env = { ...process.env, TMPDIR: tmp, TEMP: tmp, TMP: tmp };
+      const out = inChild(
+        `pdf.info(${JSON.stringify(fixture('three-pages.pdf'))}, { reconvertThroughPS: true }).then(i => process.stdout.write(String(i.numPages)))`,
+        env,
+      );
+      expect(out).toBe('3');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   test('leaves no temporary files behind', () => {
@@ -109,12 +126,33 @@ describe('the password, as Ghostscript reads it from its argument file', () => {
   const { passwordArgument } = require('../lib/ghostscript');
 
   test('is quoted, with its quotes escaped', () => {
-    expect(passwordArgument('pa ss"wo\\rd')).toBe('-sPDFPassword="pa ss\\"wo\\rd"\n');
+    expect(passwordArgument('a"b')).toBe('-sPDFPassword="a\\"b"\n');
+    expect(passwordArgument('a\\"b')).toBe('-sPDFPassword="a\\\\"b"\n'); // a backslash before a quote stays
+    expect(passwordArgument('pa ss\\rd')).toBe('-sPDFPassword="pa ss\\rd"\n');
   });
 
   test("is refused, saying why, where Ghostscript can't read it", () => {
-    for (const password of ['ends with \\', 'has \\" in it', 'a line\nbreak']) {
+    for (const password of ['ends with \\', 'a line\nbreak', 'a null\0byte']) {
       expect(() => passwordArgument(password)).toThrow("reconvertThroughPS can't hand this password to Ghostscript");
     }
   });
+});
+
+// A Ghostscript that only fails: refusing a missing or wrong password must not depend on what Ghostscript reports
+// (it reports a missing one in its output and exits with 0; version 10.0 crashes on a wrong one).
+(process.platform === 'win32' ? test.skip : test)('refuses a missing or wrong password before Ghostscript runs', () => {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'poppler-native-gs-'));
+  try {
+    fs.writeFileSync(path.join(bin, 'gs'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+    const run = options =>
+      inChild(
+        `pdf.info(${JSON.stringify(fixture('encrypted-user.pdf'))}, { ...${options}, reconvertThroughPS: true }).then(() => process.stdout.write('resolved'), e => process.stdout.write(e.message))`,
+        env,
+      );
+    expect(run('{}')).toBe('file was encrypted and password was incorrect or not supplied');
+    expect(run("{ password: 'wrong' }")).toBe('file was encrypted and password was incorrect or not supplied');
+  } finally {
+    fs.rmSync(bin, { recursive: true, force: true });
+  }
 });
