@@ -43,8 +43,9 @@ Node.js 22 or newer. Prebuilt binaries are included for:
 | macOS 11 or newer | ✓ | ✓ |
 | Windows 10 or newer | ✓ | ✓ |
 
-Anywhere else, the install compiles poppler-native from source automatically, which needs Python 3 and a C++23
-compiler (see [Building from source](#building-from-source)).
+Anywhere else, or where a prebuilt binary doesn't load (a musl system other than Alpine, say), the install compiles
+poppler-native from source automatically, which needs Python 3 and a C++23 compiler (see
+[Building from source](#building-from-source)).
 
 ## Usage
 
@@ -143,8 +144,9 @@ Every problem rejects the promise with an `Error` that says what's wrong: `does-
 file: No such file or directory`, `PDF file was damaged and couldn't be repaired`, `file was encrypted and password was
 incorrect or not supplied`. Invalid arguments reject with a `TypeError` that names them: `firstPage must be a positive
 integer, got 0`, `unknown option "firstpage"; info() accepts password, firstPage, lastPage, images,
-reconvertThroughPS`. Poppler's own warnings about broken PDFs are not printed; a damaged PDF that can be repaired simply
-parses.
+reconvertThroughPS`. A result too large for JavaScript (an image whose data URL would be longer than the longest
+string, as a decompression bomb produces) rejects with a message that suggests `{ images: false }`. Poppler's own
+warnings about broken PDFs are not printed; a damaged PDF that can be repaired simply parses.
 
 ### Command line
 
@@ -202,7 +204,8 @@ the text alone wherever Poppler's own decoding agrees with the shape.
 
 ## Building from source
 
-`npm install` compiles from source when no prebuilt binary matches, and `npm install --build-from-source` always does.
+`npm install` compiles from source when no prebuilt binary matches this system or loads on it, and
+`npm install --build-from-source` always does.
 It needs Python 3 and a C++23 compiler: GCC 12 or newer, Clang 18 or newer, Xcode 16.4 or newer, or Visual Studio 2022
 or 2026 with the "Desktop development with C++" workload. Visual Studio 2026 needs npm 11, which comes with Node.js 24
 and newer (on Node.js 22: `npm install -g npm@11`). Nothing else: Poppler and its libraries are part of the package.
