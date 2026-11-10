@@ -7,15 +7,28 @@
 #
 #   scripts/sanitize.sh [folder of PDFs ...]
 #
-# Leaves an instrumented build in build/: run `npm run build` afterwards.
+# The instrumented build is made in build/, where the normal one lives; the build that was there before is put back
+# when the script ends, however it ends.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+logs=$(mktemp -d)
+saved=""
+if [ -d build ]; then
+  saved=$(mktemp -d "$PWD/.build-before-sanitize.XXXXXX")
+  mv build "$saved/build"
+fi
+restore() {
+  rm -rf build "$logs"
+  if [ -n "$saved" ]; then
+    mv "$saved/build" build
+    rmdir "$saved"
+  fi
+}
+trap restore EXIT
+
 flags="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=undefined -g"
 CFLAGS="$flags" CXXFLAGS="$flags" LDFLAGS="-fsanitize=address,undefined" npx node-gyp rebuild --jobs max >/dev/null
-
-logs=$(mktemp -d)
-trap 'rm -rf "$logs"' EXIT
 
 # Runs a command with the sanitizer runtimes preloaded. Only that command (and the processes it starts) gets them:
 # preloaded into this shell, they would instrument every tool the script runs. ASan and LSan write their reports to

@@ -2,30 +2,30 @@ const pdf = require('../');
 const path = require('path');
 const fs = require('fs/promises');
 
-test('wrong number of parameters throws an error', () => {
-  expect(pdf.info()).rejects.toThrow('wrong number of arguments: expected 1-2, got 0');
-  expect(pdf.info('a', 'b', 'c')).rejects.toThrow('wrong number of arguments: expected 1-2, got 3');
+test('wrong number of parameters throws an error', async () => {
+  await expect(pdf.info()).rejects.toThrow('wrong number of arguments: expected 1-2, got 0');
+  await expect(pdf.info('a', 'b', 'c')).rejects.toThrow('wrong number of arguments: expected 1-2, got 3');
 });
 
-test('parameters of wrong type throws an error', () => {
-  expect(pdf.info(3)).rejects.toThrow('argument at position 1 has wrong type: expected string or Buffer, got number');
-  expect(pdf.info({ a: 1 })).rejects.toThrow(
+test('parameters of wrong type throws an error', async () => {
+  await expect(pdf.info(3)).rejects.toThrow('argument at position 1 has wrong type: expected string or Buffer, got number');
+  await expect(pdf.info({ a: 1 })).rejects.toThrow(
     'argument at position 1 has wrong type: expected string or Buffer, got object',
   );
-  expect(pdf.info('a', 'b')).rejects.toThrow('argument at position 2 has wrong type: expected object, got string');
+  await expect(pdf.info('a', 'b')).rejects.toThrow('argument at position 2 has wrong type: expected object, got string');
 });
 
-test('missing input filename throws an error', () => {
-  expect(pdf.info('does-not-exist')).rejects.toThrow(
+test('missing input filename throws an error', async () => {
+  await expect(pdf.info('does-not-exist')).rejects.toThrow(
     "does-not-exist: couldn't open the PDF file: No such file or directory",
   );
 });
 
-test('invalid PDF file throws an error', () => {
-  expect(pdf.info(path.join(__dirname, 'fixtures/not-a-pdf.pdf'))).rejects.toThrow(
+test('invalid PDF file throws an error', async () => {
+  await expect(pdf.info(path.join(__dirname, 'fixtures/not-a-pdf.pdf'))).rejects.toThrow(
     "PDF file was damaged and couldn't be repaired",
   );
-  expect(pdf.info(path.join(__dirname, 'fixtures/not-a-pdf.pdf'), { reconvertThroughPS: true })).rejects.toThrow();
+  await expect(pdf.info(path.join(__dirname, 'fixtures/not-a-pdf.pdf'), { reconvertThroughPS: true })).rejects.toThrow();
 });
 
 test('reading PDF from buffer works', async () => {
@@ -35,8 +35,8 @@ test('reading PDF from buffer works', async () => {
   expect(Array.isArray(info.pages)).toBe(true);
 });
 
-test('empty input buffer throws an error', () => {
-  expect(pdf.info(Buffer.alloc(0))).rejects.toThrow('input buffer is empty');
+test('empty input buffer throws an error', async () => {
+  await expect(pdf.info(Buffer.alloc(0))).rejects.toThrow('input buffer is empty');
 });
 
 describe('for minimal-text.pdf', () => {

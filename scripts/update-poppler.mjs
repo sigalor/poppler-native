@@ -6,7 +6,7 @@
 // What it does, in order:
 //   1. downloads poppler-<version>.tar.xz and its .sig from poppler.freedesktop.org (or uses --tarball, whose
 //      signature is expected next to it as <tarball>.sig),
-//   2. verifies the signature with gpg against the release key committed in scripts/poppler-release-key.asc,
+//   2. verifies the signature with gpg against the release key committed in scripts/keys/poppler.asc,
 //      requiring the primary-key fingerprint pinned below,
 //   3. reads the core library's source list from upstream's CMakeLists.txt (the `set(poppler_SRCS ...)` block,
 //      the optional sources of the features poppler-native enables, and the pregenerated gperf tables),
@@ -28,6 +28,7 @@ import {
   includeClosure,
   listFiles,
   renderCMakeTemplate,
+  runScript,
   sourcesGypi,
   verifySignature,
 } from './lib/vendoring.mjs';
@@ -72,8 +73,10 @@ const FLAGS = {
   // platform functions
   HAVE_FSEEKO: '!defined(_WIN32)',
   HAVE_FSEEK64: 0,
-  HAVE_PREAD64: 'defined(__GLIBC__)',
-  HAVE_LSEEK64: 'defined(__GLIBC__)',
+  // Only for 32-bit file offsets: Node builds addons with _FILE_OFFSET_BITS=64, so pread and lseek take 64-bit offsets.
+  // (A test of __GLIBC__ here would see nothing: config.h comes before any libc header defines it.)
+  HAVE_PREAD64: 0,
+  HAVE_LSEEK64: 0,
   HAVE_GMTIME_R: '!defined(_WIN32)',
   HAVE_TIMEGM: '!defined(_WIN32)',
   HAVE_LOCALTIME_R: '!defined(_WIN32)',
@@ -252,4 +255,4 @@ async function main() {
   }
 }
 
-await main();
+await runScript(main);

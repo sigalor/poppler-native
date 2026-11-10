@@ -15,12 +15,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  Failure,
   download,
   extract,
   fail as failWith,
   includeClosure,
   listFiles,
   renderCMakeTemplate,
+  runScript,
   sha256,
   sourcesGypi,
   verifySignature,
@@ -299,19 +301,24 @@ async function vendor(library, dir) {
   }
 }
 
-const args = process.argv.slice(2);
-const dirIndex = args.indexOf('--dir');
-const dir = dirIndex >= 0 ? path.resolve(args.splice(dirIndex, 2)[1]) : null;
-const libraries = args.length ? args : Object.keys(LIBRARIES);
-for (const library of libraries) {
-  if (!LIBRARIES[library]) fail(`unknown library ${library}; one of ${Object.keys(LIBRARIES).join(', ')}`);
-  try {
-    await vendor(library, dir);
-  } catch (e) {
-    fail(e.message);
+async function main() {
+  const args = process.argv.slice(2);
+  const dirIndex = args.indexOf('--dir');
+  const dir = dirIndex >= 0 ? path.resolve(args.splice(dirIndex, 2)[1]) : null;
+  const libraries = args.length ? args : Object.keys(LIBRARIES);
+  for (const library of libraries) {
+    if (!LIBRARIES[library]) fail(`unknown library ${library}; one of ${Object.keys(LIBRARIES).join(', ')}`);
+    try {
+      await vendor(library, dir);
+    } catch (e) {
+      if (e instanceof Failure) throw e;
+      fail(e.message);
+    }
   }
+  fs.writeFileSync(
+    path.join(DEPS, 'versions.json'),
+    `${JSON.stringify(Object.fromEntries(Object.entries(LIBRARIES).map(([name, s]) => [name, { version: s.version, url: s.url, sha256: s.sha256 }])), null, 2)}\n`,
+  );
 }
-fs.writeFileSync(
-  path.join(DEPS, 'versions.json'),
-  `${JSON.stringify(Object.fromEntries(Object.entries(LIBRARIES).map(([name, s]) => [name, { version: s.version, url: s.url, sha256: s.sha256 }])), null, 2)}\n`,
-);
+
+await runScript(main);

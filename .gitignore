@@ -1,4 +1,5 @@
 /build
+/.build-before-sanitize.*
 /prebuilds
 *.tgz
 fuzz-case.pdf

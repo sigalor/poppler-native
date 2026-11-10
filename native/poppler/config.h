@@ -42,18 +42,10 @@
 #endif
 
 /* Define to 1 if you have the `pread64' function. */
-#if defined(__GLIBC__)
-#    define HAVE_PREAD64 1
-#else
-#    define HAVE_PREAD64 0
-#endif
+#define HAVE_PREAD64 0
 
 /* Define to 1 if you have the `lseek64' function. */
-#if defined(__GLIBC__)
-#    define HAVE_LSEEK64 1
-#else
-#    define HAVE_LSEEK64 0
-#endif
+#define HAVE_LSEEK64 0
 
 /* Defines if gmtime_r is available on your system */
 #if !defined(_WIN32)

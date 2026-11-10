@@ -6,9 +6,23 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// A failure that ends a script with its message and no stack trace. It is thrown rather than exiting on the spot, so
+// that the script's `finally` blocks still remove its temporary directories.
+export class Failure extends Error {}
+
 export function fail(tool, message) {
-  console.error(`${tool}: ${message}`);
-  process.exit(1);
+  throw new Failure(`${tool}: ${message}`);
+}
+
+// Runs a script's main function: a Failure is printed and ends the script with exit code 1.
+export async function runScript(main) {
+  try {
+    await main();
+  } catch (e) {
+    if (!(e instanceof Failure)) throw e;
+    console.error(e.message);
+    process.exitCode = 1;
+  }
 }
 
 export async function download(url, file) {
