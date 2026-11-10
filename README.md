@@ -131,7 +131,8 @@ And an image, from [`test/fixtures/images.pdf`](test/fixtures/images.pdf):
   every distinct font, size and color used on the pages read.
 - **`images`**: a grayscale or RGB JPEG comes out exactly as embedded (`image/jpeg`); everything else — CMYK JPEGs,
   Flate, CCITT, JBIG2, JPEG 2000, image masks — is decoded and re-encoded as PNG.
-- **`link`**: a URI, a file name, or `this#<page>` for a page of the same document.
+- **`link`**: a URI; `this#<page>` for a page of the same document (`this#0` when that page can't be found); or another
+  file, as its name or, for a page of another PDF, `<file>#<page>`.
 - **`outline`** items have no `page` when their destination can't be resolved, e.g. a link to a website. The outline
   is read up to 256 levels deep.
 - Every field is documented in [`index.d.ts`](index.d.ts).

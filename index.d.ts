@@ -4,32 +4,33 @@
 /** A PDF: the path of its file, or its bytes (a Buffer, any typed array or DataView, or an ArrayBuffer). */
 export type PdfInput = string | ArrayBufferView | ArrayBuffer | SharedArrayBuffer;
 
+/** Every option may also be `undefined`, which means the same as leaving it out. */
 export interface DocumentOptions {
   /**
    * Password of an encrypted PDF: its user password or its owner password. A PDF that only has an owner password
    * opens without one.
    */
-  password?: string;
+  password?: string | undefined;
   /** First page to read, counting from 1. Default: 1. */
-  firstPage?: number;
+  firstPage?: number | undefined;
   /** Last page to read. Default: the last page; a number beyond the end reads up to the end. */
-  lastPage?: number;
+  lastPage?: number | undefined;
 }
 
 export interface InfoOptions extends DocumentOptions {
   /** Extract the images (as `data:` URLs). Default: true. `false` is faster and makes the result much smaller. */
-  images?: boolean;
+  images?: boolean | undefined;
   /**
    * Run the PDF through Ghostscript -- to PostScript and back to PDF -- before reading it, which can help with PDFs
    * whose fonts map characters oddly. Needs Ghostscript (`gs`, or `gswin64c` on Windows) on the PATH, and the result
    * depends on its version. Default: false.
    */
-  reconvertThroughPS?: boolean;
+  reconvertThroughPS?: boolean | undefined;
 }
 
 export interface TextOptions extends DocumentOptions {
   /** Keep the physical layout of the page, like `pdftotext -layout`, instead of reading order. Default: false. */
-  layout?: boolean;
+  layout?: boolean | undefined;
 }
 
 export interface PdfInfo {
@@ -98,7 +99,8 @@ export interface PdfString {
   font: number;
   text: string;
   /**
-   * The target of a link covering this text: a URI, a file name, or `this#<page>` for a page of this document.
+   * The target of a link covering this text: a URI; `this#<page>` for a page of this document (`this#0` when that
+   * page can't be found); or another file, as its name or, for a page of another PDF, `<file>#<page>`.
    */
   link?: string;
 }

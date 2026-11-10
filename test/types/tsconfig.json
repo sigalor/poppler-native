@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
     "strict": true,
+    "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "module": "nodenext",
     "moduleResolution": "nodenext",

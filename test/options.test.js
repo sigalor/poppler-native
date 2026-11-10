@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const pdf = require('../');
 
 const fixture = name => path.join(__dirname, 'fixtures', name);
@@ -48,6 +49,16 @@ describe('firstPage and lastPage', () => {
     await expect(pdf.info(file, { firstPage: 0 })).rejects.toThrow('firstPage must be a positive integer, got 0');
     await expect(pdf.info(file, { lastPage: 1.5 })).rejects.toThrow('lastPage must be a positive integer, got 1.5');
     await expect(pdf.info(file, { firstPage: '2' })).rejects.toThrow('firstPage must be a positive integer, got string');
+  });
+
+  // The addon counts pages in 32 bits; a larger number still means "past the end", it must not wrap around.
+  test('numbers past 2^31 mean past the end', async () => {
+    expect(await pdf.text(fixture('three-pages.pdf'), { firstPage: 2 ** 32 + 1 })).toBe('');
+    expect(firstTexts(await pdf.info(fixture('three-pages.pdf'), { lastPage: 2 ** 32 + 1 }))).toEqual([
+      'Page 1',
+      'Page 2',
+      'Page 3',
+    ]);
   });
 
   test('must not be reversed', async () => {
@@ -118,6 +129,21 @@ describe('inputs', () => {
   test('an ArrayBuffer', async () => {
     const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length);
     expect(text(await pdf.info(arrayBuffer))).toBe('Hello');
+  });
+
+  test('an ArrayBuffer from another realm (a vm context)', async () => {
+    const arrayBuffer = vm.runInNewContext('new ArrayBuffer(length)', { length: bytes.length });
+    new Uint8Array(arrayBuffer).set(bytes);
+    expect(text(await pdf.info(arrayBuffer))).toBe('Hello');
+  });
+
+  test('a path with a null byte in it is refused, as fs does', async () => {
+    await expect(pdf.info(`${fixture('minimal-text.pdf')}\0.txt`)).rejects.toThrow(
+      'argument at position 1 is a path with a null byte in it',
+    );
+    await expect(pdf.info(`${fixture('minimal-text.pdf')}\0.txt`, { reconvertThroughPS: true })).rejects.toThrow(
+      'argument at position 1 is a path with a null byte in it',
+    );
   });
 
   test('an unknown option is an error, not silently ignored', async () => {

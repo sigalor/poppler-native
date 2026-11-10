@@ -6,7 +6,10 @@ async function usage(): Promise<void> {
   const document: PdfInfo = await popplerNative.info('statement.pdf');
   const text: string = await popplerNative.text(Buffer.from([]));
   const same: PdfInfo = await info('statement.pdf', { images: false });
-  void [document, text, same];
+  // options passed through from elsewhere may be undefined, also with exactOptionalPropertyTypes
+  const maybePage: number | undefined = undefined;
+  const passedOn = await popplerNative.text('statement.pdf', { password: undefined, firstPage: maybePage, layout: undefined });
+  void [document, text, same, passedOn];
   // @ts-expect-error -- the CommonJS module has no default export
   void popplerNative.default;
 }
