@@ -1,13 +1,12 @@
 name: Release
 
-# Pushing a tag v<version> builds and tests everything CI does, then stages exactly the tarball CI tested on npm and
-# creates a GitHub release with the changelog entry. A staged version becomes installable only once a maintainer
-# approves it with 2FA: on npmjs.com, or with `npm stage list` and `npm stage approve <id>`. So nothing this workflow
-# does -- or anyone who could change it -- can put a version into users' hands on its own.
+# Pushing a tag v<version> builds and tests everything CI does, then publishes exactly the tarball CI tested to npm,
+# with provenance, and creates a GitHub release with the changelog entry.
 #
-# It authenticates with npm's trusted publishing (no token): configure it once on npmjs.com, in the package's settings
-# under "Trusted publisher": GitHub Actions, sigalor / poppler-native, workflow release.yml, no environment, and
-# "Allowed actions" left as they are (npm stage publish only; neither npm publish nor npm dist-tag is needed).
+# It authenticates with npm's trusted publishing (no token), configured on npmjs.com in the package's settings under
+# "Trusted publisher": GitHub Actions, sigalor / poppler-native, workflow release.yml, no environment, with "Allow npm
+# publish" ticked. (To have each release wait for a maintainer's approval with 2FA instead, untick it and change
+# `npm publish` below to `npm stage publish`; approve with `npm stage approve <id>` or on npmjs.com.)
 on:
   push:
     tags: ['v*']
@@ -48,8 +47,8 @@ jobs:
           fi
           awk -v v="$version" 'index($0, "# " v " ") == 1 {found=1; next} /^# / && found {exit} found' CHANGELOG.md > notes.md
           test -s notes.md || { echo "CHANGELOG.md has no entry for $version" >&2; exit 1; }
-      - name: Stage the release on npm (a maintainer approves it with 2FA)
-        run: npm stage publish "./poppler-native-${GITHUB_REF_NAME#v}.tgz" --access public --provenance
+      - name: Publish to npm
+        run: npm publish "./poppler-native-${GITHUB_REF_NAME#v}.tgz" --access public --provenance
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

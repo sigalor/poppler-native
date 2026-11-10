@@ -1,4 +1,4 @@
-# 3.0.0 (unreleased)
+# 3.0.0 (2026-11-10)
 
 Poppler 26.11.0, prebuilt binaries, and everything a new user would expect from a PDF library in 2026.
 
