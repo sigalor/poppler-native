@@ -22,7 +22,7 @@ for (const s of pages[0].strings) {
 - **Installs in seconds, everywhere.** Prebuilt for Linux (x64 and arm64, glibc and musl/Alpine), macOS (Apple
   silicon and Intel) and Windows (x64 and arm64). No system libraries, no compiler, nothing to `apt install`.
 - **Poppler 26.11**, unmodified, with zlib, libpng, libjpeg-turbo, OpenJPEG and FreeType built in. Fast: the 756 pages
-  of the PDF 1.7 specification in two seconds, and as many PDFs at once as you have cores.
+  of the PDF 1.7 specification in under two seconds, and as many PDFs at once as you have cores.
 - **Everything in one pass**: positioned text runs with font, size and color; images as `data:` URLs; links; the
   outline; metadata. Encrypted PDFs, page ranges.
 - **Typed** (TypeScript declarations included), **ES modules and CommonJS**, a **command line**, and errors that say
@@ -172,13 +172,13 @@ pages, 22 MB), on one core of a 2.1 GHz Intel Xeon, Linux, Node.js 24:
 
 | | Time |
 | --- | --- |
-| `text()` | 1.4 s |
-| `info()` (85,578 text runs, 841 images) | 2.0 s |
-| `info({ images: false })` | 1.7 s |
-| `info()` with poppler-native 2.3.0 | 2.8 s |
+| `text()` | 1.3 s |
+| `info()` (85,578 text runs, 841 images) | 1.6 s |
+| `info({ images: false })` | 1.4 s |
+| `info()` with poppler-native 2.3.0 | 2.5 s |
 
 Every call runs on a thread of Node's thread pool, so calls at once run in parallel: four `info({ images: false })`
-of that PDF take 2.2 s together. Node's thread pool has four threads unless you set `UV_THREADPOOL_SIZE`.
+of that PDF take 1.8 s together. Node's thread pool has four threads unless you set `UV_THREADPOOL_SIZE`.
 
 ## How it works
 

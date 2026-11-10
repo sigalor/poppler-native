@@ -29,7 +29,7 @@ Poppler 26.11.0, prebuilt binaries, and everything a new user would expect from 
 - Poppler 21.05.0 → 26.11.0: 68 releases, 43 of them with crash fixes (33 for malformed or broken files). The output
   stays the same: on 100 real-world PDFs, the only differences are Type 3 fonts that now report their real name, text
   that the repair below now reads correctly, and PNG images that compress to different bytes with identical pixels.
-- Faster: `info()` reads the 756-page PDF 1.7 specification in 2.0 s instead of 2.8 s.
+- Faster: `info()` reads the 756-page PDF 1.7 specification in 1.6 s instead of 2.5 s.
 - Text drawn with an embedded Arial subset without a ToUnicode map is read again: the repair has been silently off
   since mupdf 1.18 (October 2020) changed the file names of `mutool extract`. It now works inside the addon, without
   mutool, by the shape of the glyph actually drawn, and leaves text alone that Poppler decodes correctly.
